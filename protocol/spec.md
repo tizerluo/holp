@@ -6,7 +6,7 @@
 
 HOLP 是 **consumer**(终端 / 工具 / APP——cmux、Warp、happier、CLI)与 **orchestrator**(编排器——HOLP 参考 daemon 或任何实现)之间的那根线。consumer 声明「我有一窝异构 agent」,发起编排目标,orchestrator 派单并流式回吐事件;需要人拍板时,人在回路上介入——**Human on Loop**。
 
-设计来源(给读者的溯源,不是发明声明):events 订阅借鉴 cmux `CmuxEventBus`;flock/orchestrate 借鉴 Oz proto 的概念(不抄依赖、不实现服务端);consensus 来自 loopwright 共识评审;朝下 adapter 契约借鉴 happier `ExecutionRunBackendFactory`。详见 `docs/positioning.md`。
+设计来源(概念启发,非直接对位/搬运):events 订阅启发自 cmux `CmuxEventBus`(HOLP 的 subscribe+notification 是新协议设计);flock/orchestrate 启发自 Oz proto 概念(不抄依赖、不实现服务端);consensus 启发自 loopwright 共识评审的聚合策略(wire 结构是 HOLP 新设计);朝下 adapter 契约启发自 happier `AgentBackend` 形状(接入需 wrapper,非直接复用)。逐条对位与诚实表述见 `docs/positioning.md`。
 
 ---
 

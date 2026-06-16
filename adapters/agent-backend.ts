@@ -79,9 +79,13 @@ export interface AgentBackendOptions {
 
 /**
  * 朝下适配契约:daemon 通过它驱动一家 agent。
- * 对应 happier AgentBackend(同一个形状,故未来 happier backends 可直接当 adapter 实现)。
+ * 形状启发自 happier `AgentBackend`(startSession/sendPrompt/onMessage/cancel 这层),
+ * 但**不是直接复用 happier 接口**——happier 的 AgentBackend 更大(多 loadSession/
+ * compactContext/respondToPermission/probeTurnLiveness 等),且权限枚举不同(happier
+ * approved/denied/abort,HOLP allow/deny/ask_human)。未来接 happier backends 需要一层
+ * wrapper 适配,不是"直接当 adapter"。
  *
- * v0.1.x 约束(codex P1-3):**一个 backend 实例只允许一个 session**。
+ * v0.1.x 约束:**一个 backend 实例只允许一个 session**。
  * 原因:onMessage 是 backend 级全局回调,AgentMessage 不带 sessionId(见上);
  * 多 session 并发时消息无法归属。若未来要多 session,必须让 AgentMessage 带
  * sessionId/run_id/step_id,handler 按 session 订阅——届时同步改本契约。
@@ -103,5 +107,5 @@ export interface AgentBackend {
   dispose(): Promise<void>;
 }
 
-/** 工厂:按 transport 选 backend。对应 happier ExecutionRunBackendFactory 的签名。 */
+/** 工厂:按 transport 选 backend。形状启发自 happier `ExecutionRunBackendFactory`(但后者 opts 更大:backendId/modelId/accountSettings/isolation 等,接入需 wrapper)。 */
 export type AgentBackendFactory = (opts: AgentBackendOptions) => AgentBackend;

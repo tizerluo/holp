@@ -39,12 +39,12 @@ HOLP 不重新发明轮子,各章设计标注来源:
 
 | 协议章 / 部件 | 借自 | 借什么(设计,非代码) |
 |---|---|---|
-| `events.subscribe`/事件流 | **cmux** `CmuxEventBus` / `events.stream` | JSON-line + seq 单调序 + replay + 心跳 + slow_consumer 背压(已验证可用);v0.1.x 拆成 subscribe(拿 subscription_id)+ 带 subscription_id 事件 |
-| `flock.declare`/`flock.discover` | **Oz** `Harness` oneof / **happier** catalog / **spawn** manifest / **cmux** 进程扫描 | 「声明 + 发现 + 实测」我这窝 agent,替代 cmux 的硬编码 switch |
+| `events.subscribe`/事件流 | **cmux** `CmuxEventBus` / `events.stream` | 概念启发:cmux 有 seq 单调/replay/heartbeat/slow_consumer 背压(其自身功能属实)。HOLP 的 subscribe(拿 subscription_id)+ 带 subscription_id 的独立 notification 是**新协议设计**,非 cmux 形状照搬(cmux 是长连接 JSON-line) |
+| `flock.declare`/`flock.discover` | 综合抽象自 **Oz** `Harness` oneof / **happier** catalog / **spawn** manifest / **cmux** 进程扫描 | **非直接对位**:四者分别给 harness enum / backend catalog / agent-cloud manifest / 硬编码 provider,HOLP 的「声明+发现+实测」协议面是综合抽象,不是任何一个的搬运 |
 | `orchestrate.run` | **Oz** `RunAgents` + loopwright triage 派单 | 批量派单 + 角色配置 |
 | `Local`(执行模式) | **Oz** `ExecutionMode` | v0.1.x 只定义 Local;Remote 留独立 proposal |
-| `consensus_verdict`(事件) | **loopwright** `aggregateVerdict` + 共识评审 | 多 agent 评审聚合(独有);作为事件,非独立消息 |
-| 朝下 adapter 契约 | **happier** `ExecutionRunBackendFactory` / `AgentBackend` / `permissionHandler` | onMessage 事件流 + 可拦权限的接缝 |
+| `consensus_verdict`(事件) | **loopwright** `aggregateVerdict` 共识评审(聚合策略启发) | **HOLP 独有的协议级能力**;借鉴 loopwright 的聚合策略,但 wire 结构(quorum.required/eligible/met、excluded、errors、findings envelope)是 HOLP 新设计——loopwright 没有这套 |
+| 朝下 adapter 契约 | **happier** `ExecutionRunBackendFactory` / `AgentBackend` / `permissionHandler`(形状启发) | 借鉴 startSession/sendPrompt/onMessage 形状 + 可拦权限;但 happier 接口更大(多 loadSession/compactContext/respondToPermission 等)、权限枚举不同(approved/denied/abort vs HOLP allow/deny/ask_human),**需 wrapper 适配,非直接当 adapter** |
 | 裁决内核 / 数据铁三角 / 状态机 | **loopwright**(旧仓)参考实现搬入 | gate/triage/review-consensus + events/decisions/registry |
 
 ## 不做（non-goals）
