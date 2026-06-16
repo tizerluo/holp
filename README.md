@@ -19,15 +19,16 @@ holp/
   adapters/     朝下 agent 适配(先桩接口;后续 wrapper/抽取包复用 happier backend 模块)
   consumers/    朝上 consumer 参考(CLI 先;cmux 适配示例后做)
   tests/        e2e + 协议契约测试
-  docs/         定位 / non-goals
+  docs/         定位 / roadmap / non-goals
 ```
 
 ## 状态
 
-🚧 **v0.1.3 draft**(经三轮 codex 深度 review 迭代),参考实现进行中。
+🚧 **v0.1.4 draft**(经多轮深度 review + 一轮跨仓来源核查迭代),参考实现进行中。
 
 - [x] 定位(`docs/positioning.md`)
-- [x] 协议 spec v0.1.3(`protocol/spec.md`)— 经 v0.1→v0.1.1→v0.1.2→v0.1.3 三轮 review 迭代
+- [x] 整体规划(`docs/roadmap.md`)
+- [x] 协议 spec v0.1.4(`protocol/spec.md`)— 经 v0.1→v0.1.1→v0.1.2→v0.1.3→v0.1.4 迭代(末轮为跨仓来源核查 + 互操作缺口修补)
 - [x] 朝下 adapter 契约 + 桩(`adapters/`)— **未接真 agent,不声称已接**
 - [ ] 参考实现(治理内核/events-decisions-registry 数据骨架/共识/状态机从 loopwright 搬入 + 协议接入层)
 - [ ] 参考 consumer CLI
@@ -35,7 +36,7 @@ holp/
 
 > **当前只声称**:protocol draft + adapter contract stub。**不声称**已接 native-claude/mcp-codex(那是真接线后的事,规划通过 wrapper 或抽取包复用 happier backend 模块)。
 
-## 协议速览(v0.1.3)
+## 协议速览(v0.1.4)
 
 stdio,两面:JSON-RPC 控制面 + 带 subscription_id 的事件 notification 流。consumer 声明/发现 agent 队伍 → 发编排目标 → 订阅事件 → 需要时人拍板(approval 单通道状态机)。
 

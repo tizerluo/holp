@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-**v0.1.3 (draft)** — 见 `spec.md`。
+**v0.1.4 (draft)** — 见 `spec.md`。
 
 ## 版本号
 
@@ -14,9 +14,9 @@
 
 `initialize` 时双方报 `protocol_version`(比 `MAJOR.MINOR`),major 不匹配 → 拒绝(`protocol_version_mismatch`)。
 
-## v0.1.3 范围
+## v0.1.4 范围
 
-**协议层(draft)**:spec 全章有定义——握手+能力(descriptor) / flock(declare+discover) / orchestrate.run / events.subscribe / consensus(两段式 quorum) / approval(单通道状态机) / task.cancel / artifact(强制 content) / 版本化 / 错误模型 / unattended policy / 实现边界。
+**协议层(draft)**:spec 全章有定义——握手+能力(descriptor) / flock(declare+discover) / orchestrate.run(含 §4.2 agent 引用绑定 flock + role 校验) / events.subscribe(categories 白名单语义 + seq 从 1 起) / consensus(两段式 quorum + artifact_refs 降级 findings) / approval(单通道状态机 + artifact_refs 降级 details) / task.cancel / artifact(强制 content) / 版本化 / 错误模型 / unattended policy / 实现边界。
 
 **当前仓已落地**:
 - protocol draft + adapter 契约桩。
@@ -29,6 +29,13 @@
 > 当前只声称「protocol draft + adapter stub」,不声称已接 native-claude/mcp-codex。
 
 ## 变更记录
+
+### v0.1.4 (draft) — 跨仓 review 后补互操作缺口
+- P1:`artifact_refs` 不可用时 consensus findings / approval details 内联降级(§2/§6.1/§7)。
+- P1:`orchestrate.run` agent 引用绑定 flock + role 校验(§4.2),新错误码 `role_unsupported`(-32018)。
+- P1:`events.subscribe.categories` 白名单语义(省略=全订)+ 五 category 封闭枚举(§5)。
+- P2:§7 race 表述修 server-timeout 分支;§10.1 rejected 分流交叉引用;seq 从 1 起边界。
+- P2:happier 权限枚举更正(五值 approved/approved_for_session/approved_execpolicy_amendment/denied/abort);补 loopwright `reviewerCandidates`(排除作者原型)归因。
 
 ### v0.1.3 (draft) — 第三轮 review 后修阻塞缺口
 - quorum 第1段公式修正(`panel可用数 ≥ quorum`,删作者余量,修误杀合法配置 + 示例自洽)。

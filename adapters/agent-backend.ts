@@ -82,8 +82,9 @@ export interface AgentBackendOptions {
  * 朝下适配契约:daemon 通过它驱动一家 agent。
  * 形状启发自 happier `AgentBackend`(startSession/sendPrompt/onMessage/cancel 这层),
  * 但**不是直接复用 happier 接口**——happier 的 AgentBackend 更大(多 loadSession/
- * compactContext/respondToPermission/probeTurnLiveness 等),且权限枚举不同(happier
- * approved/denied/abort,HOLP allow/deny/ask_human)。未来接 happier backends 需要一层
+ * compactContext/respondToPermission/probeTurnLiveness 等),且权限枚举不同(happier 是
+ * approved/approved_for_session/approved_execpolicy_amendment/denied/abort 五值,
+ * HOLP allow/deny/ask_human 三值)。未来接 happier backends 需要一层
  * wrapper 适配,不是"直接当 adapter"。
  *
  * v0.1.x 约束:**一个 backend 实例只允许一个 session**。

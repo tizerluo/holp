@@ -1,0 +1,262 @@
+# HOLP Roadmap
+
+> 状态:规划文档,不表示对应实现已经存在。
+> 核查依据:`protocol/spec.md` v0.1.4、`protocol/version.md`、`docs/positioning.md`、`adapters/` 当前桩接口。
+
+## 当前事实
+
+当前仓已落地:
+
+- `protocol/spec.md`:v0.1.4 draft,覆盖 stdio JSON-RPC、capability descriptor、flock、orchestrate、events、consensus、approval、task.cancel、artifact、versioning、error model、unattended policy、implementation boundary。
+- `protocol/version.md`:版本规则和 v0.1.4 范围。
+- `docs/positioning.md`:定位、non-goals、设计来源边界。
+- `adapters/`:朝下 adapter contract + native-claude/mcp-codex/acp stub。
+
+当前仓未落地,也不声称已落地:
+
+- 参考 daemon。
+- 参考 consumer CLI。
+- 协议契约测试和 e2e 闭环。
+- native-claude/mcp-codex/acp 真接线。
+- Web 传输。
+- Remote execution。
+
+## 规划原则
+
+1. 协议先于 provider 接线:先证明 consumer 和 orchestrator 的 wire 能闭环,再接真实 agent。
+2. v0.1.x 只做 Local:Remote 不进 wire,不留 opaque 半截字段。
+3. fake backend 先于真实 backend:先用可控 fake backend 把事件、approval、artifact、consensus、cancel 的协议语义跑通。
+4. 单 provider 先于多 provider:真实 adapter 首个里程碑只接一家,避免把 provider 差异和协议 bug 混在一起。
+5. 复用但不绑定:happier backend 是 wrapper/extraction 的素材,不是 HOLP 协议依赖;loopwright 是治理内核素材库,不是直接搬运整个旧仓。
+6. 每个里程碑都必须能被测试或脚本演示验证,不能只停在文档声明。
+
+## M0:协议冻结前清理
+
+目标:把 v0.1.4 draft 整理到可实现、可测试、可审查的形态。
+
+交付物:
+
+- 方法清单:`initialize`、`flock.declare`、`flock.discover`、`orchestrate.run`、`events.subscribe`、`events.unsubscribe`、`approval.resolve`、`task.cancel`、`artifact.get`。
+- 事件清单:覆盖 §5 的五个 category(`run`/`agent`/`consensus`/`approval`/`lifecycle`),其下 name 至少含 step/tool/fs(均属 `agent` category)、approval 状态机四态、`consensus_verdict`。注:artifact 不是事件 category——它是 `artifact.get` 方法 + envelope(在事件里以 ref 出现),不单列事件。
+- 错误码清单:与 `protocol/spec.md` §10 保持一一对应。
+- capability 清单:与 `initialize.capabilities` descriptor 语义一致。
+- 最小 JSON examples:每个方法至少一组 request/response,每类关键事件至少一条 notification。
+
+验收标准:
+
+- 文档不再把未来实现写成当前已实现。
+- 每个方法、事件、错误码都能在 spec 中找到对应定义。
+- Remote/Web/真实 provider 接线只出现在 future 或 non-goal 语境中。
+
+非目标:
+
+- 不写 daemon。
+- 不接真实 agent。
+
+## M1:Protocol Harness
+
+目标:做一个最小可运行参考 daemon 和最小 consumer,证明协议面能跑通。
+
+交付物:
+
+- `daemon/`:stdio newline-delimited JSON-RPC server。
+- `consumers/cli/`:最小 CLI consumer 或脚本化 consumer。
+- `tests/fixtures/`:fake backend 和固定 run scenario。
+- 内存态 run store、subscription store、artifact store。
+- fake backend 能模拟 model output、tool call、fs edit、permission request、consensus result、artifact。
+
+必须支持的方法:
+
+- `initialize`
+- `flock.declare`
+- `flock.discover`
+- `orchestrate.run`
+- `events.subscribe`
+- `events.unsubscribe`
+- `approval.resolve`
+- `task.cancel`
+- `artifact.get`
+
+验收标准:
+
+- 一条脚本能跑通 `initialize -> flock.declare -> orchestrate.run -> events.subscribe -> approval.resolve -> artifact.get`。
+- 事件必须带 `subscription_id`、`seq`、`ts`、`run_id`、`category`、`name`、`payload`。
+- `flock.declare`/`flock.discover` 对 unsupported transport 返回 per-agent `status=rejected`,不抛 JSON-RPC error。
+- `artifact.get` 总返回 `content`,大内容允许 `truncated:true`。
+- `task.cancel` 对终态 run 幂等成功,对不存在 run 返回 `run_not_found`。
+
+非目标:
+
+- 不接 native-claude/mcp-codex/acp 真 agent。
+- 不做持久化数据库。
+- 不做 WebSocket。
+
+## M2:Protocol Contract Tests
+
+目标:把 spec 关键语义变成测试,让后续 provider 接线不会破坏协议层。
+
+交付物:
+
+- JSON-RPC request/response contract tests。
+- Event stream contract tests。
+- Approval state machine tests。
+- Consensus quorum tests。
+- Artifact tests。
+- Cancel/race/idempotency tests。
+
+必须覆盖:
+
+- capability `required` 是连接级,run 级硬要求走 `orchestrate.run` params。
+- `approval_requested -> approval_resolved | approval_expired | approval_cancelled` 先终态者赢。
+- 没有 `approval.cancel`;approval 取消只由 `task.cancel` 导致。
+- consensus 两段式校验:受理时静态 panel 校验,执行前排除 author 后精确校验。
+- 正常 verdict 不产出 `quorum.met:false`;降级或 escalate 才允许 `met:false` 语义。
+- `events.subscribe` 支持 seq replay 和多 subscription 归属。
+
+验收标准:
+
+- 本地测试命令一次跑过。
+- 测试失败能定位到具体协议语义,不是只看 stdout 文案。
+
+非目标:
+
+- 不要求真实 provider。
+- 不要求性能压测。
+
+## M3:First Real Adapter
+
+目标:只接通一家真实 agent,验证 adapter contract 和 permission resume 语义。
+
+建议顺序:
+
+1. Codex 优先:更适合作为 CLI/MCP 形状的首个协议测试对象。
+2. Claude 第二:补 native-claude/SDK 形状。
+3. ACP 第三:等前两者证明 adapter contract 稳定后再接。
+
+交付物:
+
+- 一个真实 `AgentBackendFactory` wrapper。
+- provider message 到 `AgentMessage` 的映射。
+- permission request 到 `approval_requested` 的映射。
+- `approval.resolve` 回灌到 `resolvePermission(request_id, decision)`。
+- provider availability probe,用于 `flock.discover` 返回 `ready/degraded/rejected`。
+
+验收标准:
+
+- 真实 agent 能跑一个单步 local run。
+- 至少能产生 lifecycle/model-output/tool/fs 或其中可用子集的协议事件。
+- permission `ask_human` 能暂停并在 `approval.resolve` 后 resume 或 deny 原 tool call。
+- 未登录、缺 binary、缺 token 时返回 `status=rejected` 或 `degraded`,不假装 ready。
+
+非目标:
+
+- 不同时接多家 provider。
+- 不做跨 provider consensus demo。
+- 不把 happier 变成协议依赖。
+
+## M4:Governance Kernel Import
+
+目标:从 loopwright 挑拷纯逻辑治理内核,不要搬整个旧仓。
+
+交付物:
+
+- events-decisions-registry 数据骨架。
+- decision record 写入路径,至少覆盖 `decision_made`。
+- triage/gate/review-consensus 的纯逻辑模块。
+- consensus aggregator,对齐 loopwright `aggregateVerdict`/`aggregateConsensus` 的保守聚合精神,但输出 HOLP wire。
+- run state machine,覆盖 queued/running/waiting_approval/cancelling/terminal 等参考 daemon 内部状态。
+
+验收标准:
+
+- fake backend run 能记录事件和 decision。
+- consensus step 能排除 author,计算 eligible/quorum,并输出 `consensus_verdict`。
+- gate/approval 交互不会绕过 §7 单通道状态机。
+
+非目标:
+
+- 不搬 V1 ChainExecutor。
+- 不搬 `realSpawnRunner` 黑盒。
+- 不搬 vendored `src/agent/` 老切片。
+- 不搬 SUPERSEDED 文档。
+
+## M5:Multi-Agent Consensus Demo
+
+目标:证明 HOLP 的核心卖点不是纸面能力:非作者多 agent quorum consensus 能跑出可观察事件。
+
+交付物:
+
+- 至少两个 reviewer backend。可以是 real+fake 或 fake+fake,但 wire 必须真实走 HOLP。
+- 一个 producer artifact,带 `produced_by_agent_id`。
+- 一个 consensus panel,执行时排除 producer。
+- findings 通过 artifact envelope 引用。
+
+验收标准:
+
+- `consensus_verdict.payload.excluded[]` 明确排除 author。
+- `quorum.required`、`quorum.eligible`、`quorum.met` 与实际 panel 一致。
+- failed/timeout/abstain reviewer 进入 `errors[]`,不混进 completed vote。
+- consensus result 只作为 `events.event` 的 `category=consensus,name=consensus_verdict` 发送。
+
+非目标:
+
+- 不追求复杂 UI。
+- 不做 cloud/remote。
+
+## M6:Consumer Adapters
+
+目标:让协议能被真实 consumer 试用,但仍保持 vendor-neutral。
+
+交付物:
+
+- CLI consumer:开发者本地最小入口。
+- cmux adapter 示例:展示已有终端/工具如何接入 HOLP。
+- consumer capability negotiation 示例。
+- consumer 侧 event rendering 最小格式。
+
+验收标准:
+
+- CLI 能完整演示 M1/M5 的 run。
+- cmux 示例不要求改 cmux 主线,但要清楚展示 `events.subscribe` 与 cmux 事件模型的差异。
+- consumer 不依赖 provider 私有细节。
+
+非目标:
+
+- 不做产品化 Web app。
+- 不做 SaaS。
+
+## Future:Remote/Web/Stable
+
+Remote execution:
+
+- 不进入 v0.1.x wire。
+- 独立 proposal 一次性定义 workspace sync、secret scope、artifact transport、network policy、identity、cost/accounting、remote cancellation。
+- 参考 spawn 的 agent x cloud matrix 和 skypilot 的 AI compute/job control plane,但 HOLP 不复制它们。
+
+Web transport:
+
+- 可在 v0.2 以后加入 WebSocket 或其他传输。
+- 必须保持控制面和事件面的语义不变。
+
+1.0 稳定条件:
+
+- 至少一个真实 provider adapter 稳定。
+- 协议 contract tests 覆盖核心语义。
+- fake daemon、CLI consumer、multi-agent consensus demo 都能本地复现。
+- versioning 从 draft 三段号收敛到稳定 `MAJOR.MINOR`。
+
+## 阶段检查清单
+
+每开始一个里程碑前,先核查:
+
+- README 的“当前只声称”是否仍准确。
+- `protocol/version.md` 的范围是否同步。
+- `docs/positioning.md` 的 non-goals 是否被突破。
+- `protocol/spec.md` 是否已经定义该里程碑要实现的 wire。
+- adapter 注释是否仍准确描述 stub/real wiring 状态。
+
+每完成一个里程碑后,更新:
+
+- README 状态列表。
+- `protocol/version.md` 范围或 changelog。
+- 本 roadmap 对应 milestone 的验收状态。
+- 必要时补 contract tests,再声称支持。
