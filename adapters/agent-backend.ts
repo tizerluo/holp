@@ -43,11 +43,25 @@ export type AgentMessage =
 
 export type AgentMessageHandler = (msg: AgentMessage) => void;
 
-/** 权限裁决(工具调用前介入)。来源 loopwright PermissionPolicy + happier AcpPermissionHandler。 */
+/**
+ * 权限裁决(工具调用前介入)。来源 loopwright PermissionPolicy + happier AcpPermissionHandler。
+ *
+ * v0.1.1 修复(codex P1-4):ask_human 必须是**可恢复对象**——带 request_id/call_id,
+ * resolve 后 adapter 能 resume/deny 原始 tool call。v0.1 只有 allow/deny/ask_human 裸返回,
+ * 缺 pending tool call handle,resolve 后无法回灌 agent。
+ */
 export type PermissionVerdict =
   | { decision: "allow"; reason: string }
   | { decision: "deny"; reason: string }
-  | { decision: "ask_human"; reason: string };
+  | {
+      decision: "ask_human";
+      reason: string;
+      /** 可恢复对象:approval.resolve 后 adapter 据此 resume/deny 原始 tool call。 */
+      request_id: string;
+      call_id: string;
+      toolName: string;
+      input: unknown;
+    };
 
 export type PermissionHandler = (
   toolName: string,
@@ -66,8 +80,14 @@ export interface AgentBackendOptions {
 /**
  * 朝下适配契约:daemon 通过它驱动一家 agent。
  * 对应 happier AgentBackend(同一个形状,故未来 happier backends 可直接当 adapter 实现)。
+ *
+ * v0.1.1 约束(codex P1-3):**一个 backend 实例只允许一个 session**。
+ * 原因:onMessage 是 backend 级全局回调,AgentMessage 不带 sessionId(见上);
+ * 多 session 并发时消息无法归属。若未来要多 session,必须让 AgentMessage 带
+ * sessionId/run_id/step_id,handler 按 session 订阅——届时同步改本契约。
  */
 export interface AgentBackend {
+  /** 单 session 约束:同一 backend 实例只有一个活跃 session。 */
   startSession(initialPrompt?: string): Promise<{ sessionId: string }>;
   sendPrompt(sessionId: string, prompt: string): Promise<void>;
   cancel(sessionId: string): Promise<void>;
@@ -75,6 +95,11 @@ export interface AgentBackend {
   offMessage?(handler: AgentMessageHandler): void;
   /** sendPrompt 后等本轮结束(收完所有 chunk)。 */
   waitForResponseComplete?(timeoutMs?: number): Promise<void>;
+  /**
+   * 恢复一个 pending 的 permission/ask_human 请求(codex P1-4)。
+   * approval.resolve 后,daemon 调此方法把决定回灌 agent(resume/deny 原 tool call)。
+   */
+  resolvePermission?(request_id: string, decision: "allow" | "deny"): Promise<void>;
   dispose(): Promise<void>;
 }
 

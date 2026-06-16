@@ -24,20 +24,22 @@ holp/
 
 ## 状态
 
-🚧 **v0.1 draft**,参考实现进行中。
+🚧 **v0.1.1 draft**(按深度 review 返工过),参考实现进行中。
 
 - [x] 定位(`docs/positioning.md`)
-- [x] 协议 spec v0.1(`protocol/spec.md`)
-- [ ] 朝下 adapter 接口(桩)
+- [x] 协议 spec v0.1.1(`protocol/spec.md`)— 12 章,经 codex 深度 review 返工
+- [x] 朝下 adapter 契约 + 桩(`adapters/`)— **未接真 agent,不声称已接**
 - [ ] 参考实现(治理内核/数据铁三角/共识/状态机从 loopwright 搬入 + 协议接入层)
 - [ ] 参考 consumer CLI
 - [ ] e2e 闭环
 
-## 协议速览(v0.1)
+> **当前只声称**:protocol draft + adapter contract stub。**不声称**已接 native-claude/mcp-codex(那是真接线后的事,规划走 happier 方言库)。
 
-stdio JSON-RPC。consumer 声明 agent 队伍 → 发编排目标 → 收流式事件 → 需要时人拍板。
+## 协议速览(v0.1.1)
 
-8 章:握手 / `flock.declare` / `orchestrate.run` / `events.stream` / `consensus.verdict` / `approval.*` / lifecycle / 版本化。详见 `protocol/spec.md`。
+stdio,两面:JSON-RPC 控制面 + 带 subscription_id 的事件 notification 流。consumer 声明/发现 agent 队伍 → 发编排目标 → 订阅事件 → 需要时人拍板(approval 单通道状态机)。
+
+12 章:握手+能力 / flock(declare+discover) / orchestrate.run / events.subscribe / consensus / approval / artifact / lifecycle / 版本化 / 错误模型 / unattended policy / 实现边界。详见 `protocol/spec.md`。
 
 ## 设计来源(不凭空发明)
 
