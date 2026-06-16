@@ -3,8 +3,8 @@
  *
  * daemon 按 flock.declare 声明的 transport 选 factory。
  * v0.1.x:native-claude + mcp-codex + acp 全用桩(返回"未接线"错误);真实接线后续做。
- * 规划:acp / native-claude / mcp-codex 的真实实现,走 happier backends 作为方言库
- * (happier 的 executionRunBackendFactory 已对三家都做了真实现,见旧仓研究笔记)。
+ * 规划:acp / native-claude / mcp-codex 的真实实现,通过 wrapper 或抽取包复用 happier backend 模块。
+ * happier 的 executionRunBackendFactory 可作为接入素材,但不是可直接塞进本接口的 adapter。
  *
  * ⚠️ 这是桩接口占位,不是真接 agent。真接之前的纪律(守第 5 条):
  *   - 不用桩的绿冒充"接通了";
@@ -23,7 +23,7 @@ function createStubBackend(transport: TransportClass): AgentBackend {
     async startSession() {
       throw new Error(
         `holp adapter stub: ${transport} not wired in v0.1. ` +
-          `Real wiring planned via happier backends (方言库).`,
+          `Real wiring planned via happier backend wrapper/extraction.`,
       );
     },
     async sendPrompt() {
@@ -37,7 +37,7 @@ function createStubBackend(transport: TransportClass): AgentBackend {
 
 /**
  * transport → factory 映射。daemon 启动时注入。
- * v0.1.x:全是桩。真实实现替换进来时,这里换成 happier executionRunBackendFactory 的适配。
+ * v0.1.x:全是桩。真实实现替换进来时,这里换成 happier backend wrapper/extraction 的适配。
  */
 export interface AdapterRegistry {
   resolve(transport: TransportClass): AgentBackendFactory | undefined;

@@ -18,9 +18,12 @@
 
 **协议层(draft)**:spec 全章有定义——握手+能力(descriptor) / flock(declare+discover) / orchestrate.run / events.subscribe / consensus(两段式 quorum) / approval(单通道状态机) / task.cancel / artifact(强制 content) / 版本化 / 错误模型 / unattended policy / 实现边界。
 
-**参考 daemon milestone(当前)**:
-- 协议接入骨架 + adapter 契约桩。
-- 治理内核/数据铁三角/共识/状态机 从 loopwright 搬入(进行中)。
+**当前仓已落地**:
+- protocol draft + adapter 契约桩。
+
+**参考 daemon 下一步 milestone**:
+- 协议接入骨架。
+- 治理内核/events-decisions-registry 数据骨架/共识/状态机 从 loopwright 搬入。
 - **未做(不声称)**:native-claude/mcp-codex 真接线、acp、Web 传输。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
 
 > 当前只声称「protocol draft + adapter stub」,不声称已接 native-claude/mcp-codex。

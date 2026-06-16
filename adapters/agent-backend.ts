@@ -6,14 +6,15 @@
  *
  * 设计借自 happier 的 AgentBackend 接口(`apps/cli/src/agent/core/AgentBackend.ts`)
  * 与 ExecutionRunBackendFactory(`apps/cli/src/agent/executionRuns/registry/`)。
- * v0.1.x 参考实现先提供 native-claude + mcp-codex 的桩;acp 方言库规划接 happier backends。
+ * v0.1.x 参考实现先提供 native-claude + mcp-codex + acp 的桩;真实接线规划通过
+ * wrapper 或抽取包复用 happier backend 模块。
  *
  * 关键接缝(对应协议能力):
  * - onMessage(事件流) → 协议事件流的料(tool_called/fs_edited/...),经 events.subscribe 订阅后回吐
  * - permissionHandler → 协议 approval + daemon 裁决内核介入"中途拦工具调用"
  */
 
-/** agent 能担的角色(来源 loopwright Role) */
+/** agent 能担的角色(来源 loopwright triage/reviewer role + harness_registry.role_fitness) */
 export type Role =
   | "architect"
   | "reviewer"
