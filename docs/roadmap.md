@@ -39,6 +39,7 @@
 - 方法清单:`initialize`、`flock.declare`、`flock.discover`、`orchestrate.run`、`events.subscribe`、`events.unsubscribe`、`approval.resolve`、`task.cancel`、`artifact.get`。
 - 事件清单:覆盖 §5 的五个 category(`run`/`agent`/`consensus`/`approval`/`lifecycle`),其下 name 至少含 step/tool/fs(均属 `agent` category)、approval 状态机四态、`consensus_verdict`。注:artifact 不是事件 category——它是 `artifact.get` 方法 + envelope(在事件里以 ref 出现),不单列事件。
 - 错误码清单:与 `protocol/spec.md` §10 保持一一对应。
+- 语义边界清单:至少覆盖 `artifact_refs` 只控制 evidence envelope、不控制 provenance `artifact_id`;unknown agent / invalid category / role mismatch 各自错误码;rejected/degraded agent 在 role/panel 中的处理。
 - capability 清单:与 `initialize.capabilities` descriptor 语义一致。
 - 最小 JSON examples:每个方法至少一组 request/response,每类关键事件至少一条 notification。
 
@@ -110,7 +111,9 @@
 - `approval_requested -> approval_resolved | approval_expired | approval_cancelled` 先终态者赢。
 - 没有 `approval.cancel`;approval 取消只由 `task.cancel` 导致。
 - consensus 两段式校验:受理时静态 panel 校验,执行前排除 author 后精确校验。
+- reviewer panel 中 unknown / role mismatch / rejected / degraded agent 的错误码分流。
 - 正常 verdict 不产出 `quorum.met:false`;降级或 escalate 才允许 `met:false` 语义。
+- `artifact_refs:false` 时 findings/details 内联降级,但 `target.artifact_id` / `provenance.artifact_id` 仍可作为身份字段出现。
 - `events.subscribe` 支持 seq replay 和多 subscription 归属。
 
 验收标准:
@@ -188,7 +191,7 @@
 - 至少两个 reviewer backend。可以是 real+fake 或 fake+fake,但 wire 必须真实走 HOLP。
 - 一个 producer artifact,带 `produced_by_agent_id`。
 - 一个 consensus panel,执行时排除 producer。
-- findings 通过 artifact envelope 引用。
+- findings 默认通过 artifact envelope 引用;当 consumer 不支持 `artifact_refs` 时,通过内联降级对象承载。
 
 验收标准:
 
