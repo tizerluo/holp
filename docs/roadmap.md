@@ -2,6 +2,7 @@
 
 > 状态:规划文档,不表示对应实现已经存在。
 > 核查依据:`protocol/spec.md` v0.1.4、`protocol/version.md`、`docs/positioning.md`、`adapters/` 当前桩接口。
+> 8 PR 拆解:见 `docs/pr-specs/`。
 
 ## 当前事实
 

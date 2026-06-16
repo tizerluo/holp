@@ -19,7 +19,7 @@ holp/
   adapters/     朝下 agent 适配(先桩接口;后续 wrapper/抽取包复用 happier backend 模块)
   consumers/    朝上 consumer 参考(CLI 先;cmux 适配示例后做)
   tests/        e2e + 协议契约测试
-  docs/         定位 / roadmap / non-goals
+  docs/         定位 / roadmap / PR specs / non-goals
 ```
 
 ## 状态
@@ -28,6 +28,7 @@ holp/
 
 - [x] 定位(`docs/positioning.md`)
 - [x] 整体规划(`docs/roadmap.md`)
+- [x] 8 PR 拆解 SPEC(`docs/pr-specs/`)
 - [x] 协议 spec v0.1.4(`protocol/spec.md`)— 经 v0.1→v0.1.1→v0.1.2→v0.1.3→v0.1.4 迭代(末轮为跨仓来源核查 + 互操作缺口修补)
 - [x] 朝下 adapter 契约 + 桩(`adapters/`)— **未接真 agent,不声称已接**
 - [ ] 参考实现(治理内核/events-decisions-registry 数据骨架/共识/状态机从 loopwright 搬入 + 协议接入层)
