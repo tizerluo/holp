@@ -6,12 +6,13 @@
 
 ## 版本号
 
-语义化版本:`MAJOR.MINOR`。
+版本号形如 `MAJOR.MINOR`(稳定协议);draft 阶段额外带第三段 `.DRAFT` 表示同 minor 内的草案迭代(如 `0.1.1` = `0.1` minor 的第 1 次草案修订)。**正式发布(脱离 draft)后只用 `MAJOR.MINOR` 两段**;draft 期的第三段不计入兼容性判定——兼容性只看 `MAJOR.MINOR`。
 
 - `MAJOR`:破坏性变更(改 wire 格式 / 删方法 / 改字段语义)。consumer 与 server 必须同 major。
-- `MINOR`:向后兼容新增(可选字段 / 新方法 / 新事件 name)。**新增的事件 name 必须是「旧 consumer 忽略安全」的**(非阻塞、非语义关键);需 client 交互的语义(如新 approval kind)必须走 capability 协商,不靠「忽略」兜底(v0.1.1 修复:原「忽略未知字段即可」不安全)。
+- `MINOR`:向后兼容新增(可选字段 / 新方法 / 新事件 name)。**新增的事件 name 必须是「旧 consumer 忽略安全」的**(非阻塞、非语义关键);需 client 交互的语义(如新 approval kind)必须走 capability 协商,不靠「忽略」兜底。
+- draft 期(`0.x`):`MAJOR` 仍为 0,允许 draft 内破坏性修订(bump 第三段),不受「只增不破」约束——因为还没人依赖稳定协议。脱离 0.x(首个稳定版 1.0)起严格执行语义化。
 
-`initialize` 时双方报 `protocol_version`,major 不匹配 → 拒绝(`protocol_version_mismatch`)。
+`initialize` 时双方报 `protocol_version`(比 `MAJOR.MINOR`),major 不匹配 → 拒绝(`protocol_version_mismatch`)。
 
 ## v0.1.1 范围
 

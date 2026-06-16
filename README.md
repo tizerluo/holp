@@ -39,7 +39,7 @@ holp/
 
 stdio,两面:JSON-RPC 控制面 + 带 subscription_id 的事件 notification 流。consumer 声明/发现 agent 队伍 → 发编排目标 → 订阅事件 → 需要时人拍板(approval 单通道状态机)。
 
-12 章:握手+能力 / flock(declare+discover) / orchestrate.run / events.subscribe / consensus / approval / artifact / lifecycle / 版本化 / 错误模型 / unattended policy / 实现边界。详见 `protocol/spec.md`。
+12 章:握手+能力 / flock(declare+discover) / orchestrate.run / events.subscribe / consensus / approval / artifact / 版本化 / 错误模型 / unattended policy / 实现边界。(lifecycle 不单列章,是事件流的 category + `task.cancel` 命令。)详见 `protocol/spec.md`。
 
 ## 设计来源(不凭空发明)
 

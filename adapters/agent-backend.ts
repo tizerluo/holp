@@ -9,7 +9,7 @@
  * v0.1 参考实现先提供 native-claude + mcp-codex 的桩;acp 方言库规划接 happier backends。
  *
  * 关键接缝(对应协议能力):
- * - onMessage(事件流) → 协议 events.stream 的料(tool_called/fs_edited/...)
+ * - onMessage(事件流) → 协议事件流的料(tool_called/fs_edited/...),经 events.subscribe 订阅后回吐
  * - permissionHandler → 协议 approval + daemon 裁决内核介入"中途拦工具调用"
  */
 
@@ -28,9 +28,9 @@ export type TransportClass = "native-claude" | "mcp-codex" | "acp" | (string & {
 /**
  * 统一事件流:无论底下哪家 agent,朝上都吐同一种 AgentMessage。
  * 设计借自 happier `AgentMessage`(`apps/cli/src/agent/core/AgentMessage.ts`)。
- * 这些事件映射到协议 events.stream 的 name:
+ * 这些事件映射到协议事件流的 name:
  *   tool-call → tool_called, tool-result → tool_result, fs-edit → fs_edited,
- *   permission-request → approval Needed, status → lifecycle, model-output → step payload。
+ *   permission-request → approval_requested, status → lifecycle 事件, model-output → step payload。
  */
 export type AgentMessage =
   | { type: "model-output"; textDelta?: string; fullText?: string }
@@ -56,7 +56,7 @@ export type PermissionVerdict =
   | {
       decision: "ask_human";
       reason: string;
-      /** 可恢复对象:approval.resolve 后 adapter 据此 resume/deny 原始 tool call。 */
+      /** 可恢复对象:approval.resolve 后 adapter 据此 resume/deny 原始 tool call。对应协议 §7 approval + §12.1。 */
       request_id: string;
       call_id: string;
       toolName: string;
