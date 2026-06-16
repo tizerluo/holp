@@ -6,7 +6,7 @@
  *
  * 设计借自 happier 的 AgentBackend 接口(`apps/cli/src/agent/core/AgentBackend.ts`)
  * 与 ExecutionRunBackendFactory(`apps/cli/src/agent/executionRuns/registry/`)。
- * v0.1 参考实现先提供 native-claude + mcp-codex 的桩;acp 方言库规划接 happier backends。
+ * v0.1.x 参考实现先提供 native-claude + mcp-codex 的桩;acp 方言库规划接 happier backends。
  *
  * 关键接缝(对应协议能力):
  * - onMessage(事件流) → 协议事件流的料(tool_called/fs_edited/...),经 events.subscribe 订阅后回吐
@@ -46,8 +46,8 @@ export type AgentMessageHandler = (msg: AgentMessage) => void;
 /**
  * 权限裁决(工具调用前介入)。来源 loopwright PermissionPolicy + happier AcpPermissionHandler。
  *
- * v0.1.1 修复(codex P1-4):ask_human 必须是**可恢复对象**——带 request_id/call_id,
- * resolve 后 adapter 能 resume/deny 原始 tool call。v0.1 只有 allow/deny/ask_human 裸返回,
+ * v0.1.x 修复(codex P1-4):ask_human 必须是**可恢复对象**——带 request_id/call_id,
+ * resolve 后 adapter 能 resume/deny 原始 tool call。v0.1 初版只有 allow/deny/ask_human 裸返回,
  * 缺 pending tool call handle,resolve 后无法回灌 agent。
  */
 export type PermissionVerdict =
@@ -81,7 +81,7 @@ export interface AgentBackendOptions {
  * 朝下适配契约:daemon 通过它驱动一家 agent。
  * 对应 happier AgentBackend(同一个形状,故未来 happier backends 可直接当 adapter 实现)。
  *
- * v0.1.1 约束(codex P1-3):**一个 backend 实例只允许一个 session**。
+ * v0.1.x 约束(codex P1-3):**一个 backend 实例只允许一个 session**。
  * 原因:onMessage 是 backend 级全局回调,AgentMessage 不带 sessionId(见上);
  * 多 session 并发时消息无法归属。若未来要多 session,必须让 AgentMessage 带
  * sessionId/run_id/step_id,handler 按 session 订阅——届时同步改本契约。

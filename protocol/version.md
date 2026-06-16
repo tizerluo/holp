@@ -2,11 +2,11 @@
 
 ## 当前版本
 
-**v0.1.1 (draft)** — 见 `spec.md`。
+**v0.1.3 (draft)** — 见 `spec.md`。
 
 ## 版本号
 
-版本号形如 `MAJOR.MINOR`(稳定协议);draft 阶段额外带第三段 `.DRAFT` 表示同 minor 内的草案迭代(如 `0.1.1` = `0.1` minor 的第 1 次草案修订)。**正式发布(脱离 draft)后只用 `MAJOR.MINOR` 两段**;draft 期的第三段不计入兼容性判定——兼容性只看 `MAJOR.MINOR`。
+版本号形如 `MAJOR.MINOR`(稳定协议);draft 阶段额外带第三段表示同 minor 内的草案迭代(如 `0.1.3` = `0.1` minor 的第 3 次草案修订)。**正式发布(脱离 draft)后只用 `MAJOR.MINOR` 两段**;draft 期的第三段不计入兼容性判定——兼容性只看 `MAJOR.MINOR`。
 
 - `MAJOR`:破坏性变更(改 wire 格式 / 删方法 / 改字段语义)。consumer 与 server 必须同 major。
 - `MINOR`:向后兼容新增(可选字段 / 新方法 / 新事件 name)。**新增的事件 name 必须是「旧 consumer 忽略安全」的**(非阻塞、非语义关键);需 client 交互的语义(如新 approval kind)必须走 capability 协商,不靠「忽略」兜底。
@@ -14,24 +14,32 @@
 
 `initialize` 时双方报 `protocol_version`(比 `MAJOR.MINOR`),major 不匹配 → 拒绝(`protocol_version_mismatch`)。
 
-## v0.1.1 范围
+## v0.1.3 范围
 
-**协议层(draft)**:spec 全 12 章有定义——握手+能力 / flock(declare+discover) / orchestrate.run / events.subscribe / consensus / approval / artifact / 版本化 / 错误模型 / unattended policy / 实现边界。
+**协议层(draft)**:spec 全章有定义——握手+能力(descriptor) / flock(declare+discover) / orchestrate.run / events.subscribe / consensus(两段式 quorum) / approval(单通道状态机) / task.cancel / artifact(强制 content) / 版本化 / 错误模型 / unattended policy / 实现边界。
 
 **参考 daemon milestone(当前)**:
 - 协议接入骨架 + adapter 契约桩。
 - 治理内核/数据铁三角/共识/状态机 从 loopwright 搬入(进行中)。
-- **未做(不声称)**:native-claude/mcp-codex 真接线、Remote、acp、Web 传输。
+- **未做(不声称)**:native-claude/mcp-codex 真接线、acp、Web 传输。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
 
-> v0.1.1 修复 P2-3:v0.1 的 spec/version/README 对「做了什么」自相矛盾。现在统一:当前只声称「protocol draft + adapter stub」,不声称已接 native-claude/mcp-codex。
+> 当前只声称「protocol draft + adapter stub」,不声称已接 native-claude/mcp-codex。
 
 ## 变更记录
 
-### v0.1.1 (draft, 2026-06-17) — 按深度 review 返工
-P0:传输模型钉死(控制面 JSON-RPC + 带 subscription_id 事件);consensus 固定为事件 + 删示例数学矛盾 + quorum 可满足性校验 + verdict/evidence 分层 + 作者降 provenance;共识配置单一入口;approval 单通道状态机;能力 feature 细分;flock 加 discover+实测回执。
-P1:capabilities 细化 + adoption 降级;adapter 单 session + permission 可恢复;Remote 改 opaque object;unattended policy。
-P2:v0.1 范围声明统一;artifact 协议;错误模型。
-明细见 `spec.md` 文末「v0.1 → v0.1.1 变更明细」。
+### v0.1.3 (draft) — 第三轮 review 后修阻塞缺口
+- quorum 第1段公式修正(`panel可用数 ≥ quorum`,删作者余量,修误杀合法配置 + 示例自洽)。
+- artifact 强制 `content`、禁 `content_ref`(修大 artifact 不可取回)。
+- approval cancel 语义钉死(只由 task.cancel 导致,无 approval.cancel 方法);resolved payload 补 reason;race「先终态者赢」。
+- `task.cancel` 补完整 schema(幂等/终态事件/run_not_found/race)。
+- capability `required` 钉为连接级(run 级走 params);缺省 capability = 不支持;kinds 空交集语义。
+- 错误码定序(`invalid_quorum` 形状 vs `quorum_unsatisfiable` 策略)。
 
-### v0.1 (draft, 2026-06-17)
-- 协议初稿。8 章。后被 v0.1.1 返工(传输/共识/审批/版本/范围声明有根本性缺口)。
+### v0.1.2 (draft) — 把 v0.1.1「表面改」逼到可执行
+capability descriptor / approval 终态上 wire / quorum 两段式 / Remote 删净 / artifact 闭环 / flock 部分成功 / 错误码拆开 + 跨文件命名统一。
+
+### v0.1.1 (draft) — 按首轮 review 返工
+传输模型钉死 / consensus 固定为事件 / approval 单通道 / 能力 feature 细分 / flock 加 discover。
+
+### v0.1 (draft) — 协议初稿
+8 章。后经三轮 review 返工(传输/共识/审批/版本/范围声明/可执行性)。

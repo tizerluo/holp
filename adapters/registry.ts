@@ -1,8 +1,8 @@
 /**
- * 朝下 adapter 注册表 + v0.1 桩
+ * 朝下 adapter 注册表 + v0.1.x 桩
  *
  * daemon 按 flock.declare 声明的 transport 选 factory。
- * v0.1:native-claude + mcp-codex 用桩(返回"未接线"错误);真实接线后续做。
+ * v0.1.x:native-claude + mcp-codex + acp 全用桩(返回"未接线"错误);真实接线后续做。
  * 规划:acp / native-claude / mcp-codex 的真实实现,走 happier backends 作为方言库
  * (happier 的 executionRunBackendFactory 已对三家都做了真实现,见旧仓研究笔记)。
  *
@@ -37,7 +37,7 @@ function createStubBackend(transport: TransportClass): AgentBackend {
 
 /**
  * transport → factory 映射。daemon 启动时注入。
- * v0.1:全是桩。真实实现替换进来时,这里换成 happier executionRunBackendFactory 的适配。
+ * v0.1.x:全是桩。真实实现替换进来时,这里换成 happier executionRunBackendFactory 的适配。
  */
 export interface AdapterRegistry {
   resolve(transport: TransportClass): AgentBackendFactory | undefined;
@@ -53,7 +53,7 @@ export function createAdapterRegistry(
   };
 }
 
-/** v0.1 默认 registry:三 transport 全桩。 */
+/** v0.1.x 默认 registry:三 transport 全桩。 */
 export function createDefaultAdapterRegistry(): AdapterRegistry {
   return createAdapterRegistry({
     "native-claude": createStubFactory("native-claude"),
