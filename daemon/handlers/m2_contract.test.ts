@@ -351,6 +351,11 @@ describe("E. provenance artifact_id as identity (spec §2 / §8.1)", () => {
 // regression guard that M3 "可以在不改 contract expectations 的前提下继续"
 // (spec PR4 acceptance): when consensus/expiry/heartbeats land, the team updates
 // THESE expectations together with the feature, in the owning milestone.
+//
+// AUTHORITATIVE reconciliation (which §F item transfers to which milestone, and
+// the unlock action each owning PR must perform) lives in the formal spec, not
+// just here: see the "Deferral ledger" in docs/pr-specs/pr4-m2-contract-tests.md
+// and the coverage-boundary note in docs/roadmap.md M2.
 
 describe("F. Deferred-semantics boundary (M3/M4/M5) — current behavior locked honestly", () => {
   it("a single-coder run emits NO consensus-category event (consensus_verdict is M4/M5)", async () => {
