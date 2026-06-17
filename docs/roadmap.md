@@ -11,14 +11,17 @@
 - `protocol/spec.md`:v0.1.4 draft,覆盖 stdio JSON-RPC、capability descriptor、flock、orchestrate、events、consensus、approval、task.cancel、artifact、versioning、error model、unattended policy、implementation boundary。
 - `protocol/version.md`:版本规则和 v0.1.4 范围。
 - `docs/positioning.md`:定位、non-goals、设计来源边界。
-- `adapters/`:朝下 adapter contract + native-claude/mcp-codex/acp stub。
+- `docs/pr-specs/`:M0-M5 拆解 SPEC。
+- `adapters/`:朝下 adapter contract + native-claude/mcp-codex/acp stub；`fake` transport 仅用于 demo/test。
+- `daemon/`:参考 daemon 协议骨架,支持 stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
+- `consumers/cli/`:参考 consumer CLI,可跑通 M1 fake backend 闭环。
+- M1 e2e 闭环:`initialize -> flock.declare -> orchestrate.run -> events.subscribe -> approval.resolve -> artifact.get`。**fake backend,非真实 provider**。
+- M2 契约回归网:`daemon/handlers/m2_contract.test.ts` 已锁定当前实现的关键 v0.1.4 语义；consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5,由 §F 负向锁定当前缺席行为。
 
 当前仓未落地,也不声称已落地:
 
-- 参考 daemon。
-- 参考 consumer CLI。
-- 协议契约测试和 e2e 闭环。
 - native-claude/mcp-codex/acp 真接线。
+- 治理内核/events-decisions-registry 数据骨架/共识/状态机。
 - Web 传输。
 - Remote execution。
 

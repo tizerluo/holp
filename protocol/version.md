@@ -22,13 +22,14 @@
 - protocol draft + adapter 契约桩。
 - 参考 daemon 协议骨架(`daemon/`):stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
 - 参考 consumer CLI(`consumers/cli/`)+ M1 e2e 闭环——**仅用 fake backend**(`fake` transport),非真实 provider。
+- M2 契约回归网(`daemon/handlers/m2_contract.test.ts`):已锁定当前实现的关键 v0.1.4 语义；consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5,由 §F 负向锁定当前缺席行为。
 
 **参考 daemon 下一步 milestone**:
-- contract regression suite(M2)。
+- 真实 adapter 接线(M3,建议 Codex first)。
 - 治理内核/events-decisions-registry 数据骨架/共识/状态机 从 loopwright 搬入(M4)。
-- **未做(不声称)**:native-claude/mcp-codex/acp 真接线(M3)、Web 传输。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
+- **未做(不声称)**:native-claude/mcp-codex/acp 真接线、Web 传输。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
 
-> 当前只声称「protocol draft + adapter stub + fake backend 跑通的 M1 闭环」,不声称已接 native-claude/mcp-codex/acp 真 agent。
+> 当前只声称「protocol draft + adapter stub + fake backend 跑通的 M1 闭环 + M2 契约层锁定」,不声称已接 native-claude/mcp-codex/acp 真 agent。
 
 ## 变更记录
 

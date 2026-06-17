@@ -534,14 +534,17 @@ JSON-RPC error object:`{ "code": <int>, "message": <string>, "data": {...} }`。
 
 **当前仓已落地**:
 - ✅ 协议 draft(`protocol/`)。
-- ✅ adapter 契约 + 桩(`adapters/`)。
+- ✅ adapter 契约 + 桩(`adapters/`);`fake` transport 仅用于 demo/test。
+- ✅ 参考 daemon 协议骨架(`daemon/`):stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
+- ✅ 参考 consumer CLI(`consumers/cli/`)+ M1 e2e 闭环——**仅用 fake backend**,非真实 provider。
+- ✅ M2 契约回归网(`daemon/handlers/m2_contract.test.ts`):已锁定当前实现的关键 v0.1.4 语义；consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5,由 §F 负向锁定当前缺席行为。
 
 **参考 daemon 下一步 milestone**:
-- ⏳ 协议接入骨架(控制面 JSON-RPC + 事件 subscription)。
+- ⏳ 真实 adapter 接线(M3,建议 Codex first)。
 - ⏳ 从旧 loopwright 搬入:治理内核 / events-decisions-registry 数据骨架 / 共识 / 状态机。
 - ❌ 未做(不声称):native-claude / mcp-codex 真接线(待 adapter 真实现 / 通过 wrapper 或抽取包复用 happier backend 模块);acp;Web 传输;Remote(wire 不含)。
 
-**当前仓只声称**「adapter contract stub + 协议 draft」。真接线前的 declare/discover 实测 status 多为 `rejected`。
+**当前仓只声称**「protocol draft + adapter contract stub + fake backend 跑通的 M1 闭环 + M2 契约层锁定」。真接线前的 declare/discover 实测 status 多为 `rejected`。
 
 ### 12.1 adapter 实现约束
 
