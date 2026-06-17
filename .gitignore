@@ -12,3 +12,7 @@ node_modules/
 /AGENTS.md
 /Claude.md
 /agents.md
+
+# Session handoff files (local cross-session continuity; not repo content)
+HANDOFF.md
+/.handoffs/
