@@ -84,27 +84,93 @@ export function buildDispatcher(
   return dispatcher;
 }
 
+/**
+ * FIX 2 (wire ordering): extracted frame-loop unit — testable without process I/O.
+ *
+ * Wire-order invariant: a request's response MUST be written BEFORE the
+ * events it triggers (spec §1 / §5 ordering). Without this, events published
+ * synchronously during dispatch land on stdout before the response, which
+ * violates spec §1 frame discipline.
+ *
+ * Mechanism: sinkWrite (returned for use with EventSink) buffers while the
+ * dispatcher is processing a frame. After rawWrite(response), the buffer is
+ * flushed in order. Any microtask continuations that fire during `await
+ * dispatch(frame)` see buffering=true and land in the buffer — they are
+ * flushed only after the response is written.
+ *
+ * @param rawWrite — the underlying frame writer (e.g. stdout NDJSON writer)
+ * @param dispatch — async per-frame dispatch function (e.g. dispatcher.dispatch)
+ * @returns onFrame: call for each parsed frame; sinkWrite: pass to EventSink;
+ *          getChain: returns the current drain Promise (for stdin-end draining)
+ */
+export function makeFrameLoop({
+  rawWrite,
+  dispatch,
+}: {
+  rawWrite: (frame: unknown) => void;
+  dispatch: (frame: unknown) => Promise<unknown>;
+}): {
+  onFrame: (frame: unknown) => void;
+  sinkWrite: (frame: unknown) => void;
+  getChain: () => Promise<void>;
+} {
+  let buffering = false;
+  const buffer: unknown[] = [];
+
+  // EventSink should use this write fn. Buffers writes while dispatch is in
+  // progress; passes through directly otherwise (e.g. heartbeats between frames).
+  const sinkWrite = (frame: unknown): void => {
+    if (buffering) {
+      buffer.push(frame);
+    } else {
+      rawWrite(frame);
+    }
+  };
+
+  let chain: Promise<void> = Promise.resolve();
+
+  const onFrame = (frame: unknown): void => {
+    chain = chain
+      .then(() => {
+        buffering = true;
+        return dispatch(frame);
+      })
+      .then((response) => {
+        buffering = false;
+        // Write response FIRST (spec §1 wire-order invariant).
+        if (response !== undefined) rawWrite(response);
+        // Then flush any events that were buffered during dispatch.
+        const toFlush = buffer.splice(0);
+        for (const f of toFlush) rawWrite(f);
+      })
+      .catch((err) => {
+        buffering = false;
+        buffer.length = 0; // discard buffered events on dispatch error
+        log("dispatch error:", err instanceof Error ? err.message : String(err));
+      });
+  };
+
+  return { onFrame, sinkWrite, getChain: () => chain };
+}
+
 export function main(): void {
   const ctx = new ConnectionContext();
   const write = createWriter((line) => process.stdout.write(line));
-  const sink = new EventSink(write);
   const registry = createFakeRegistry();
-  const dispatcher = buildDispatcher(ctx, sink, registry);
 
-  // Per-connection serial dispatch queue: each frame chains onto the previous so
-  // responses are written to stdout in arrival order (spec §1 frame discipline).
-  // A frame's failure is logged to stderr and does not break the chain.
-  let chain = Promise.resolve();
+  // FIX 2: forward-ref pattern — makeFrameLoop returns sinkWrite which is needed
+  // to build the sink; the dispatcher is assigned before any frame can arrive.
+  let dispatcher: Dispatcher;
+  const { onFrame, sinkWrite, getChain } = makeFrameLoop({
+    rawWrite: write,
+    dispatch: (frame) => dispatcher.dispatch(frame),
+  });
+  const sink = new EventSink(sinkWrite);
+  dispatcher = buildDispatcher(ctx, sink, registry);
+
   const reader = new NdjsonReader(
     (frame) => {
-      chain = chain
-        .then(() => dispatcher.dispatch(frame))
-        .then((response) => {
-          if (response !== undefined) write(response);
-        })
-        .catch((err) => {
-          log("dispatch error:", err instanceof Error ? err.message : String(err));
-        });
+      onFrame(frame);
     },
     (rawLine, error) => {
       // Unparseable input line: log to stderr; do not emit a frame to stdout.
@@ -121,12 +187,11 @@ export function main(): void {
   process.stdin.on("data", (chunk: string) => reader.push(chunk));
   process.stdin.on("end", () => {
     // flush() synchronously emits any trailing buffered frame through the same
-    // reader callback above, which chains its dispatch onto `chain`. Awaiting
-    // `chain` after flush therefore drains every queued response to stdout before
-    // we exit — without this, async handlers could lose their last response frame
-    // on stdin close.
+    // reader callback above, which chains its dispatch onto the chain. Awaiting
+    // getChain() after flush therefore drains every queued response to stdout
+    // before we exit.
     reader.flush();
-    void chain.finally(() => process.exit(0));
+    void getChain().finally(() => process.exit(0));
   });
 
   log("holp-reference-daemon M1b: listening on stdio");

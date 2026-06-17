@@ -42,6 +42,14 @@ export function handleEventsSubscribe(
   const afterSeq = normalizeAfterSeq(params.after_seq);
   const includeHeartbeats = params.include_heartbeats === true;
 
+  // M1b: validate that the run_id exists before allocating any subscription state.
+  const run = ctx.runs.get(runId);
+  if (!run) {
+    throw new HolpRpcError(
+      holpError("run_not_found", `run '${runId}' not found`, { run_id: runId }),
+    );
+  }
+
   const subscriptionId = ctx.nextSubscriptionId();
   const subscription: Subscription = {
     subscriptionId,
@@ -52,20 +60,17 @@ export function handleEventsSubscribe(
   };
   ctx.subscriptions.set(subscriptionId, subscription);
 
-  // M1b: if we have a real event bus for this run, register for replay + live delivery.
-  const run = ctx.runs.get(runId);
-  if (run && sink) {
+  // Register for replay + live delivery if a sink is available.
+  if (sink) {
     const busSub: BusSubscriber = {
       subscriptionId,
       categories,
       sink,
     };
     run.bus.addSubscriber(busSub, afterSeq);
-    return { subscription_id: subscriptionId, latest_seq: run.bus.latestSeq };
   }
 
-  // Fallback: no run found or no sink (e.g. in M1a tests). latest_seq = 0.
-  return { subscription_id: subscriptionId, latest_seq: 0 };
+  return { subscription_id: subscriptionId, latest_seq: run.bus.latestSeq };
 }
 
 /**

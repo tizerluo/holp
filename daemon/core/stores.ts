@@ -76,7 +76,7 @@ export interface ApprovalRecord {
 // ---------------------------------------------------------------------------
 
 /** Terminal or active run status. */
-export type RunStatus = "active" | "merged" | "gave_up" | "cancelled";
+export type RunStatus = "active" | "merged" | "gave_up" | "cancelled" | "blocked";
 
 /** Per-run record. */
 export interface RunRecord {

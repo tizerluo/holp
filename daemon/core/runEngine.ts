@@ -29,6 +29,10 @@ export async function driveRun(
     // 1. Emit run_started (seq=1)
     bus.publish("run", "run_started", { goal: run.goal, trigger: run.trigger });
 
+    // Track whether the backend signalled a stop/error (e.g. approval denied).
+    let aborted = false;
+    let abortReason: string | undefined;
+
     // 2. Wire backend.onMessage → events
     backend.onMessage((msg) => {
       if (run.status !== "active") return;
@@ -37,6 +41,10 @@ export async function driveRun(
         case "status":
           if (msg.status === "starting" || msg.status === "running") {
             bus.publish("agent", "step_started", { status: msg.status, detail: msg.detail });
+          } else if (msg.status === "stopped" || msg.status === "error") {
+            // Backend signalled abort (e.g. approval denied path in fake).
+            aborted = true;
+            abortReason = msg.detail;
           }
           break;
 
@@ -86,7 +94,17 @@ export async function driveRun(
 
     if (run.status !== "active") return; // Cancelled during run.
 
-    // 5. Register the diff artifact.
+    // 5a. If the backend was aborted (e.g. approval rejected), emit run_blocked
+    //     and skip artifact registration entirely.
+    if (aborted) {
+      run.status = "blocked";
+      bus.publish("run", "run_blocked", {
+        reason: abortReason ?? "approval_rejected",
+      });
+      return;
+    }
+
+    // 5b. Register the diff artifact.
     const diffContent =
       "--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-// old\n+// fixed\n";
     const artifactId = `art_diff_${run.run_id}`;
@@ -119,4 +137,3 @@ export async function driveRun(
     await backend.dispose().catch(() => {});
   }
 }
-

@@ -571,6 +571,66 @@ describe("4. Approval state machine (spec §7)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 4b. FIX 1: rejected approval must emit run_blocked, not run_merged (spec §5/§7)
+// ---------------------------------------------------------------------------
+
+describe("4b. FIX 1 — rejected approval emits run_blocked, skips artifact registration", () => {
+  /** Run a full scenario up to approval_requested, then resolve with a given decision. */
+  async function runToApproval(): Promise<{
+    dispatch: (method: string, params: unknown) => Promise<unknown>;
+    ctx: ConnectionContext;
+    events: EventNotificationParams[];
+    run_id: string;
+  }> {
+    const { dispatch, ctx, events } = await freshDispatcher();
+    ok(await dispatch("flock.declare", { agents: [{ id: "a1", transport: "fake", roles: ["coder"] }] }));
+    const { run_id } = ok<{ run_id: string }>(
+      await dispatch("orchestrate.run", { goal: "x", roles: { coder: { agent: "a1" } } }),
+    );
+    ok(await dispatch("events.subscribe", { run_id, after_seq: 0 }));
+    await pollUntil(() => events.some((e) => e.name === "approval_requested"));
+    return { dispatch, ctx, events, run_id };
+  }
+
+  it("decision:rejected → run emits run_blocked (not run_merged), no artifact registered", async () => {
+    const { dispatch, ctx, events, run_id } = await runToApproval();
+    const approvalId = (events.find((e) => e.name === "approval_requested")!.payload as Record<string, unknown>).approval_id as string;
+
+    ok(await dispatch("approval.resolve", { approval_id: approvalId, decision: "rejected", by: "u" }));
+
+    // Wait for the terminal run event
+    await pollUntil(() =>
+      events.some((e) => e.name === "run_blocked" || e.name === "run_merged" || e.name === "run_gave_up"),
+    );
+
+    const eventNames = events.map((e) => e.name);
+    // Must emit run_blocked
+    expect(eventNames).toContain("run_blocked");
+    // Must NOT emit run_merged
+    expect(eventNames).not.toContain("run_merged");
+
+    // No artifact must be registered for this run
+    const artifactId = `art_diff_${run_id}`;
+    expect(ctx.artifacts.has(artifactId)).toBe(false);
+    // The entire artifacts map should be empty (no artifact from the deny path)
+    expect(ctx.artifacts.size).toBe(0);
+  });
+
+  it("decision:approved → run still emits run_merged (regression guard)", async () => {
+    const { dispatch, events } = await runToApproval();
+    const approvalId = (events.find((e) => e.name === "approval_requested")!.payload as Record<string, unknown>).approval_id as string;
+
+    ok(await dispatch("approval.resolve", { approval_id: approvalId, decision: "approved", by: "u" }));
+
+    await pollUntil(() => events.some((e) => e.name === "run_merged"));
+
+    const eventNames = events.map((e) => e.name);
+    expect(eventNames).toContain("run_merged");
+    expect(eventNames).not.toContain("run_blocked");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 5. task.cancel (spec §7.5)
 // ---------------------------------------------------------------------------
 
