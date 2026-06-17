@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { NdjsonReader, createWriter } from "./ndjson.js";
-import { buildDispatcher } from "./server.js";
+import { buildDispatcher, makeFrameLoop } from "./server.js";
 import { ConnectionContext } from "../core/context.js";
 
 /**
@@ -126,5 +126,95 @@ describe("server stdin-end drain invariant", () => {
     expect(frame.id).toBe(1);
     expect(frame.result).toBeDefined();
     expect(events).toEqual(["exit"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX 2 — wire-order invariant: response precedes buffered events
+// ---------------------------------------------------------------------------
+
+describe("FIX 2 — makeFrameLoop: response written before buffered sink events", () => {
+  /**
+   * Build a makeFrameLoop wired to an in-memory output array, with a fake
+   * dispatch that synchronously calls sinkWrite to emit an events.event
+   * notification DURING dispatch. Without buffering, the event would precede
+   * the response in the output. With buffering, it must appear after.
+   */
+  it("events emitted synchronously during dispatch appear AFTER the response on the wire", async () => {
+    const out: unknown[] = [];
+    const write = createWriter((line) => out.push(line));
+
+    // Forward ref for sinkWrite (assigned after makeFrameLoop returns, before
+    // any frame is dispatched — so the closure captures the live reference).
+    let sinkWriteRef: (frame: unknown) => void = () => {};
+
+    const { onFrame, sinkWrite, getChain } = makeFrameLoop({
+      rawWrite: write,
+      dispatch: async (_frame) => {
+        // Synchronously emit an events.event notification DURING dispatch.
+        // Without FIX 2 buffering this would be written to `out` immediately,
+        // before the response frame — violating spec §1 wire order.
+        sinkWriteRef({
+          jsonrpc: "2.0",
+          method: "events.event",
+          params: { subscription_id: "sub_1", seq: 1, name: "run_started", payload: {} },
+        });
+        // Return the JSON-RPC response for this request.
+        return { jsonrpc: "2.0", id: 42, result: { ok: true } };
+      },
+    });
+
+    // Wire the sinkWrite forward ref BEFORE any frame arrives.
+    sinkWriteRef = sinkWrite;
+
+    // Feed one frame.
+    onFrame({ jsonrpc: "2.0", id: 42, method: "orchestrate.run", params: {} });
+
+    // Drain.
+    await getChain();
+
+    // Must have exactly 2 lines: the response and the events.event notification.
+    expect(out).toHaveLength(2);
+
+    const responseLine = JSON.parse(out[0] as string) as { id?: number; method?: string };
+    const eventLine = JSON.parse(out[1] as string) as { id?: number; method?: string };
+
+    // Response (has "id") must come first.
+    expect(responseLine.id).toBe(42);
+    expect(responseLine.method).toBeUndefined();
+
+    // Event notification (has "method", no "id") must come second.
+    expect(eventLine.method).toBe("events.event");
+    expect(eventLine.id).toBeUndefined();
+  });
+
+  it("without buffering (baseline): events emitted during dispatch would precede the response", async () => {
+    // This test documents the BUG that FIX 2 corrects: if we bypass sinkWrite
+    // and call rawWrite directly during dispatch, the event lands before the
+    // response. This confirms the test setup is sensitive enough to catch
+    // the ordering violation.
+    const out: unknown[] = [];
+    const write = createWriter((line) => out.push(line));
+
+    const { onFrame, getChain } = makeFrameLoop({
+      rawWrite: write,
+      dispatch: async (_frame) => {
+        // Bypass sinkWrite — call rawWrite directly, as if buffering were absent.
+        write({
+          jsonrpc: "2.0",
+          method: "events.event",
+          params: { subscription_id: "sub_1", seq: 1, name: "run_started", payload: {} },
+        });
+        return { jsonrpc: "2.0", id: 99, result: { ok: true } };
+      },
+    });
+
+    onFrame({ jsonrpc: "2.0", id: 99, method: "orchestrate.run", params: {} });
+    await getChain();
+
+    expect(out).toHaveLength(2);
+    const first = JSON.parse(out[0] as string) as { method?: string };
+    // BUG: event came first (method = "events.event"), not the response.
+    expect(first.method).toBe("events.event");
   });
 });
