@@ -7,6 +7,7 @@ node_modules/
 
 # GitNexus local index/context (regenerated; do not upload to GitHub)
 /.gitnexus/
+/.codegraph/
 /.claude/
 /CLAUDE.md
 /AGENTS.md
