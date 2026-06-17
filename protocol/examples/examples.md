@@ -59,15 +59,16 @@
   ] } }
 ```
 
-### 2. `flock.declare` — response(§3.3,部分成功语义,永不抛 error)
+### 2. `flock.declare` — response(§3.3,部分成功语义,永不抛 error;返回 declare 声明过的同两个 agent)
 
 ```jsonc
 { "jsonrpc": "2.0", "id": 2, "result": {
   "agents": [
     { "id": "claude", "transport": "native-claude", "status": "ready",
       "version": "1.0.0", "logged_in": true, "resolved_roles": ["architect","reviewer","coder","tester"] },
-    { "id": "gemini", "transport": "acp", "status": "rejected",
-      "reason": "acp adapter not wired", "missing": ["adapter:acp"] }
+    { "id": "codex", "transport": "mcp-codex", "status": "degraded",
+      "version": "0.21.0", "logged_in": true, "resolved_roles": ["coder","reviewer","tester"],
+      "missing": ["role:architect"] }
   ]
 } }
 ```
@@ -76,19 +77,17 @@
 
 ```jsonc
 { "jsonrpc": "2.0", "id": 3, "method": "flock.discover",
-  "params": { "transports": ["native-claude","mcp-codex"], "probe": true } }
+  "params": { "transports": ["acp"], "probe": true } }
 ```
 
-### 3. `flock.discover` — response(§3.3,per-agent status)
+### 3. `flock.discover` — response(§3.2/§3.3,per-agent status;探测到 gemini 走 acp,degraded 但 reviewer 可用)
 
 ```jsonc
 { "jsonrpc": "2.0", "id": 3, "result": {
   "agents": [
-    { "id": "claude", "transport": "native-claude", "status": "ready",
-      "version": "1.0.0", "logged_in": true, "resolved_roles": ["architect","reviewer","coder","tester"] },
-    { "id": "codex", "transport": "mcp-codex", "status": "degraded",
-      "reason": "logged in, version probe partial", "missing": [],
-      "resolved_roles": ["coder","reviewer","tester"] }
+    { "id": "gemini", "transport": "acp", "status": "degraded",
+      "version": "0.3.0", "logged_in": true, "resolved_roles": ["reviewer"],
+      "missing": ["role:coder"] }
   ]
 } }
 ```
@@ -141,9 +140,9 @@
   "params": { "subscription_id": "sub_1" } }
 ```
 
-### 6. `events.unsubscribe` — response(最小成功回执)
+### 6. `events.unsubscribe` — response(§5,确认已取消)
 
-> spec §5 正文只给出 request 形状;此处按 JSON-RPC 给一个最小成功 `result`。
+> 形状以 spec §5 定义的 unsubscribe response 为准:`{ subscription_id, unsubscribed:true }`;未知 `subscription_id` 走 `invalid_subscription`(§10)。
 
 ```jsonc
 { "jsonrpc": "2.0", "id": 9, "result": { "subscription_id": "sub_1", "unsubscribed": true } }
