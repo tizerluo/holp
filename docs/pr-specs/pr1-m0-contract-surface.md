@@ -42,7 +42,10 @@
 - 每个方法、事件 category/name、错误码都能回链到 `protocol/spec.md`。
 - `protocol/version.md` 和 `README.md` 不声称 daemon、consumer、tests、真实 adapter 已存在。
 - `docs/roadmap.md` 仍明确实现项未落地。
-- `rg -n "v0.1.3|content_ref|Remote execution.*v0.1.x" protocol docs README.md` 不出现旧范围声明。
+- 范围回归检查按意图拆分,避免把合法 changelog/否定说明当误报:
+  - 当前版本声明必须仍是 v0.1.4 draft:`rg -n "v0\\.1\\.4 \\(draft\\)" protocol/spec.md protocol/version.md README.md`。
+  - v0.1.x wire/example 不得出现 `content_ref` 字段:`! rg -n '"content_ref"\\s*:' protocol docs README.md`。允许在"不返回 content_ref"这类否定说明中出现该词。
+  - v0.1.x wire/example 不得出现 Remote execution shape:`! rg -n '"execution_mode"\\s*:\\s*\\{\\s*"kind"\\s*:\\s*"Remote"' protocol docs README.md`。允许 Remote 出现在 future/non-goal/changelog 语境中。
 - 除文档/协议注释外,不改 runtime 源码。
 
 ## Review 重点
