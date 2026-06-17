@@ -1,0 +1,19 @@
+{
+  "name": "holp",
+  "version": "0.1.4",
+  "private": true,
+  "type": "module",
+  "description": "HOLP reference daemon — stdio JSON-RPC protocol substrate",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx daemon/runtime/server.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "tsx": "^4",
+    "typescript": "^5",
+    "vitest": "^2"
+  }
+}
