@@ -4,13 +4,16 @@
  * - `categories` omitted/null → subscribe ALL categories (whitelist semantics).
  * - empty array [] OR an unknown category string → invalid_event_category
  *   (-32020). `categories` is a closed enum: run/agent/consensus/approval/lifecycle.
- * - `run_id` accepted as an opaque string; existence is NOT validated in M1a
- *   (orchestrate.run is PR3+). Heartbeats are not filtered by `categories`;
- *   `include_heartbeats` is recorded into the subscription.
+ * - `run_id`: validated against the connection's run store in M1b.
  * - `after_seq` omitted → 0. Explicit values must be a non-negative integer
  *   because replay semantics are `seq > after_seq` and seq starts at 1.
- * - Returns { subscription_id, latest_seq }. M1a has no real event source, so
- *   latest_seq = 0 (empty-run sentinel; seq starts at 1, 0 = "no events yet").
+ * - Returns { subscription_id, latest_seq } where latest_seq = current max seq
+ *   for the run (0 if no events yet — §5 empty sentinel).
+ * - Replay: stored events with seq > after_seq matching the category filter are
+ *   immediately sent to the subscriber before registration for live delivery.
+ *
+ * M1b: real replay via EventBus. run_id existence is validated (orchestrate.run
+ * populates ctx.runs; unknown run_id → invalidRequest).
  */
 
 import { EVENT_CATEGORIES, isEventCategory } from "../core/context.js";
@@ -20,8 +23,14 @@ import { HolpRpcError } from "../core/dispatcher.js";
 import { isObject } from "../core/internal.js";
 import type { JsonRpcRequest } from "../runtime/jsonrpc.js";
 import type { ConnectionContext } from "../core/context.js";
+import type { EventSink } from "../core/eventSink.js";
+import type { BusSubscriber } from "../core/eventBus.js";
 
-export function handleEventsSubscribe(req: JsonRpcRequest, ctx: ConnectionContext): unknown {
+export function handleEventsSubscribe(
+  req: JsonRpcRequest,
+  ctx: ConnectionContext,
+  sink?: EventSink,
+): unknown {
   const params = isObject(req.params) ? req.params : {};
 
   const runId = typeof params.run_id === "string" ? params.run_id : "";
@@ -30,9 +39,7 @@ export function handleEventsSubscribe(req: JsonRpcRequest, ctx: ConnectionContex
   }
 
   const categories = normalizeCategories(params.categories);
-
   const afterSeq = normalizeAfterSeq(params.after_seq);
-
   const includeHeartbeats = params.include_heartbeats === true;
 
   const subscriptionId = ctx.nextSubscriptionId();
@@ -45,7 +52,19 @@ export function handleEventsSubscribe(req: JsonRpcRequest, ctx: ConnectionContex
   };
   ctx.subscriptions.set(subscriptionId, subscription);
 
-  // latest_seq: M1a has no event source; new run has produced nothing → 0.
+  // M1b: if we have a real event bus for this run, register for replay + live delivery.
+  const run = ctx.runs.get(runId);
+  if (run && sink) {
+    const busSub: BusSubscriber = {
+      subscriptionId,
+      categories,
+      sink,
+    };
+    run.bus.addSubscriber(busSub, afterSeq);
+    return { subscription_id: subscriptionId, latest_seq: run.bus.latestSeq };
+  }
+
+  // Fallback: no run found or no sink (e.g. in M1a tests). latest_seq = 0.
   return { subscription_id: subscriptionId, latest_seq: 0 };
 }
 

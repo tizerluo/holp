@@ -4,12 +4,12 @@
  * spec: flock is 连接级会话状态,不跨连接共享(§4.2);capability negotiation
  * result is fixed at `initialize` (§2); subscriptions + seq are run-scoped (§5).
  *
- * M1a holds the *shape* of this state. Run records, artifact records, and flock
- * are placeholders — the methods that populate them (orchestrate.run, flock.*,
- * artifact.get) are out of scope for this PR.
+ * M1b: typed stores for flock, runs, artifacts, and approvals now populated by
+ * the new handlers (flock.declare, orchestrate.run, approval.resolve, etc.).
  */
 
 import type { NegotiatedCapabilities } from "./capabilities.js";
+import type { FlockAgent, RunRecord, ArtifactRecord, ApprovalRecord } from "./stores.js";
 
 /** A live event subscription (spec §5). seq starts at 1; 0 is the empty sentinel. */
 export interface Subscription {
@@ -54,19 +54,22 @@ export class ConnectionContext {
   initialized: InitializedState | null = null;
 
   /**
-   * flock placeholder — populated by flock.declare/discover (out of M1a scope).
-   * Held as an opaque map so later PRs can fill it without changing this shape.
+   * Flock: per-agent records populated by flock.declare/discover (§3 / §4.2).
+   * Connection-scoped; not shared across connections.
    */
-  readonly flock: Map<string, unknown> = new Map();
+  readonly flock: Map<string, FlockAgent> = new Map();
 
   /** Active subscriptions, keyed by subscription_id (§5). */
   readonly subscriptions: Map<string, Subscription> = new Map();
 
-  /** run records placeholder — orchestrate.run is PR3+. */
-  readonly runs: Map<string, unknown> = new Map();
+  /** Run records populated by orchestrate.run (§4 / §5). */
+  readonly runs: Map<string, RunRecord> = new Map();
 
-  /** artifact records placeholder — artifact.get is out of M1a scope. */
-  readonly artifacts: Map<string, unknown> = new Map();
+  /** Artifact records populated during run execution (§8). */
+  readonly artifacts: Map<string, ArtifactRecord> = new Map();
+
+  /** Approval records keyed by approval_id (§7). */
+  readonly approvals: Map<string, ApprovalRecord> = new Map();
 
   private subscriptionCounter = 0;
 

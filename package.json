@@ -9,7 +9,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "start": "tsx daemon/runtime/server.ts",
-    "dev": "tsx daemon/runtime/server.ts"
+    "dev": "tsx daemon/runtime/server.ts",
+    "demo": "tsx consumers/cli/index.ts"
   },
   "devDependencies": {
     "@types/node": "^22",

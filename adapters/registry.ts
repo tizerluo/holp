@@ -12,6 +12,7 @@
  */
 
 import type { AgentBackend, AgentBackendFactory, TransportClass } from "./agent-backend.js";
+import { createFakeBackendFactory } from "./fake-backend.js";
 
 /** 桩 factory:任何 transport 都返回未接线错误。 */
 export function createStubFactory(transport: TransportClass): AgentBackendFactory {
@@ -59,5 +60,23 @@ export function createDefaultAdapterRegistry(): AdapterRegistry {
     "native-claude": createStubFactory("native-claude"),
     "mcp-codex": createStubFactory("mcp-codex"),
     acp: createStubFactory("acp"),
+  });
+}
+
+/**
+ * Registry with fake backend for DEMO / TEST.
+ * "fake" transport resolves to the deterministic fake backend.
+ * Real transports (native-claude/mcp-codex/acp) remain stubs.
+ *
+ * ⚠️ DEMO/TEST ONLY — "fake" is not a real HOLP transport.
+ * The fake backend replaces the provider, not the protocol path.
+ * Real agent wiring is planned for a future milestone.
+ */
+export function createFakeRegistry(): AdapterRegistry {
+  return createAdapterRegistry({
+    "native-claude": createStubFactory("native-claude"),
+    "mcp-codex": createStubFactory("mcp-codex"),
+    acp: createStubFactory("acp"),
+    fake: createFakeBackendFactory(),
   });
 }

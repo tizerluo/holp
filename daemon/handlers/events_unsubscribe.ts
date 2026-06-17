@@ -25,6 +25,16 @@ export function handleEventsUnsubscribe(req: JsonRpcRequest, ctx: ConnectionCont
     );
   }
 
+  // Get the subscription record before deleting it (need runId to find the bus).
+  const sub = ctx.subscriptions.get(subscriptionId)!;
   ctx.subscriptions.delete(subscriptionId);
+
+  // Remove the subscriber from the run's EventBus so live events stop being delivered
+  // to this sink (spec §5 correctness: unsubscribed sinks must not receive further events).
+  const run = ctx.runs.get(sub.runId);
+  if (run) {
+    run.bus.removeSubscriber(subscriptionId);
+  }
+
   return { subscription_id: subscriptionId, unsubscribed: true };
 }
