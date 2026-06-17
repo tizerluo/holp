@@ -106,7 +106,7 @@ interface Harness {
   dispatch: (method: string, params: unknown, id?: number | string) => Promise<unknown>;
 }
 
-/** Build a fresh dispatcher; if `initialize` is true (default) negotiate approval support. */
+/** Build a fresh dispatcher; unless `initialize:false` is passed, negotiate approval support. */
 async function freshDispatcher(opts?: { initialize?: boolean }): Promise<Harness> {
   const registry = createFakeRegistry();
   const clock = new FakeClock();
@@ -129,11 +129,17 @@ async function freshDispatcher(opts?: { initialize?: boolean }): Promise<Harness
   return { ctx, events, dispatcher, dispatch };
 }
 
-async function pollUntil(pred: () => boolean, maxTicks = 500): Promise<void> {
+/**
+ * Yield microtask ticks until `pred` is true. THROWS if it never becomes true
+ * within `maxTicks` — a missing/misnamed event must surface as a loud failure
+ * here, not as a confusing downstream assertion on stale state.
+ */
+async function pollUntil(pred: () => boolean, label = "pollUntil", maxTicks = 500): Promise<void> {
   for (let i = 0; i < maxTicks; i++) {
     if (pred()) return;
     await Promise.resolve();
   }
+  throw new Error(`${label}: predicate not satisfied after ${maxTicks} ticks`);
 }
 
 /** Drive a fresh run up to the approval_requested pause; returns ids + handle. */
@@ -143,7 +149,7 @@ async function runToApproval(h: Harness): Promise<{ runId: string; approvalId: s
     await h.dispatch("orchestrate.run", { goal: "x", roles: { coder: { agent: "a1" } } }),
   );
   ok(await h.dispatch("events.subscribe", { run_id, after_seq: 0 }));
-  await pollUntil(() => h.events.some((e) => e.name === "approval_requested"));
+  await pollUntil(() => h.events.some((e) => e.name === "approval_requested"), "approval_requested");
   const approvalId = (h.events.find((e) => e.name === "approval_requested")!.payload as Record<string, unknown>)
     .approval_id as string;
   return { runId: run_id, approvalId };
@@ -218,13 +224,13 @@ describe("B. approval has no cancel method (spec §7 single-channel state machin
 // ---------------------------------------------------------------------------
 
 describe("C. Approval terminal race (spec §7: first terminal wins)", () => {
-  it("resolve-first → approval_resolved present, approval_cancelled NEVER emitted for that id", async () => {
+  it("resolve-first → approval_resolved emitted; subsequent task.cancel is idempotent no-op (cancelling:false), no approval_cancelled retro-fired", async () => {
     const h = await freshDispatcher();
     const { runId, approvalId } = await runToApproval(h);
 
     // Client resolves first.
     ok(await h.dispatch("approval.resolve", { approval_id: approvalId, decision: "approved", by: "u" }));
-    await pollUntil(() => h.events.some((e) => e.name === "run_merged"));
+    await pollUntil(() => h.events.some((e) => e.name === "run_merged"), "run_merged");
 
     // task.cancel on the (now terminal) run must be an idempotent no-op and must
     // NOT retroactively cancel the already-resolved approval.
@@ -245,7 +251,7 @@ describe("C. Approval terminal race (spec §7: first terminal wins)", () => {
 
     // Server-side terminal first (task.cancel cancels the pending approval).
     ok(await h.dispatch("task.cancel", { run_id: runId }));
-    await pollUntil(() => h.events.some((e) => e.name === "approval_cancelled"));
+    await pollUntil(() => h.events.some((e) => e.name === "approval_cancelled"), "approval_cancelled");
 
     // A racing client resolve now loses — the approval is already terminal.
     const e = err(await h.dispatch("approval.resolve", { approval_id: approvalId, decision: "approved", by: "u" }));
@@ -286,9 +292,11 @@ describe("D. artifact_refs degraded inline form (spec §2 / §7)", () => {
     expect(details).not.toHaveProperty("content_ref");
     expect(details).not.toHaveProperty("artifact_id");
 
-    // content is the encoded evidence payload (the tool input), decodable as JSON.
+    // content is the encoded evidence payload, decodable as JSON with exactly the
+    // documented shape { tool, input } — full-shape assertion catches a silent
+    // serialization regression, not just presence of `tool`.
     const decoded = JSON.parse(details.content as string) as Record<string, unknown>;
-    expect(decoded).toHaveProperty("tool");
+    expect(Object.keys(decoded).sort()).toEqual(["input", "tool"]);
   });
 });
 
@@ -308,18 +316,17 @@ describe("E. provenance artifact_id as identity (spec §2 / §8.1)", () => {
     // artifact_id is a bare identity slot — present as a key even when there is no
     // artifact yet (null in M1b). §2: this field is NOT controlled by artifact_refs.
     expect(provenance).toHaveProperty("artifact_id");
-    // It is a bare scalar (string | null), never a fetchable envelope object.
-    expect(["string", "object"]).toContain(typeof provenance.artifact_id);
-    if (provenance.artifact_id !== null) {
-      expect(typeof provenance.artifact_id).toBe("string");
-    }
+    // It is a bare scalar — null (no artifact yet, M1b) or a string id — never a
+    // fetchable envelope object. Assert null-or-string explicitly (typeof null is
+    // "object", so a loose typeof check would pass vacuously and mislead).
+    expect(provenance.artifact_id === null || typeof provenance.artifact_id === "string").toBe(true);
   });
 
   it("run_merged.artifact_id is a bare id usable as identity in artifact.get (no artifact_refs needed)", async () => {
     const h = await freshDispatcher();
     const { approvalId } = await runToApproval(h);
     ok(await h.dispatch("approval.resolve", { approval_id: approvalId, decision: "approved", by: "u" }));
-    await pollUntil(() => h.events.some((e) => e.name === "run_merged"));
+    await pollUntil(() => h.events.some((e) => e.name === "run_merged"), "run_merged");
 
     const mergedEv = h.events.find((e) => e.name === "run_merged")!;
     const artifactId = (mergedEv.payload as Record<string, unknown>).artifact_id;
@@ -352,7 +359,7 @@ describe("F. Deferred-semantics boundary (M3/M4/M5) — current behavior locked 
     const h = await freshDispatcher();
     const { approvalId } = await runToApproval(h);
     ok(await h.dispatch("approval.resolve", { approval_id: approvalId, decision: "approved", by: "u" }));
-    await pollUntil(() => h.events.some((e) => e.name === "run_merged"));
+    await pollUntil(() => h.events.some((e) => e.name === "run_merged"), "run_merged");
 
     expect(h.events.some((e) => e.category === "consensus")).toBe(false);
     expect(h.events.some((e) => e.name === "consensus_verdict")).toBe(false);
@@ -369,7 +376,8 @@ describe("F. Deferred-semantics boundary (M3/M4/M5) — current behavior locked 
     expect(typeof (reqEv.payload as Record<string, unknown>).expires_at).toBe("number");
 
     // Drain microtasks generously — without a timer, no expiry transition occurs.
-    for (let i = 0; i < 200; i++) await Promise.resolve();
+    const FAKE_DRAIN_TICKS = 200; // generous microtask drain; M2 has no real expiry timer
+    for (let i = 0; i < FAKE_DRAIN_TICKS; i++) await Promise.resolve();
     expect(h.events.some((e) => e.name === "approval_expired")).toBe(false);
 
     // Clean up the genuinely-paused run.
