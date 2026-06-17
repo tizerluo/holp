@@ -1,0 +1,119 @@
+/**
+ * HOLP reference daemon entrypoint (M1a).
+ *
+ * Wires the stdio control plane: stdin NDJSON reader → dispatcher → stdout
+ * NDJSON writer. Registers the three M1a handlers (initialize, events.subscribe,
+ * events.unsubscribe). orchestrate.run and friends are out of scope — unknown
+ * methods hit -32601 in the dispatcher.
+ *
+ * spec §1 discipline: stdout carries ONLY protocol frames. All logging goes to
+ * stderr (`log` below), so it never pollutes the NDJSON frame stream.
+ *
+ * LAUNCH (protocol transport): the canonical, banner-free launch is running the
+ * entrypoint directly — `tsx daemon/runtime/server.ts` — or `npm run --silent start`.
+ * NEVER use `npm run start` / `npm run dev` (without --silent) as the protocol
+ * transport: `npm run` prints a banner (e.g. "> holp@0.1.4 start") to stdout
+ * BEFORE this process emits anything, which corrupts the NDJSON frame stream.
+ * The `dev` script is a human/debug convenience (stderr logs visible); it is NOT
+ * for protocol I/O.
+ *
+ * Adapter wiring: the daemon names the frozen downward contract type
+ * (AgentBackendFactory) to prove daemon ↔ adapters type-checks under NodeNext.
+ * The stub adapter *registry* (adapters/registry.ts) is type-checked but NOT
+ * statically imported in M1a — see the note at AdapterResolve below.
+ */
+
+import { NdjsonReader, createWriter } from "./ndjson.js";
+import { Dispatcher } from "../core/dispatcher.js";
+import { ConnectionContext } from "../core/context.js";
+import { EventSink } from "../core/eventSink.js";
+import { handleInitialize } from "../handlers/initialize.js";
+import { handleEventsSubscribe } from "../handlers/events_subscribe.js";
+import { handleEventsUnsubscribe } from "../handlers/events_unsubscribe.js";
+import type {
+  AgentBackendFactory,
+  TransportClass,
+} from "../../adapters/agent-backend.js";
+
+/**
+ * The seam by which later milestones (PR3+) inject adapter resolution. Typed
+ * against the frozen downward contract so the daemon ↔ adapters wiring is
+ * type-checked today even though no agent is driven in M1a.
+ *
+ * NOTE: adapters/registry.ts (`createDefaultAdapterRegistry`) now compiles under
+ * NodeNext and is covered by tsc, but the daemon does not yet statically import
+ * it — adapter resolution is wired in a later milestone (PR3+) via this resolver
+ * type, with no daemon-side change to the seam below.
+ */
+export type AdapterResolve = (transport: TransportClass) => AgentBackendFactory | undefined;
+
+/** stderr-only logger — never write logs to stdout (would corrupt the frame stream). */
+function log(...args: unknown[]): void {
+  process.stderr.write(
+    args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ") + "\n",
+  );
+}
+
+/** Register the M1a handlers onto a dispatcher bound to a connection context. */
+export function buildDispatcher(ctx: ConnectionContext): Dispatcher {
+  const dispatcher = new Dispatcher(ctx);
+  dispatcher
+    .register("initialize", handleInitialize)
+    .register("events.subscribe", handleEventsSubscribe)
+    .register("events.unsubscribe", handleEventsUnsubscribe);
+  return dispatcher;
+}
+
+export function main(): void {
+  const ctx = new ConnectionContext();
+  const dispatcher = buildDispatcher(ctx);
+  const write = createWriter((line) => process.stdout.write(line));
+  // Event sink is available for server→client notifications (no source pushes in M1a).
+  const sink = new EventSink(write);
+  void sink;
+
+  // Per-connection serial dispatch queue: each frame chains onto the previous so
+  // responses are written to stdout in arrival order (spec §1 frame discipline).
+  // A frame's failure is logged to stderr and does not break the chain.
+  let chain = Promise.resolve();
+  const reader = new NdjsonReader(
+    (frame) => {
+      chain = chain
+        .then(() => dispatcher.dispatch(frame))
+        .then((response) => {
+          if (response !== undefined) write(response);
+        })
+        .catch((err) => {
+          log("dispatch error:", err instanceof Error ? err.message : String(err));
+        });
+    },
+    (rawLine, error) => {
+      // Unparseable input line: log to stderr; do not emit a frame to stdout.
+      log(
+        "ndjson parse error:",
+        error instanceof Error ? error.message : String(error),
+        "line:",
+        rawLine,
+      );
+    },
+  );
+
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk: string) => reader.push(chunk));
+  process.stdin.on("end", () => {
+    // flush() synchronously emits any trailing buffered frame through the same
+    // reader callback above, which chains its dispatch onto `chain`. Awaiting
+    // `chain` after flush therefore drains every queued response to stdout before
+    // we exit — without this, async handlers could lose their last response frame
+    // on stdin close.
+    reader.flush();
+    void chain.finally(() => process.exit(0));
+  });
+
+  log("holp-reference-daemon M1a: listening on stdio");
+}
+
+// Run when invoked as the entrypoint (tsx daemon/runtime/server.ts).
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main();
+}
