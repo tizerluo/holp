@@ -95,6 +95,8 @@
 
 ## M2:Protocol Contract Tests
 
+> 状态(2026-06-18,PR #9):**契约层已锁定**——consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5(由 `daemon/handlers/m2_contract.test.ts` §F 负向锁定其当前缺席,见下方 Deferral 边界)。**非**无保留的「全覆盖完成」。
+
 目标:把 spec 关键语义变成测试,让后续 provider 接线不会破坏协议层。
 
 交付物:

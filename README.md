@@ -34,8 +34,9 @@ holp/
 - [x] 参考 daemon 协议骨架(`daemon/`)— stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)
 - [x] 参考 consumer CLI(`consumers/cli/`)— 跑通 M1 闭环 demo,**仅用 fake backend**
 - [x] M1 e2e 闭环(`initialize→flock.declare→orchestrate.run→events.subscribe→approval.resolve→artifact.get`)— **fake backend,非真实 provider**
+- [x] M2 契约回归网(`daemon/handlers/m2_contract.test.ts`)— **契约层已锁定;consensus 执行/approval 超时/heartbeat 转交 M3/M4/M5(§F 负向锁定)**
 - [ ] 治理内核/events-decisions-registry 数据骨架/共识/状态机从 loopwright 搬入(M4)
-- [ ] 真实 adapter 接线 + contract regression suite(M2/M3)
+- [ ] 真实 adapter 接线(M3)
 
 > **当前只声称**:protocol draft + adapter contract stub + **fake backend 跑通的 M1 协议闭环**(daemon + CLI demo)。**不声称**已接 native-claude/mcp-codex/acp 真 agent——CLI demo 用的是 `fake` transport,真实 transport 仍是会抛「not wired」的桩。
 
