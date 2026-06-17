@@ -7,6 +7,8 @@
  * - `run_id` accepted as an opaque string; existence is NOT validated in M1a
  *   (orchestrate.run is PR3+). Heartbeats are not filtered by `categories`;
  *   `include_heartbeats` is recorded into the subscription.
+ * - `after_seq` omitted → 0. Explicit values must be a non-negative integer
+ *   because replay semantics are `seq > after_seq` and seq starts at 1.
  * - Returns { subscription_id, latest_seq }. M1a has no real event source, so
  *   latest_seq = 0 (empty-run sentinel; seq starts at 1, 0 = "no events yet").
  */
@@ -29,10 +31,7 @@ export function handleEventsSubscribe(req: JsonRpcRequest, ctx: ConnectionContex
 
   const categories = normalizeCategories(params.categories);
 
-  const afterSeq =
-    typeof params.after_seq === "number" && Number.isFinite(params.after_seq)
-      ? params.after_seq
-      : 0;
+  const afterSeq = normalizeAfterSeq(params.after_seq);
 
   const includeHeartbeats = params.include_heartbeats === true;
 
@@ -87,4 +86,13 @@ function normalizeCategories(value: unknown): readonly EventCategory[] | null {
   }
 
   return value as EventCategory[];
+}
+
+/** Normalize `after_seq`: omitted/null = 0; explicit value must be a non-negative integer. */
+function normalizeAfterSeq(value: unknown): number {
+  if (value === undefined || value === null) return 0;
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
+  throw new HolpRpcError(
+    invalidRequest("events.subscribe: params.after_seq must be a non-negative integer"),
+  );
 }

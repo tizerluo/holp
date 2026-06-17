@@ -91,6 +91,25 @@ describe("events.subscribe (spec §5)", () => {
     expect(stored?.runId).toBe("run_abc");
   });
 
+  it("omitted/null after_seq defaults to 0", async () => {
+    const { ctx, d } = newDispatcher();
+    await d.dispatch(sub({ run_id: "run_abc" }));
+    await d.dispatch(sub({ run_id: "run_def", after_seq: null }));
+
+    expect(ctx.subscriptions.get("sub_1")?.afterSeq).toBe(0);
+    expect(ctx.subscriptions.get("sub_2")?.afterSeq).toBe(0);
+  });
+
+  it("negative, fractional, or non-number after_seq → invalid_request (-32600)", async () => {
+    const { d } = newDispatcher();
+
+    for (const after_seq of [-1, 1.5, "2"]) {
+      const res = (await d.dispatch(sub({ run_id: "run_abc", after_seq }))) as JsonRpcErrorResponse;
+      expect(res.error.code).toBe(JSONRPC_INVALID_REQUEST);
+      expect(res.error.message).toContain("after_seq");
+    }
+  });
+
   it("subscription ids are monotonic per connection", async () => {
     const { d } = newDispatcher();
     const a = (await d.dispatch(sub({ run_id: "r" }))) as JsonRpcSuccessResponse;
