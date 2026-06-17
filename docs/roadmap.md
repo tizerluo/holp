@@ -95,6 +95,8 @@
 
 ## M2:Protocol Contract Tests
 
+> 状态(2026-06-18,PR #9):**契约层已锁定**——consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5(由 `daemon/handlers/m2_contract.test.ts` §F 负向锁定其当前缺席,见下方 Deferral 边界)。**非**无保留的「全覆盖完成」。
+
 目标:把 spec 关键语义变成测试,让后续 provider 接线不会破坏协议层。
 
 交付物:
@@ -117,10 +119,13 @@
 - `artifact_refs:false` 时 findings/details 内联降级,但 `target.artifact_id` / `provenance.artifact_id` 仍可作为身份字段出现。
 - `events.subscribe` 支持 seq replay 和多 subscription 归属。
 
+> **覆盖边界(M1/M2 实现 vs 转交后续)**:上面是按 v0.1.4 协议面的**理想全集**列举。其中 consensus 第 2 段 / `consensus_verdict` / `quorum.met` / `excluded[]` / `errors[]`(转 M4/M5)、approval `approval_expired` 超时(转 M4 run state machine)、heartbeat 不受 category 过滤(转 M3+)、consensus `findings` 内联降级(转 M5)在 M1/M2 **未实现**,故 M2 不把它们做成正向 contract test,而由 `daemon/handlers/m2_contract.test.ts` 的 §F **负向锁定其当前缺席行为**;owning milestone 落地时必须改写/删除对应 §F 断言并补正向测试。逐项拆分见 `docs/pr-specs/pr4-m2-contract-tests.md` 的 **Deferral ledger**。M2 的「consensus 两段式」在本里程碑只锁第 1 段静态 panel 校验(错误码分流);approval/findings 的 `artifact_refs:false` 内联降级在 M2 只锁 approval `details`(§D)。
+
 验收标准:
 
 - 本地测试命令一次跑过。
 - 测试失败能定位到具体协议语义,不是只看 stdout 文案。
+- 「现在锁定」栏全过 + §F 负向锁定到位 → M2 可标「契约层已锁定(consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5)」,不得标无保留的「全覆盖完成」。
 
 非目标:
 
