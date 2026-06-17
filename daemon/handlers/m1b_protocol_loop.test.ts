@@ -45,7 +45,7 @@ describe("M1b closed-loop protocol smoke test", () => {
     const registry = createFakeRegistry();
     const ctx = new ConnectionContext();
     const { sink, events } = makeCollectingSink();
-    const dispatcher = buildDispatcher(ctx, sink, registry);
+    const dispatcher = buildDispatcher(ctx, sink, registry, clock);
 
     // Helper: unwrap dispatcher response (which wraps result in JsonRpcResponse).
     function result<T>(res: unknown): T {
@@ -127,6 +127,7 @@ describe("M1b closed-loop protocol smoke test", () => {
       }
     }
     expect(approval_id).toBeDefined();
+    expect(approval_id).toContain("_1718600000_");
 
     // 5. approval.resolve — resolve the pending approval
     const resolveResult = result<{ approval_id: string; accepted: boolean }>(

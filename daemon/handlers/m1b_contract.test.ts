@@ -72,9 +72,10 @@ async function freshDispatcher(opts?: { registry?: ReturnType<typeof createFakeR
   sink: EventSink;
 }> {
   const registry = opts?.registry ?? createFakeRegistry();
+  const clock = new FakeClock();
   const ctx = new ConnectionContext();
   const { sink, events } = makeCollectingSink();
-  const dispatcher = buildDispatcher(ctx, sink, registry);
+  const dispatcher = buildDispatcher(ctx, sink, registry, clock);
 
   let idCounter = 1;
   const dispatch = async (method: string, params: unknown, id?: number): Promise<unknown> => {
@@ -448,7 +449,7 @@ describe("3. orchestrate.run error ordering (spec §6.2 — fixed 4-stage order)
     const ctx = new ConnectionContext();
     const { sink } = makeCollectingSink();
     const registry = createFakeRegistry();
-    const dispatcher = buildDispatcher(ctx, sink, registry);
+    const dispatcher = buildDispatcher(ctx, sink, registry, new FakeClock());
     let idCtr = 1;
     const dispatchNoApproval = async (method: string, params: unknown): Promise<unknown> =>
       dispatcher.dispatch({ jsonrpc: "2.0", id: idCtr++, method, params });
@@ -852,7 +853,7 @@ describe("7. events seq / replay / multi-sub (spec §5)", () => {
     });
 
     // Subscribe with after_seq = midSeq
-    const dispatcherInternal = buildDispatcher(ctx, replaySink, createFakeRegistry());
+    const dispatcherInternal = buildDispatcher(ctx, replaySink, createFakeRegistry(), new FakeClock());
     await dispatcherInternal.dispatch({
       jsonrpc: "2.0",
       id: 99,
@@ -876,7 +877,7 @@ describe("7. events seq / replay / multi-sub (spec §5)", () => {
       if (f.method === "events.event" && f.params) filteredEvents.push(f.params as EventNotificationParams);
     });
 
-    const dispatcherInternal = buildDispatcher(ctx, filteredSink, createFakeRegistry());
+    const dispatcherInternal = buildDispatcher(ctx, filteredSink, createFakeRegistry(), new FakeClock());
     await dispatcherInternal.dispatch({
       jsonrpc: "2.0",
       id: 100,
@@ -909,8 +910,8 @@ describe("7. events seq / replay / multi-sub (spec §5)", () => {
       if (f.method === "events.event" && f.params) sub2Events.push(f.params as EventNotificationParams);
     });
 
-    const d1 = buildDispatcher(ctx, sink1, createFakeRegistry());
-    const d2 = buildDispatcher(ctx, sink2, createFakeRegistry());
+    const d1 = buildDispatcher(ctx, sink1, createFakeRegistry(), new FakeClock());
+    const d2 = buildDispatcher(ctx, sink2, createFakeRegistry(), new FakeClock());
 
     const r1 = await d1.dispatch({ jsonrpc: "2.0", id: 200, method: "events.subscribe", params: { run_id: runId, after_seq: 0 } });
     const r2 = await d2.dispatch({ jsonrpc: "2.0", id: 201, method: "events.subscribe", params: { run_id: runId, after_seq: 0 } });
@@ -987,7 +988,7 @@ describe("7. events seq / replay / multi-sub (spec §5)", () => {
       const f = frame as { method?: string; params?: unknown };
       if (f.method === "events.event" && f.params) sinkEvents.push(f.params as EventNotificationParams);
     });
-    const dedicatedDispatcher = buildDispatcher(ctx, dedicatedSink, createFakeRegistry());
+    const dedicatedDispatcher = buildDispatcher(ctx, dedicatedSink, createFakeRegistry(), new FakeClock());
     const subRes = ok<{ subscription_id: string }>(
       await dedicatedDispatcher.dispatch({
         jsonrpc: "2.0",

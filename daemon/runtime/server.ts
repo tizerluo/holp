@@ -26,7 +26,7 @@ import { NdjsonReader, createWriter } from "./ndjson.js";
 import { Dispatcher } from "../core/dispatcher.js";
 import { ConnectionContext } from "../core/context.js";
 import { EventSink } from "../core/eventSink.js";
-import { systemClock } from "../core/clock.js";
+import { systemClock, type Clock } from "../core/clock.js";
 import { handleInitialize } from "../handlers/initialize.js";
 import { handleEventsSubscribe } from "../handlers/events_subscribe.js";
 import { handleEventsUnsubscribe } from "../handlers/events_unsubscribe.js";
@@ -62,14 +62,14 @@ function log(...args: unknown[]): void {
  *
  * sink is needed for events.subscribe to replay events to subscribers.
  * registry is the adapter registry (defaults to fake registry for M1b demo).
+ * clock is injectable so tests can pin event timestamps and approval ids.
  */
 export function buildDispatcher(
   ctx: ConnectionContext,
   sink?: EventSink,
   registry = createFakeRegistry(),
+  clock: Clock = systemClock,
 ): Dispatcher {
-  const clock = systemClock;
-
   const dispatcher = new Dispatcher(ctx);
   dispatcher
     .register("initialize", handleInitialize)
