@@ -4,3 +4,11 @@
 # Node / toolchain
 node_modules/
 *.log
+
+# GitNexus local index/context (regenerated; do not upload to GitHub)
+/.gitnexus/
+/.claude/
+/CLAUDE.md
+/AGENTS.md
+/Claude.md
+/agents.md
