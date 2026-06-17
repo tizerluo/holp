@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { ConnectionContext } from "../core/context.js";
 import { Dispatcher } from "../core/dispatcher.js";
 import { handleInitialize, SERVER_PROTOCOL_VERSION } from "./initialize.js";
-import { HOLP_ERROR_CODES } from "../core/errors.js";
+import { HOLP_ERROR_CODES, JSONRPC_INVALID_REQUEST } from "../core/errors.js";
 import type { JsonRpcErrorResponse, JsonRpcSuccessResponse } from "../runtime/jsonrpc.js";
 
 function newDispatcher() {
@@ -112,12 +112,12 @@ describe("initialize: capability negotiation (spec §2)", () => {
     expect(res.error.code).toBe(HOLP_ERROR_CODES.protocol_version_mismatch);
   });
 
-  it("same major, different minor/draft → accepted (compat = MAJOR only in 0.x draft)", async () => {
+  it("same major.minor, different draft segment → accepted (compat = MAJOR.MINOR, §9)", async () => {
     const { d } = newDispatcher();
     const res = (await d.dispatch(
       initReq({
         client: { name: "x", version: "1.0" },
-        protocol_version: "0.1.3", // same major 0
+        protocol_version: "0.1.3", // same major.minor (0.1) as server 0.1.4
         capabilities: {},
       }),
     )) as JsonRpcSuccessResponse;
@@ -152,5 +152,55 @@ describe("initialize: capability negotiation (spec §2)", () => {
     )) as JsonRpcSuccessResponse;
     const caps = (res.result as { capabilities: Record<string, { kinds?: string[] }> }).capabilities;
     expect(caps.approval.kinds).toEqual([]); // empty intersection, connection still up
+  });
+});
+
+describe("initialize: malformed params → -32600 invalid_request (spec §10.1)", () => {
+  it("params not an object → -32600", async () => {
+    const { d } = newDispatcher();
+    const res = (await d.dispatch(initReq("not-an-object"))) as JsonRpcErrorResponse;
+    expect(res.error.code).toBe(JSONRPC_INVALID_REQUEST);
+    expect(res.error.code).not.toBe(HOLP_ERROR_CODES.internal_error);
+  });
+
+  it("empty params {} (missing client) → -32600", async () => {
+    const { d } = newDispatcher();
+    const res = (await d.dispatch(initReq({}))) as JsonRpcErrorResponse;
+    expect(res.error.code).toBe(JSONRPC_INVALID_REQUEST);
+  });
+
+  it("missing protocol_version → -32600", async () => {
+    const { d } = newDispatcher();
+    const res = (await d.dispatch(
+      initReq({ client: { name: "x", version: "1.0" } }),
+    )) as JsonRpcErrorResponse;
+    expect(res.error.code).toBe(JSONRPC_INVALID_REQUEST);
+  });
+});
+
+describe("initialize: protocol version compat = MAJOR.MINOR (spec §9)", () => {
+  it("same major.minor, different draft segment (0.1.9) → accepted", async () => {
+    const { d } = newDispatcher();
+    const res = (await d.dispatch(
+      initReq({
+        client: { name: "x", version: "1.0" },
+        protocol_version: "0.1.9", // 0.1 == server 0.1
+        capabilities: {},
+      }),
+    )) as JsonRpcSuccessResponse;
+    expect(res.result).toBeDefined();
+    expect((res as unknown as JsonRpcErrorResponse).error).toBeUndefined();
+  });
+
+  it("different minor (0.2.0) → protocol_version_mismatch", async () => {
+    const { d } = newDispatcher();
+    const res = (await d.dispatch(
+      initReq({
+        client: { name: "x", version: "1.0" },
+        protocol_version: "0.2.0", // 0.2 != server 0.1
+        capabilities: {},
+      }),
+    )) as JsonRpcErrorResponse;
+    expect(res.error.code).toBe(HOLP_ERROR_CODES.protocol_version_mismatch);
   });
 });

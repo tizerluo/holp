@@ -11,6 +11,15 @@ import type { JsonRpcErrorResponse, JsonRpcSuccessResponse } from "../runtime/js
 
 function newDispatcher() {
   const ctx = new ConnectionContext();
+  // Most routing tests exercise handlers behind the initialize handshake gate
+  // (spec §2); mark the connection initialized so they reach the handler. The
+  // gate itself is covered by a dedicated describe block below.
+  ctx.initialized = {
+    protocolVersion: "0.1.4",
+    clientName: "test",
+    clientVersion: "0",
+    negotiated: {} as never,
+  };
   return new Dispatcher(ctx);
 }
 
@@ -86,5 +95,100 @@ describe("Dispatcher routing (spec §1 / §10.1)", () => {
     })) as JsonRpcErrorResponse;
     expect(res.error.code).toBe(HOLP_ERROR_CODES.internal_error);
     expect(res.error.message).toContain("kaboom");
+  });
+});
+
+describe("Dispatcher handshake gate (spec §2: initialize must be first)", () => {
+  it("a non-initialize method on a fresh (uninitialized) context → -32600 invalid_request", async () => {
+    const ctx = new ConnectionContext();
+    const d = new Dispatcher(ctx).register("events.subscribe", () => ({ subscription_id: "sub_1" }));
+    const res = (await d.dispatch({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "events.subscribe",
+      params: { run_id: "r" },
+    })) as JsonRpcErrorResponse;
+    expect(res.error.code).toBe(JSONRPC_INVALID_REQUEST);
+    expect(res.error.message).toContain("initialize first");
+  });
+
+  it("after initialize, the previously-gated method works", async () => {
+    const ctx = new ConnectionContext();
+    const d = new Dispatcher(ctx)
+      .register("initialize", () => {
+        ctx.initialized = {
+          protocolVersion: "0.1.4",
+          clientName: "test",
+          clientVersion: "0",
+          negotiated: {} as never,
+        };
+        return { ok: true };
+      })
+      .register("events.subscribe", () => ({ subscription_id: "sub_1" }));
+
+    const before = (await d.dispatch({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "events.subscribe",
+      params: { run_id: "r" },
+    })) as JsonRpcErrorResponse;
+    expect(before.error.code).toBe(JSONRPC_INVALID_REQUEST);
+
+    await d.dispatch({ jsonrpc: "2.0", id: 2, method: "initialize", params: {} });
+
+    const after = (await d.dispatch({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "events.subscribe",
+      params: { run_id: "r" },
+    })) as JsonRpcSuccessResponse;
+    expect(after.result).toEqual({ subscription_id: "sub_1" });
+  });
+
+  it("initialize itself is never gated", async () => {
+    const ctx = new ConnectionContext();
+    const d = new Dispatcher(ctx).register("initialize", () => ({ ok: true }));
+    const res = (await d.dispatch({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {},
+    })) as JsonRpcSuccessResponse;
+    expect(res.result).toEqual({ ok: true });
+  });
+
+  it("serial dispatch chain resolves responses in arrival order", async () => {
+    const ctx = new ConnectionContext();
+    ctx.initialized = {
+      protocolVersion: "0.1.4",
+      clientName: "test",
+      clientVersion: "0",
+      negotiated: {} as never,
+    };
+    // 'slow' awaits (async), 'fast' returns synchronously — mirrors the real
+    // async-handler vs sync-path skew that caused out-of-order responses.
+    const d = new Dispatcher(ctx)
+      .register("slow", async () => {
+        await new Promise((r) => setTimeout(r, 10));
+        return { which: "slow" };
+      })
+      .register("fast", () => ({ which: "fast" }));
+
+    const order: number[] = [];
+    let chain = Promise.resolve();
+    for (const [id, method] of [
+      [1, "slow"],
+      [2, "fast"],
+      [3, "slow"],
+      [4, "fast"],
+    ] as const) {
+      chain = chain
+        .then(() => d.dispatch({ jsonrpc: "2.0", id, method }))
+        .then((resp) => {
+          if (resp !== undefined) order.push(resp.id as number);
+        });
+    }
+    await chain;
+    expect(order).toEqual([1, 2, 3, 4]);
   });
 });

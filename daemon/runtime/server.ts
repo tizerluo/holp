@@ -11,8 +11,8 @@
  *
  * Adapter wiring: the daemon names the frozen downward contract type
  * (AgentBackendFactory) to prove daemon ↔ adapters type-checks under NodeNext.
- * The stub adapter *registry* (adapters/registry.ts) is NOT statically imported
- * in M1a — see the note at AdapterResolve below.
+ * The stub adapter *registry* (adapters/registry.ts) is type-checked but NOT
+ * statically imported in M1a — see the note at AdapterResolve below.
  */
 
 import { NdjsonReader, createWriter } from "./ndjson.js";
@@ -32,12 +32,10 @@ import type {
  * against the frozen downward contract so the daemon ↔ adapters wiring is
  * type-checked today even though no agent is driven in M1a.
  *
- * NOTE: adapters/registry.ts (`createDefaultAdapterRegistry`) has a pre-existing
- * extensionless relative import (`from "./agent-backend"`) that NodeNext tsc
- * rejects (TS2835). The adapter contract is frozen (import only, do not modify),
- * so the daemon does not statically import registry.ts. tsx/esbuild tolerates
- * that import at runtime, so once the specifier is corrected the registry can be
- * wired in via this resolver type without any daemon-side change.
+ * NOTE: adapters/registry.ts (`createDefaultAdapterRegistry`) now compiles under
+ * NodeNext and is covered by tsc, but the daemon does not yet statically import
+ * it — adapter resolution is wired in a later milestone (PR3+) via this resolver
+ * type, with no daemon-side change to the seam below.
  */
 export type AdapterResolve = (transport: TransportClass) => AgentBackendFactory | undefined;
 
@@ -66,11 +64,20 @@ export function main(): void {
   const sink = new EventSink(write);
   void sink;
 
+  // Per-connection serial dispatch queue: each frame chains onto the previous so
+  // responses are written to stdout in arrival order (spec §1 frame discipline).
+  // A frame's failure is logged to stderr and does not break the chain.
+  let chain = Promise.resolve();
   const reader = new NdjsonReader(
     (frame) => {
-      void dispatcher.dispatch(frame).then((response) => {
-        if (response !== undefined) write(response);
-      });
+      chain = chain
+        .then(() => dispatcher.dispatch(frame))
+        .then((response) => {
+          if (response !== undefined) write(response);
+        })
+        .catch((err) => {
+          log("dispatch error:", err instanceof Error ? err.message : String(err));
+        });
     },
     (rawLine, error) => {
       // Unparseable input line: log to stderr; do not emit a frame to stdout.

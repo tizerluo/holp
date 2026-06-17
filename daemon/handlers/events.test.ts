@@ -8,6 +8,14 @@ import type { JsonRpcErrorResponse, JsonRpcSuccessResponse } from "../runtime/js
 
 function newDispatcher() {
   const ctx = new ConnectionContext();
+  // events.* are gated behind the initialize handshake (spec §2); these tests
+  // exercise the event handlers, so mark the connection initialized up front.
+  ctx.initialized = {
+    protocolVersion: "0.1.4",
+    clientName: "test",
+    clientVersion: "0",
+    negotiated: {} as never,
+  };
   const d = new Dispatcher(ctx)
     .register("events.subscribe", handleEventsSubscribe)
     .register("events.unsubscribe", handleEventsUnsubscribe);

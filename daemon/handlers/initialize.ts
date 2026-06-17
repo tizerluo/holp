@@ -14,7 +14,7 @@
 
 import { negotiateCapabilities } from "../core/capabilities.js";
 import type { CapabilityMap } from "../core/capabilities.js";
-import { holpError } from "../core/errors.js";
+import { holpError, invalidRequest } from "../core/errors.js";
 import { HolpRpcError } from "../core/dispatcher.js";
 import { isObject } from "../core/internal.js";
 import type { JsonRpcRequest } from "../runtime/jsonrpc.js";
@@ -43,37 +43,37 @@ export const SERVER_CAPABILITIES: CapabilityMap = {
   artifact_refs: { supported: true },
 };
 
-/** Major version = the first dot-separated segment (§9: 兼容性只看 MAJOR.MINOR, major 必须同). */
-function majorOf(version: string): string {
-  return version.split(".")[0] ?? "";
+/** MAJOR.MINOR = the first two dot-separated segments (§9: 兼容性比 MAJOR.MINOR, 第三段不计). */
+function majorMinorOf(version: string): string {
+  return version.split(".").slice(0, 2).join(".");
 }
 
 export function handleInitialize(req: JsonRpcRequest, ctx: ConnectionContext): unknown {
   const params = req.params;
   if (!isObject(params)) {
-    throw new HolpRpcError(holpError("internal_error", "initialize: params must be an object"));
+    throw new HolpRpcError(invalidRequest("initialize: params must be an object"));
   }
 
   const client = params.client;
   if (!isObject(client) || typeof client.name !== "string" || typeof client.version !== "string") {
     throw new HolpRpcError(
-      holpError("internal_error", "initialize: params.client.{name,version} required"),
+      invalidRequest("initialize: params.client.{name,version} required"),
     );
   }
 
   const clientProtocol = params.protocol_version;
   if (typeof clientProtocol !== "string") {
     throw new HolpRpcError(
-      holpError("internal_error", "initialize: params.protocol_version (string) required"),
+      invalidRequest("initialize: params.protocol_version (string) required"),
     );
   }
 
-  // §9: major mismatch → reject. draft 第三段不计入兼容性判定。
-  if (majorOf(clientProtocol) !== majorOf(SERVER_PROTOCOL_VERSION)) {
+  // §9: MAJOR.MINOR mismatch → reject. draft 第三段不计入兼容性判定。
+  if (majorMinorOf(clientProtocol) !== majorMinorOf(SERVER_PROTOCOL_VERSION)) {
     throw new HolpRpcError(
       holpError(
         "protocol_version_mismatch",
-        `client protocol ${clientProtocol} major-incompatible with server ${SERVER_PROTOCOL_VERSION}`,
+        `client protocol ${clientProtocol} major.minor-incompatible with server ${SERVER_PROTOCOL_VERSION}`,
         { client: clientProtocol, server: SERVER_PROTOCOL_VERSION },
       ),
     );

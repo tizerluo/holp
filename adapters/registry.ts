@@ -11,7 +11,7 @@
  *   - 桩只让协议 daemon 的骨架能编译+跑协议握手,不假装真能 spawn claude/codex。
  */
 
-import type { AgentBackend, AgentBackendFactory, TransportClass } from "./agent-backend";
+import type { AgentBackend, AgentBackendFactory, TransportClass } from "./agent-backend.js";
 
 /** 桩 factory:任何 transport 都返回未接线错误。 */
 export function createStubFactory(transport: TransportClass): AgentBackendFactory {

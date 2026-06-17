@@ -70,6 +70,19 @@ export class Dispatcher {
       return makeError(frame.id, methodNotFound(frame.method));
     }
 
+    // Handshake gate (spec §2): initialize must be the first message. Every other
+    // method is rejected until the connection is initialized. There is no
+    // dedicated HOLP code for out-of-order calls, so a malformed-sequence client
+    // request maps to -32600 invalid_request (spec §10.1). Non-initialize
+    // notifications were already dropped above (they carry no id), so only
+    // requests (id present) reach here.
+    if (frame.method !== "initialize" && !this.ctx.initialized) {
+      return makeError(
+        frame.id,
+        invalidRequest(`method '${frame.method}' requires initialize first`),
+      );
+    }
+
     try {
       const result = await handler(frame, this.ctx);
       // A handler may return a JsonRpcError object directly to signal failure.
