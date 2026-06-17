@@ -9,6 +9,14 @@
  * spec §1 discipline: stdout carries ONLY protocol frames. All logging goes to
  * stderr (`log` below), so it never pollutes the NDJSON frame stream.
  *
+ * LAUNCH (protocol transport): the canonical, banner-free launch is running the
+ * entrypoint directly — `tsx daemon/runtime/server.ts` — or `npm run --silent start`.
+ * NEVER use `npm run start` / `npm run dev` (without --silent) as the protocol
+ * transport: `npm run` prints a banner (e.g. "> holp@0.1.4 start") to stdout
+ * BEFORE this process emits anything, which corrupts the NDJSON frame stream.
+ * The `dev` script is a human/debug convenience (stderr logs visible); it is NOT
+ * for protocol I/O.
+ *
  * Adapter wiring: the daemon names the frozen downward contract type
  * (AgentBackendFactory) to prove daemon ↔ adapters type-checks under NodeNext.
  * The stub adapter *registry* (adapters/registry.ts) is type-checked but NOT
@@ -93,8 +101,13 @@ export function main(): void {
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (chunk: string) => reader.push(chunk));
   process.stdin.on("end", () => {
+    // flush() synchronously emits any trailing buffered frame through the same
+    // reader callback above, which chains its dispatch onto `chain`. Awaiting
+    // `chain` after flush therefore drains every queued response to stdout before
+    // we exit — without this, async handlers could lose their last response frame
+    // on stdin close.
     reader.flush();
-    process.exit(0);
+    void chain.finally(() => process.exit(0));
   });
 
   log("holp-reference-daemon M1a: listening on stdio");
