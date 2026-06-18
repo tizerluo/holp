@@ -76,6 +76,7 @@
 | approval `requested → expired` + 超时定时器 | M4(run state machine) | pending approval 不会自发 `approval_expired`(无定时器);`expires_at` 字段已存在供未来定时器使用 | M4 实现 expiry timer 时,删除负向断言,补 `approval_expired` 状态机正向断言 + §7 race 的 server-timeout 分支 |
 | heartbeat 不受 `categories` 过滤 | M3+(lifecycle heartbeat 发射后) | 当前不发 heartbeat;`include_heartbeats` 参数已解析但 bus 未旁路 | heartbeat 发射落地时,补 bus 旁路 + 「心跳不受 category 过滤」正向断言 |
 | `artifact_refs:false` 时 consensus **`reviews[].findings`** 内联降级 | M5(findings 随共识产出) | (approval `details` 内联已在 §D 锁定;findings 待共识执行) | M5 共识执行产出 findings 时,补 findings 内联降级断言 |
+| v0.1.5 runtime surface / isolation readiness matrix | Issue #11 / PR6+ | M2 只锁 v0.1.4 关键语义;不要求 fake daemon 正向产出 `runtime_surfaces` 矩阵 | PR6 引入 governance data skeleton 时,补 declare/discover 与 registry/run metadata 的矩阵正向 contract test |
 
 ## 非目标
 

@@ -43,7 +43,7 @@
 - `protocol/version.md` 和 `README.md` 不声称 daemon、consumer、tests、真实 adapter 已存在。
 - `docs/roadmap.md` 仍明确实现项未落地。
 - 范围回归检查按意图拆分,避免把合法 changelog/否定说明当误报:
-  - 当前版本声明必须仍是 v0.1.4 draft:`rg -n "v0\\.1\\.4 \\(draft\\)" protocol/spec.md protocol/version.md README.md`。
+  - 当前版本声明检查以最新协议基准为准。v0.1.5 修订后应为:`rg -n "v0\\.1\\.5( \\(draft\\)| draft)" protocol/spec.md protocol/version.md README.md`。
   - v0.1.x wire/example 不得出现 `content_ref` 字段:`! rg -n '"content_ref"\\s*:' protocol docs README.md`。允许在"不返回 content_ref"这类否定说明中出现该词。
   - v0.1.x wire/example 不得出现 Remote execution shape:`! rg -n '"execution_mode"\\s*:\\s*\\{\\s*"kind"\\s*:\\s*"Remote"' protocol docs README.md`。允许 Remote 出现在 future/non-goal/changelog 语境中。
 - 除文档/协议注释外,不改 runtime 源码。
@@ -51,3 +51,7 @@
 ## Review 重点
 
 这是冻结门。如果 PR 开始写 daemon 或测试框架,就不再是 M0,应拆分。
+
+## 后续基准修订
+
+M0 冻结的是 v0.1.4 以前的协议面。Issue #11 后续已把 runtime surface / isolation readiness matrix 提升为 v0.1.5 draft 基准;这不倒改 PR1 的完成边界,但后续 SPEC/实现必须以 v0.1.5 为当前协议目标。

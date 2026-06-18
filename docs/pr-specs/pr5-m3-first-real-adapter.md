@@ -15,6 +15,7 @@
 ## 当前实施状态
 
 - `"mcp-codex"` 已接 Codex app-server over stdio 真实 adapter。
+- 该实现只证明 Codex app-server 这一种 runtime kind 可作为首个真实 adapter;不代表 Codex 的 headless / ACP / MCP / direct_user_session 全部支持,也不代表 12 个 agent 的三类运行面已支持。
 - `native-claude`、`acp` 仍是 honest stubs,不会伪装 ready。
 - `createFakeRegistry()` 继续保留 M1/M2 demo/test fake path;CLI demo 显式设置 `HOLP_REGISTRY=fake`。
 - 本机已登录 Codex 时,manual smoke 已验证 `flock.discover` ready + safe prompt `HOLP_SMOKE_OK` 进入 `model_output` 并以无 artifact 的 `run_merged` 收束。
@@ -23,6 +24,8 @@
 ## 范围
 
 新增一个真实 adapter。目标:Codex。PR5 选定接入面为 **Codex app-server over stdio**,注册到 HOLP 既有 transport 名 `"mcp-codex"`。这里的 transport 名沿用协议词表,但实现面是 Codex app-server,不是 `codex mcp-server`,也不是 happier ACP wrapper。
+
+按 v0.1.5 baseline 解释,PR5 只覆盖 `runtime_surface=headless`、`runtime_kind=app_server` 下的 Codex adapter 与 `real_provider_smoke` 第一例;其他 runtime surface 必须在后续 declaration/isolation matrix 中显式返回 unknown/unsupported/rejected,不能从 PR5 成功自动推导。
 
 预期产出:
 

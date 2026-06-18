@@ -2,7 +2,7 @@
 
 > 本文件是 `spec.md` 的派生索引,语义以 `spec.md` 为准,本文件只做清单与回链,不重新定义语义。
 
-适用版本:**v0.1.4 (draft)**。回链中的 `§N` 指 `protocol/spec.md` 的章节号。
+适用版本:**v0.1.5 (draft)**。回链中的 `§N` 指 `protocol/spec.md` 的章节号。
 目的:让 review 者和实现者无需通读 spec,就能一次拿到完整的方法 / 事件 / 错误码 / capability / 语义边界清单,且每条都能回链到 spec 的具体章节。
 
 ---
@@ -14,8 +14,8 @@
 | 方法名 | 方向 | 一句话用途 | spec § |
 |---|---|---|---|
 | `initialize` | client→server | 握手:双方报身份 + 细粒度 capability 协商(descriptor 交集) | §2 |
-| `flock.declare` | client→server | push:把「有哪几家 agent、什么 transport/roles」声明为数据(intent) | §3.1 |
-| `flock.discover` | client→server | pull:让 orchestrator 主动探测本地 agent 的安装/登录/版本 | §3.2 |
+| `flock.declare` | client→server | push:把「有哪几家 agent、什么 transport/roles」声明为数据(intent),并要求回执能表达 runtime surface / isolation readiness matrix | §3.1 / §3.4 |
+| `flock.discover` | client→server | pull:让 orchestrator 主动探测本地 agent 的安装/登录/版本,并返回 runtime surface / isolation readiness matrix | §3.2 / §3.4 |
 | `orchestrate.run` | client→server | 发起编排目标:派单 roles、reviewer panel/quorum、execution_mode、policy | §4 |
 | `events.subscribe` | client→server | 订阅某 run 的事件流(立即返回 `subscription_id` + `latest_seq`) | §5 |
 | `events.unsubscribe` | client→server | 取消某 `subscription_id` 的订阅 | §5 |
@@ -151,6 +151,8 @@ JSON-RPC error object:`{ code, message, data }`。HOLP 专用码用区间 `-3200
 | role mismatch → `role_unsupported` | 被派 agent 的 `resolved_roles` 不含目标角色(或 degraded agent 缺该角色)→ 独立错误码 `role_unsupported`(-32018) | §4.2 / §6.2 / §10 |
 | rejected agent 按用途分流 | known-but-rejected agent:用于 reviewer panel → 走 §6.2 形状校验 `invalid_quorum`(panel 含 rejected);用于单点 role(coder/architect/tester 等)→ 走 `unsupported_transport`/`missing_auth` | §4.2 / §6.2 / §10.1 |
 | degraded agent 条件可用 | known-but-degraded agent:仅当其 `resolved_roles` 含目标角色且声明/发现未把该角色标缺失时可用;否则按 role 不匹配走 `role_unsupported` | §4.2 / §6.2 |
+| runtime surface matrix 是必备语义 | `ready` 不表示 agent 整体可用,只表示某个 runtime surface + isolation profile 下可调度。`flock.declare`/`flock.discover` 必须能表达 `headless`/`acp`/`direct_user_session`、runtime kind、direct channel、isolation readiness、state declaration ref、global mutation risk;当前实现可以返回 unknown/unsupported/rejected,但空白不是合格声明 | §3.4 |
+| direct_user_session 必须显式声明 | Happy/Happier product session 与 Warp/cmux/tmux terminal session 不能从 headless/ACP adapter 自动推导;必须声明 attach/inject/interrupt/cancel、owner scope 和 route/session 隔离边界 | §3.4 |
 | 错误码定序固定 | 引用合法性(`agent_not_found`)→ role 匹配(`role_unsupported`)→ quorum 形状(`invalid_quorum`)→ 策略不足(`quorum_unsatisfiable`),四段不重叠 | §6.2 |
 | Remote 不进 v0.1.x wire | `execution_mode.kind` 唯一合法值 `"Local"`;其他值 → `unsupported_execution_mode`(-32013)。Remote(workspace sync/secret scope/artifact transport/network/cost/identity)留独立扩展 proposal,当前 wire 不含任何 Remote 形状,届时作为新 minor + capability `remote_runner` 引入 | §4.1 / §10 |
 | flock 永远部分成功 | `flock.declare`/`flock.discover` 永远返回 per-agent `status`(ready/degraded/rejected + reason + missing),不抛 JSON-RPC error(哪怕全部 rejected);`unsupported_transport`/`missing_auth` 作为 `status=rejected` 的 reason;只有请求格式非法才抛 `invalid_request`(-32600) | §3.3 / §10.1 |

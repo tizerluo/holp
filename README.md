@@ -24,12 +24,12 @@ holp/
 
 ## 状态
 
-🚧 **v0.1.4 draft**(经多轮深度 review + 一轮跨仓来源核查迭代),参考实现进行中。
+🚧 **v0.1.5 draft**(v0.1.4 之后吸收 Issue #11 harness isolation baseline),参考实现进行中。
 
 - [x] 定位(`docs/positioning.md`)
 - [x] 整体规划(`docs/roadmap.md`)
 - [x] 8 PR 拆解 SPEC(`docs/pr-specs/`)
-- [x] 协议 spec v0.1.4(`protocol/spec.md`)— 经 v0.1→v0.1.1→v0.1.2→v0.1.3→v0.1.4 迭代(末轮为跨仓来源核查 + 互操作缺口修补)
+- [x] 协议 spec v0.1.5(`protocol/spec.md`)— 经 v0.1→v0.1.4 迭代后,在 v0.1.5 把 runtime surface / isolation readiness matrix 提升为协议基准
 - [x] 朝下 adapter 契约 + 首个真实 adapter(`adapters/`)— **mcp-codex 接 Codex app-server;native-claude/acp 仍是桩**
 - [x] 参考 daemon 协议骨架(`daemon/`)— stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)
 - [x] 参考 consumer CLI(`consumers/cli/`)— 跑通 M1 闭环 demo,**仅用 fake backend**
@@ -38,13 +38,17 @@ holp/
 - [ ] 治理内核/events-decisions-registry 数据骨架/共识/状态机从 loopwright 搬入(M4)
 - [x] 真实 adapter 接线(M3)— **Codex app-server over stdio 注册为 `mcp-codex`;自动覆盖 fake/app-server harness,真实 smoke 依赖本机 Codex auth**
 
-> **当前只声称**:protocol draft + **fake backend 跑通的 M1 协议闭环**(daemon + CLI demo)+ M2 契约层 + **Codex app-server 作为首个真实 adapter**。CLI demo 仍显式使用 `fake` transport;`native-claude`/`acp` 仍是桩,不声称已接。
+> **当前只声称**:protocol draft + **fake backend 跑通的 M1 协议闭环**(daemon + CLI demo)+ M2 契约层 + **Codex app-server 作为首个真实 adapter** + v0.1.5 runtime surface/isolation baseline。CLI demo 仍显式使用 `fake` transport;`native-claude`/`acp` 仍是桩,不声称已接,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`。
 
-## 协议速览(v0.1.4)
+> 参考 daemon 当前代码仍按 v0.1.4 contract 常量运行;v0.1.5 是协议基准修订,PR6+ 必须把矩阵模型落进 registry/run metadata 后,才能声称 runtime 支持该基准。
+
+## 协议速览(v0.1.5)
 
 stdio,两面:JSON-RPC 控制面 + 带 subscription_id 的事件 notification 流。consumer 声明/发现 agent 队伍 → 发编排目标 → 订阅事件 → 需要时人拍板(approval 单通道状态机)。
 
-12 章:握手+能力 / flock(declare+discover) / orchestrate.run / events.subscribe / consensus / approval / artifact / 版本化 / 错误模型 / unattended policy / 实现边界。(lifecycle 不单列章,是事件流的 category + `task.cancel` 命令。)详见 `protocol/spec.md`。
+12 章:握手+能力 / flock(declare+discover,含 runtime surface + isolation readiness matrix) / orchestrate.run / events.subscribe / consensus / approval / artifact / 版本化 / 错误模型 / unattended policy / 实现边界。(lifecycle 不单列章,是事件流的 category + `task.cancel` 命令。)详见 `protocol/spec.md`。
+
+v0.1.5 基准要求 HOLP 能表达每个 harness 在 `headless`、`acp`、`direct_user_session` 三类运行面和不同 isolation profile 下的 readiness。`ready` 不表示 agent 整体可用,只表示某个 runtime surface + isolation profile 可调度。
 
 ## 设计来源(不凭空发明)
 
