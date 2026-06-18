@@ -14,16 +14,17 @@ describe("HOLP error codes", () => {
     expect(HOLP_ERROR_CODES.capability_required_but_unsupported).toBe(-32002);
     expect(HOLP_ERROR_CODES.invalid_subscription).toBe(-32017);
     expect(HOLP_ERROR_CODES.invalid_event_category).toBe(-32020);
+    expect(HOLP_ERROR_CODES.isolation_profile_rejected).toBe(-32021);
     expect(HOLP_ERROR_CODES.internal_error).toBe(-32099);
   });
 
-  it("defines all 21 HOLP codes in -32001..-32020 plus -32099, each unique", () => {
+  it("defines all HOLP codes in -32001..-32021 plus -32099, each unique", () => {
     const codes = Object.values(HOLP_ERROR_CODES);
-    expect(codes.length).toBe(21);
-    expect(new Set(codes).size).toBe(21); // one error one code
+    expect(codes.length).toBe(22);
+    expect(new Set(codes).size).toBe(22); // one error one code
     const sorted = [...codes].sort((a, b) => a - b);
     expect(sorted[0]).toBe(-32099);
-    expect(sorted[1]).toBe(-32020);
+    expect(sorted[1]).toBe(-32021);
     expect(sorted[sorted.length - 1]).toBe(-32001);
   });
 

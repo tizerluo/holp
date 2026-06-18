@@ -7,7 +7,9 @@
  *   3. invalid_quorum (-32007): reviewer panel shape illegal.
  *   4. quorum_unsatisfiable (-32004): shape legal but reviewer-capable count < quorum.
  *   5. unsupported_execution_mode (-32013): kind != "Local".
- *   6. -32600 invalid_request for malformed params.
+ *   6. approval_required_but_unsupported (-32003): client cannot handle approval.
+ *   7. isolation_profile_rejected (-32021): selected runtime/profile cannot be scheduled.
+ *   8. -32600 invalid_request for malformed params.
  *
  * On success: create run record, return { run_id, accepted:true } immediately,
  * and kick off the selected backend session asynchronously.
@@ -23,6 +25,12 @@ import { EventBus } from "../core/eventBus.js";
 import type { AdapterRegistry } from "../../adapters/registry.js";
 import type { Clock } from "../core/clock.js";
 import { driveRun } from "../core/runEngine.js";
+import {
+  findRuntimeProfile,
+  runtimeSelectionFromDeclaration,
+  type IsolationProfile,
+  type RuntimeSelectionMetadata,
+} from "../../adapters/harness-declaration.js";
 
 // M1b single-connection; per-connection run-id scoping deferred (see ConnectionContext.subscriptionCounter for the pattern).
 let runCounter = 0;
@@ -212,6 +220,63 @@ export function handleOrchestrateRun(
     );
   }
 
+  // --- Validation step 7: runtime surface + isolation profile readiness ---
+  // This is intentionally appended after the existing accept-time gates so it
+  // cannot mask the long-standing M1/M2 error ordering. It resolves declaration
+  // metadata only; backend runtime isolation enforcement is deferred.
+  const runtimeSelections = new Map<string, RuntimeSelectionMetadata>();
+  for (const ref of agentRefs) {
+    if (ref.isPanel) continue;
+    const agent = ctx.flock.get(ref.agentId) as FlockAgent;
+    const selection = resolveRuntimeSelection(agent, ref.role);
+    runtimeSelections.set(runtimeKey(ref.agentId, ref.role), selection);
+  }
+  if (reviewerPanel.length > 0) {
+    const reviewerSelections: Array<{
+      agentId: string;
+      selection: RuntimeSelectionMetadata;
+    }> = [];
+    const rejectedReviewers: Array<{
+      agent_id: string;
+      reason: string;
+      missing?: readonly string[];
+      warnings?: readonly string[];
+    }> = [];
+
+    for (const agentId of reviewerPanel) {
+      const agent = ctx.flock.get(agentId) as FlockAgent;
+      try {
+        reviewerSelections.push({
+          agentId,
+          selection: resolveRuntimeSelection(agent, "reviewer"),
+        });
+      } catch (error) {
+        rejectedReviewers.push(isolationFailureForPanel(agentId, error));
+      }
+    }
+
+    if (reviewerSelections.length < quorum) {
+      throw new HolpRpcError(
+        holpError(
+          "isolation_profile_rejected",
+          `only ${reviewerSelections.length} reviewer agents satisfy read_only_review but quorum=${quorum}`,
+          {
+            role: "reviewer",
+            runtime_surface: "headless",
+            isolation_profile: "read_only_review",
+            available: reviewerSelections.length,
+            quorum,
+            rejected_agents: rejectedReviewers,
+          },
+        ),
+      );
+    }
+
+    for (const reviewer of reviewerSelections) {
+      runtimeSelections.set(runtimeKey(reviewer.agentId, "reviewer"), reviewer.selection);
+    }
+  }
+
   // --- Determine coder agent (required for the current single-backend run) ---
   let coderAgentId: string | undefined;
   if (isObject(roles.coder) && typeof (roles.coder as Record<string, unknown>).agent === "string") {
@@ -223,7 +288,11 @@ export function handleOrchestrateRun(
   if (!coderAgentId) {
     // Fallback: find any ready agent in the flock.
     for (const [id, agent] of ctx.flock) {
-      if (agent.status === "ready") {
+      if (
+        agent.status === "ready" &&
+        agent.resolved_roles.includes("coder") &&
+        canSelectRuntime(agent, "coder")
+      ) {
         coderAgentId = id;
         break;
       }
@@ -240,6 +309,8 @@ export function handleOrchestrateRun(
   }
 
   const coderAgent = ctx.flock.get(coderAgentId) as FlockAgent;
+  const coderRuntime = runtimeSelections.get(runtimeKey(coderAgentId, "coder")) ??
+    resolveRuntimeSelection(coderAgent, "coder");
   const factory = registry.resolve(coderAgent.transport);
   if (!factory) {
     throw new HolpRpcError(
@@ -257,6 +328,7 @@ export function handleOrchestrateRun(
     trigger,
     status: "active",
     bus,
+    runtime: coderRuntime,
     pendingApprovals: new Set(),
     approvalSeq: 0,
   };
@@ -319,4 +391,106 @@ export function handleOrchestrateRun(
   void driveRun(run, backend, ctx, clock);
 
   return { run_id: runId, accepted: true };
+}
+
+function runtimeKey(agentId: string, role: string): string {
+  return `${agentId}:${role}`;
+}
+
+function defaultIsolationProfileForRole(role: string): IsolationProfile {
+  return role === "coder" ? "coder_worktree" : "read_only_review";
+}
+
+function canSelectRuntime(agent: FlockAgent, role: string): boolean {
+  try {
+    resolveRuntimeSelection(agent, role);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveRuntimeSelection(agent: FlockAgent, role: string): RuntimeSelectionMetadata {
+  const runtimeSurface = "headless";
+  const isolationProfile = defaultIsolationProfileForRole(role);
+  const resolved = findRuntimeProfile(agent.runtime_surfaces, runtimeSurface, isolationProfile);
+
+  if (!resolved) {
+    throw isolationError(agent, role, isolationProfile, {
+      reason: "isolation_declaration_missing",
+      missing: [`runtime_surface:${runtimeSurface}`, `isolation_profile:${isolationProfile}`],
+    });
+  }
+
+  if (resolved.profile.readiness === "rejected") {
+    throw isolationError(agent, role, isolationProfile, {
+      reason: resolved.profile.reason ?? "isolation_profile_rejected",
+      missing: resolved.profile.missing,
+      warnings: resolved.profile.warnings,
+    });
+  }
+
+  return runtimeSelectionFromDeclaration({
+    agentId: agent.id,
+    transport: agent.transport,
+    runtimeSurface,
+    isolationProfile,
+    declaration: resolved.surface,
+    profile: resolved.profile,
+  });
+}
+
+function isolationError(
+  agent: FlockAgent,
+  role: string,
+  isolationProfile: IsolationProfile,
+  detail: {
+    reason: string;
+    missing?: readonly string[];
+    warnings?: readonly string[];
+  },
+): HolpRpcError {
+  return new HolpRpcError(
+    holpError(
+      "isolation_profile_rejected",
+      `agent '${agent.id}' cannot satisfy ${isolationProfile} for role '${role}'`,
+      {
+        agent_id: agent.id,
+        role,
+        transport: agent.transport,
+        runtime_surface: "headless",
+        isolation_profile: isolationProfile,
+        reason: detail.reason,
+        missing: detail.missing,
+        warnings: detail.warnings,
+      },
+    ),
+  );
+}
+
+function isolationFailureForPanel(
+  agentId: string,
+  error: unknown,
+): {
+  agent_id: string;
+  reason: string;
+  missing?: readonly string[];
+  warnings?: readonly string[];
+} {
+  if (error instanceof HolpRpcError) {
+    const data = error.rpc.data;
+    if (isObject(data)) {
+      return {
+        agent_id: agentId,
+        reason: typeof data.reason === "string" ? data.reason : error.rpc.message,
+        missing: Array.isArray(data.missing) ? data.missing.map(String) : undefined,
+        warnings: Array.isArray(data.warnings) ? data.warnings.map(String) : undefined,
+      };
+    }
+    return { agent_id: agentId, reason: error.rpc.message };
+  }
+  return {
+    agent_id: agentId,
+    reason: error instanceof Error ? error.message : "isolation_profile_rejected",
+  };
 }

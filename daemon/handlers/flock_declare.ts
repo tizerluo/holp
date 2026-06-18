@@ -20,6 +20,7 @@ import type { JsonRpcRequest } from "../runtime/jsonrpc.js";
 import type { ConnectionContext } from "../core/context.js";
 import type { FlockAgent } from "../core/stores.js";
 import type { AdapterRegistry } from "../../adapters/registry.js";
+import type { IsolationProfile } from "../../adapters/harness-declaration.js";
 
 /**
  * Probe a declared agent against the adapter registry.
@@ -40,17 +41,32 @@ async function probeAgent(
     transport: declared.transport,
     roles,
     cwd: process.cwd(),
+    runtimeSurface: "headless",
+    isolationProfile: defaultProbeIsolationProfile(roles),
+    runIntent: "flock.declare",
+    workspaceId: process.cwd(),
+    sessionRouteKey: declared.id,
   });
   return {
     id: declared.id,
     transport: declared.transport,
+    harness_id: result.harness_id,
+    vendor: result.vendor,
+    transport_class: result.transport_class,
     status: result.status,
     version: result.version,
     logged_in: result.logged_in,
     resolved_roles: result.resolved_roles ?? [],
     missing: result.missing,
     reason: result.reason,
+    runtime_surfaces: result.runtime_surfaces,
+    state_declaration_ref: result.state_declaration_ref,
+    global_mutation_required: result.global_mutation_required,
   };
+}
+
+function defaultProbeIsolationProfile(roles: readonly string[]): IsolationProfile {
+  return roles.includes("coder") ? "coder_worktree" : "read_only_review";
 }
 
 export async function handleFlockDeclare(
@@ -101,8 +117,16 @@ export function serializeFlockAgent(a: FlockAgent): Record<string, unknown> {
   };
   if (a.version !== undefined) out.version = a.version;
   if (a.logged_in !== undefined) out.logged_in = a.logged_in;
+  if (a.harness_id !== undefined) out.harness_id = a.harness_id;
+  if (a.vendor !== undefined) out.vendor = a.vendor;
+  if (a.transport_class !== undefined) out.transport_class = a.transport_class;
   if (a.resolved_roles.length > 0) out.resolved_roles = a.resolved_roles;
   if (a.missing !== undefined && a.missing.length > 0) out.missing = a.missing;
   if (a.reason !== undefined) out.reason = a.reason;
+  if (a.runtime_surfaces !== undefined) out.runtime_surfaces = a.runtime_surfaces;
+  if (a.state_declaration_ref !== undefined) out.state_declaration_ref = a.state_declaration_ref;
+  if (a.global_mutation_required !== undefined) {
+    out.global_mutation_required = a.global_mutation_required;
+  }
   return out;
 }

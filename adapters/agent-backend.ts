@@ -14,6 +14,12 @@
  * - permissionHandler → 协议 approval + daemon 裁决内核介入"中途拦工具调用"
  */
 
+import type {
+  HarnessDeclarationMetadata,
+  IsolationProfile,
+  RuntimeSurface,
+} from "./harness-declaration.js";
+
 /** agent 能担的角色(来源 loopwright triage/reviewer role + harness_registry.role_fitness) */
 export type Role =
   | "architect"
@@ -83,9 +89,14 @@ export interface AgentProbeInput {
   readonly transport: TransportClass;
   readonly roles: readonly string[];
   readonly cwd: string;
+  readonly runtimeSurface?: RuntimeSurface;
+  readonly isolationProfile?: IsolationProfile;
+  readonly runIntent?: string;
+  readonly workspaceId?: string;
+  readonly sessionRouteKey?: string;
 }
 
-export interface AgentProbeResult {
+export interface AgentProbeResult extends HarnessDeclarationMetadata {
   readonly status: "ready" | "degraded" | "rejected";
   readonly version?: string;
   readonly logged_in?: boolean;

@@ -10,6 +10,12 @@ import type {
   AgentProbeResult,
   PermissionVerdict,
 } from "./agent-backend.js";
+import {
+  rejectedProfiles,
+  withProfile,
+  type IsolationProfileReadiness,
+  type RuntimeSurfaceDeclaration,
+} from "./harness-declaration.js";
 
 const DEFAULT_PROBE_TIMEOUT_MS = 4_000;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -74,6 +80,12 @@ export async function probeCodexAppServer(
   if (version.code !== 0) {
     return {
       status: "rejected",
+      harness_id: "codex",
+      vendor: "OpenAI",
+      transport_class: input.transport,
+      runtime_surfaces: codexRuntimeSurfaces("rejected", "missing_binary_codex"),
+      state_declaration_ref: "harness-state:codex",
+      global_mutation_required: false,
       resolved_roles: [],
       logged_in: false,
       missing: ["binary:codex", ...input.roles.map((role) => `role:${role}`)],
@@ -91,6 +103,15 @@ export async function probeCodexAppServer(
   if (!loggedIn) {
     return {
       status: mentionsAuth ? "rejected" : "degraded",
+      harness_id: "codex",
+      vendor: "OpenAI",
+      transport_class: input.transport,
+      runtime_surfaces: codexRuntimeSurfaces(
+        mentionsAuth ? "rejected" : "degraded",
+        mentionsAuth ? "codex_auth_not_configured" : "codex_auth_status_unknown",
+      ),
+      state_declaration_ref: "harness-state:codex",
+      global_mutation_required: false,
       version: cleanVersion(version.stdout, version.stderr),
       logged_in: false,
       resolved_roles: [],
@@ -103,6 +124,12 @@ export async function probeCodexAppServer(
   if (!init.ok) {
     return {
       status: "degraded",
+      harness_id: "codex",
+      vendor: "OpenAI",
+      transport_class: input.transport,
+      runtime_surfaces: codexRuntimeSurfaces("degraded", init.reason),
+      state_declaration_ref: "harness-state:codex",
+      global_mutation_required: false,
       version: cleanVersion(version.stdout, version.stderr),
       logged_in: loggedIn || undefined,
       resolved_roles: [],
@@ -113,10 +140,91 @@ export async function probeCodexAppServer(
 
   return {
     status: "ready",
+    harness_id: "codex",
+    vendor: "OpenAI",
+    transport_class: input.transport,
+    runtime_surfaces: codexRuntimeSurfaces("ready"),
+    state_declaration_ref: "harness-state:codex",
+    global_mutation_required: false,
     version: init.userAgent ?? cleanVersion(version.stdout, version.stderr),
     logged_in: loggedIn || undefined,
     resolved_roles: input.roles.length > 0 ? input.roles : ["coder", "reviewer", "tester"],
   };
+}
+
+function codexRuntimeSurfaces(
+  status: "ready" | "degraded" | "rejected",
+  reason?: string,
+): readonly RuntimeSurfaceDeclaration[] {
+  const baseReadiness: IsolationProfileReadiness =
+    status === "ready"
+      ? { readiness: "ready", warnings: ["declared_not_enforced"] }
+      : status === "degraded"
+        ? {
+            readiness: "degraded",
+            reason,
+            missing: reason ? [reason] : undefined,
+            warnings: ["declared_not_enforced"],
+          }
+        : {
+            readiness: "rejected",
+            reason: reason ?? "codex_unavailable",
+            missing: reason ? [reason] : undefined,
+          };
+
+  let appServerProfiles = rejectedProfiles("unsupported_isolation_profile");
+  appServerProfiles = withProfile(appServerProfiles, "coder_worktree", baseReadiness);
+  appServerProfiles = withProfile(appServerProfiles, "read_only_review", {
+    readiness: status === "rejected" ? "rejected" : "degraded",
+    reason: status === "rejected" ? reason : "read_only_not_enforced",
+    missing: status === "rejected" && reason ? [reason] : ["read_only_enforcement"],
+    warnings: status === "rejected" ? undefined : ["declared_not_enforced"],
+  });
+  appServerProfiles = withProfile(appServerProfiles, "real_provider_smoke", {
+    readiness: status === "rejected" ? "rejected" : "ready",
+    reason: status === "rejected" ? reason : undefined,
+    missing: status === "rejected" && reason ? [reason] : undefined,
+    warnings: status === "rejected"
+      ? undefined
+      : ["inherits:network", "inherits:provider_quota", "declared_not_enforced"],
+  });
+  appServerProfiles = withProfile(appServerProfiles, "high_isolation", {
+    readiness: status === "rejected" ? "rejected" : "degraded",
+    reason: status === "rejected" ? reason : "high_isolation_not_proven",
+    missing: status === "rejected" && reason
+      ? [reason]
+      : ["full_env_filter", "keychain_isolation"],
+    warnings: status === "rejected" ? undefined : ["declared_not_enforced"],
+  });
+
+  return [
+    {
+      runtime_surface: "headless",
+      runtime_kind: "app_server",
+      surface_support: status === "rejected" ? "unsupported" : "supported",
+      isolation_profiles: appServerProfiles,
+      state_declaration_ref: "harness-state:codex",
+      global_mutation_required: false,
+      declared_not_enforced: true,
+    },
+    {
+      runtime_surface: "direct_user_session",
+      runtime_kind: "unknown",
+      surface_support: "unknown",
+      isolation_profiles: rejectedProfiles("direct_user_session_not_declared"),
+      direct_channel: {
+        channel_type: "terminal_app",
+        attach: "unknown",
+        inject: "unknown",
+        interrupt: "unknown",
+        cancel: "unknown",
+        owner_scope: "unknown",
+      },
+      state_declaration_ref: "harness-state:codex",
+      global_mutation_required: false,
+      declared_not_enforced: true,
+    },
+  ];
 }
 
 async function probeInitialize(
