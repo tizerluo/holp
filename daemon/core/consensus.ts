@@ -1,4 +1,5 @@
 import type { RuntimeSelectionMetadata } from "../../adapters/harness-declaration.js";
+import type { ArtifactEnvelope } from "./stores.js";
 
 export type ConsensusReviewStatus = "completed" | "timeout" | "error" | "abstain";
 export type ConsensusReviewVerdict = "approve" | "request_changes" | "reject";
@@ -39,12 +40,14 @@ export interface ConsensusFindingInline {
   readonly truncated: boolean;
 }
 
+export type ConsensusFindingWire = ConsensusFindingInline | ArtifactEnvelope;
+
 export interface ConsensusReviewerResult {
   readonly agent: string;
   readonly status: ConsensusReviewStatus;
   readonly verdict?: ConsensusReviewVerdict;
   readonly max_severity?: ConsensusSeverity;
-  readonly findings?: ConsensusFindingInline;
+  readonly findings?: ConsensusFindingWire;
   readonly reason?: string;
 }
 
@@ -54,7 +57,7 @@ export interface ConsensusReviewWire {
   readonly status: ConsensusReviewStatus;
   readonly verdict?: ConsensusReviewVerdict;
   readonly max_severity?: ConsensusSeverity;
-  readonly findings?: ConsensusFindingInline;
+  readonly findings?: ConsensusFindingWire;
 }
 
 export interface ConsensusErrorWire {

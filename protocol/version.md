@@ -27,13 +27,14 @@
 - M2 契约回归网(`daemon/handlers/m2_contract.test.ts`):已锁定当前实现的关键 v0.1.4 语义；approval 超时已由 M4a skeleton 接入正向 contract,显式 reviewer panel 的 consensus kernel 已由 M4b 接入正向 contract,heartbeat 仍转交后续。
 - M3 首个真实 adapter:`"mcp-codex"` 接 Codex app-server over stdio;`flock.declare`/`flock.discover` 通过 registry probe 返回 honest `ready/degraded/rejected`;permission resume 复用 injected `permissionHandler` + `ApprovalRecord.resumeBackend` path。自动测试覆盖 fake app-server harness;真实 provider smoke 取决于本机 Codex binary/auth。
 - M4a governance data/state/decision skeleton partial:内部记录 events、`decision_made`、harness registry runtime/isolation matrix、run lifecycle state machine,并实现 approval expiry timer。该层无 public query API;`permission_surface` / `observability_surface` 为保留列且当前统一 `unknown`。
-- M4b consensus gate triage kernel partial:显式 reviewer panel 可触发纯 consensus aggregation、author exclusion、二段式 quorum、`consensus_verdict`/`consensus_degraded`;真实 reviewer backend 执行和 M5 demo 仍未完成。
+- M4b consensus gate triage kernel partial:显式 reviewer panel 可触发纯 consensus aggregation、author exclusion、二段式 quorum、`consensus_verdict`/`consensus_degraded`。
+- M5 deterministic multi-agent consensus demo:`npm run demo:m5` 使用 fake+fake reviewer path 真走 stdio JSON-RPC daemon wire,覆盖 producer artifact、author exclusion、quorum、findings artifact envelope 和 `artifact_refs:false` inline fallback。该 demo 不表示真实 reviewer provider sessions 已执行。
 
 **参考 daemon 下一步 milestone**:
-- M5 multi-agent consensus demo、真实 reviewer backend 执行、稳定 gate protocol surface。
+- 真实 reviewer backend 执行、稳定 gate protocol surface。
 - **未做(不声称)**:native-claude/acp 真接线、12 个 agent 的三类运行面完整支持、Web 传输。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
 
-> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter + v0.1.5 runtime surface/isolation baseline + M4a governance data/state/decision skeleton partial」,不声称已接 native-claude/acp 真 agent,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称 consensus/gate 已完成。
+> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter + v0.1.5 runtime surface/isolation baseline + M4a governance data/state/decision skeleton partial + M4b consensus kernel partial + M5 deterministic fake+fake demo」,不声称已接 native-claude/acp 真 agent,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实 reviewer backend 执行或稳定 gate protocol surface 已完成。
 
 ## 变更记录
 

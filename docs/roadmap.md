@@ -16,14 +16,15 @@
 - `daemon/`:参考 daemon 协议骨架,支持 stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
 - `consumers/cli/`:参考 consumer CLI,可跑通 M1 fake backend 闭环。
 - M1 e2e 闭环:`initialize -> flock.declare -> orchestrate.run -> events.subscribe -> approval.resolve -> artifact.get`。**fake backend,非真实 provider**。
-- M2 契约回归网:`daemon/handlers/m2_contract.test.ts` 已锁定当前实现的关键 v0.1.4 语义；approval 超时已由 M4a skeleton 接入正向 contract,显式 reviewer panel 的 consensus kernel 已由 M4b 接入,heartbeat 仍转交 M3+。
+- M2 契约回归网:`daemon/handlers/m2_contract.test.ts` 已锁定当前实现的关键 v0.1.4 语义；approval 超时已由 M4a skeleton 接入正向 contract,显式 reviewer panel 的 consensus kernel 已由 M4b 接入,M5 deterministic demo 已覆盖 findings envelope / inline fallback,heartbeat 仍转交 M3+。
+- M5 deterministic fake+fake multi-agent consensus demo:`npm run demo:m5` 通过 stdio daemon wire 跑通 producer artifact、author exclusion、quorum、`consensus_verdict`、findings artifact envelope 和 `artifact_refs:false` inline fallback。
 - 参考 daemon 代码常量仍按 v0.1.4 contract 运行;v0.1.5 是当前协议基准修订,PR6+ 必须承接 runtime surface / isolation readiness matrix。
 
 当前仓未落地,也不声称已落地:
 
 - native-claude/acp 真接线。
 - 12 个 agent 在 `headless` / `acp` / `direct_user_session` 三类运行面的完整 adapter 实现。
-- M5 multi-agent consensus demo、真实 reviewer backend 执行、稳定 gate protocol surface。
+- 真实 reviewer backend 执行、稳定 gate protocol surface。
 - Web 传输。
 - Remote execution。
 
@@ -172,7 +173,7 @@
 
 ## M4:Governance Kernel Import
 
-> 状态(PR6/M4a + PR7/M4b):data/state/decision skeleton partial 已落地:内部 event archive、`decision_made`、harness registry archive、run lifecycle state machine、approval expiry timer。M4b 已接入纯 consensus kernel、author exclusion、二段式 quorum 和显式 reviewer panel 的 `consensus_verdict`/`consensus_degraded`。`permission_surface` / `observability_surface` 仍作为保留列记录为 `unknown`;真实 reviewer backend demo 和稳定 gate protocol surface 仍未落地。
+> 状态(PR6/M4a + PR7/M4b + PR8/M5):data/state/decision skeleton partial 已落地:内部 event archive、`decision_made`、harness registry archive、run lifecycle state machine、approval expiry timer。M4b 已接入纯 consensus kernel、author exclusion、二段式 quorum 和显式 reviewer panel 的 `consensus_verdict`/`consensus_degraded`。M5 已补 deterministic fake+fake demo,展示 findings artifact envelope / inline fallback。`permission_surface` / `observability_surface` 仍作为保留列记录为 `unknown`;真实 reviewer backend 执行和稳定 gate protocol surface 仍未落地。
 
 目标:从 loopwright 挑拷纯逻辑治理内核,不要搬整个旧仓。
 
@@ -200,6 +201,8 @@
 - 不搬 SUPERSEDED 文档。
 
 ## M5:Multi-Agent Consensus Demo
+
+> 状态(PR8):**deterministic demo 已落地**。`npm run demo:m5` 使用 fake+fake reviewer path 真走 stdio JSON-RPC daemon wire,覆盖 producer artifact、author exclusion、quorum、findings artifact envelope 和 `artifact_refs:false` inline fallback。它不表示真实 reviewer provider sessions 已执行。
 
 目标:证明 HOLP 的核心卖点不是纸面能力:非作者多 agent quorum consensus 能跑出可观察事件。
 

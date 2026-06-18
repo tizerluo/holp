@@ -15,7 +15,7 @@ Warp 的 Oz 证明了 multi-harness agent 编排是真需求,但闭源 + 付费 
 ```
 holp/
   protocol/     协议本身(spec / 消息定义 / 版本 / 样例)—— 独立身份,成熟后可独立成仓
-  daemon/       参考实现(协议骨架 + M4a/M4b governance skeleton;真实多 reviewer demo 仍待后续)
+  daemon/       参考实现(协议骨架 + M4a/M4b governance skeleton + M5 deterministic consensus demo)
   adapters/     朝下 agent 适配(Codex app-server 已接入;mcp-codex 以外仍是桩)
   consumers/    朝上 consumer 参考(CLI 先;cmux 适配示例后做)
   tests/        e2e + 协议契约测试
@@ -37,14 +37,15 @@ holp/
 - [x] M2 契约回归网(`daemon/handlers/m2_contract.test.ts`)— **契约层已锁定;approval 超时已由 M4a skeleton 接入,显式 reviewer panel 的 consensus kernel 已由 M4b 接入,heartbeat 仍转交后续(§F 锁定)**
 - [x] M4a governance data/state/decision skeleton partial— internal events、decision records、harness registry archive、run lifecycle state machine、approval expiry timer
 - [x] M4b consensus gate triage kernel partial— 纯 consensus aggregation、author exclusion、二段式 quorum、显式 reviewer panel 的 `consensus_verdict`/`consensus_degraded`
-- [ ] M5 multi-agent consensus demo / 真实 reviewer backend 执行 / 稳定 gate protocol surface
+- [x] M5 deterministic multi-agent consensus demo— fake+fake reviewer path 跑通 producer artifact、author exclusion、quorum、findings envelope/inline fallback
+- [ ] 真实 reviewer backend 执行 / 稳定 gate protocol surface
 - [x] 真实 adapter 接线(M3)— **Codex app-server over stdio 注册为 `mcp-codex`;自动覆盖 fake/app-server harness,真实 smoke 依赖本机 Codex auth**
 
-> **当前只声称**:protocol draft + **fake backend 跑通的 M1 协议闭环**(daemon + CLI demo)+ M2 契约层 + **Codex app-server 作为首个真实 adapter** + v0.1.5 runtime surface/isolation baseline + **M4a governance data/state/decision skeleton partial** + **M4b consensus gate triage kernel partial**。CLI demo 仍显式使用 `fake` transport;`native-claude`/`acp` 仍是桩,不声称已接,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称 M5 多 agent demo 已完成。
+> **当前只声称**:protocol draft + **fake backend 跑通的 M1 协议闭环**(daemon + CLI demo)+ M2 契约层 + **Codex app-server 作为首个真实 adapter** + v0.1.5 runtime surface/isolation baseline + **M4a governance data/state/decision skeleton partial** + **M4b consensus gate triage kernel partial** + **M5 deterministic fake+fake multi-agent consensus demo**。CLI demos 仍显式使用 `fake` transport;`native-claude`/`acp` 仍是桩,不声称已接,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实 reviewer backend 执行或稳定 gate protocol surface 已完成。
 
 > 参考 daemon 已把 v0.1.5 runtime surface/isolation matrix 落进 declare/discover、run metadata 和内部 registry archive;这仍是声明/记录层,不表示真实 OS/provider 隔离已经强制执行。
 > M4a 内部 registry 已保留 `permission_surface` / `observability_surface` 列,但当前统一记录为 `unknown`;后续 adapter/governance PR 再接真实声明来源。
-> M4b consensus 只在显式 reviewer panel 上运行 deterministic kernel;真实 reviewer backend 执行、findings artifact envelope 和 demo 编排留给 M5。
+> M5 demo 仍是 deterministic fake+fake reviewer verification layer:它真走 HOLP wire、展示 findings artifact envelope / inline fallback,但 reviewer votes 由 fake consensus path 合成,不表示真实 reviewer provider sessions 已接。
 
 ## 协议速览(v0.1.5)
 

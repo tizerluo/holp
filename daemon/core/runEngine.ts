@@ -21,6 +21,7 @@ import { expireApproval } from "./approvalLifecycle.js";
 import {
   buildConsensusVerdict,
   inlineFindings,
+  type ConsensusFindingWire,
   type ConsensusDegradedOutcome,
   type ConsensusDegradedPayload,
   type ConsensusReviewerResult,
@@ -283,7 +284,8 @@ async function runConsensusGate(
   }
 
   const effectiveQuorum = eligible < consensus.quorum ? eligible : consensus.quorum;
-  const results = fakeReviewerResults(panel);
+  const votingAgents = panel.filter((agent) => !(excludeAuthor && agent === consensus.producer_agent_id));
+  const results = fakeReviewerResults(votingAgents, run, ctx, clock);
   const verdict = buildConsensusVerdict({
     target,
     panel,
@@ -314,14 +316,53 @@ async function runConsensusGate(
   return false;
 }
 
-function fakeReviewerResults(panel: readonly string[]): ConsensusReviewerResult[] {
+function fakeReviewerResults(
+  panel: readonly string[],
+  run: RunRecord,
+  ctx: ConnectionContext,
+  clock: Clock,
+): ConsensusReviewerResult[] {
   return panel.map((agent) => ({
     agent,
     status: "completed",
     verdict: "approve",
     max_severity: "NONE",
-    findings: inlineFindings(agent, "approve"),
+    findings: fakeFindings(agent, run, ctx, clock),
   }));
+}
+
+function fakeFindings(
+  agent: string,
+  run: RunRecord,
+  ctx: ConnectionContext,
+  clock: Clock,
+): ConsensusFindingWire {
+  if (ctx.initialized?.negotiated.artifact_refs.supported !== true) {
+    return inlineFindings(agent, "approve");
+  }
+
+  const content = JSON.stringify({
+    agent,
+    verdict: "approve",
+    findings: [],
+    generated_by: "holp-fake-consensus-kernel",
+  });
+  const artifactId = `art_findings_${run.run_id}_${safeArtifactPart(agent)}`;
+  const envelope = {
+    artifact_id: artifactId,
+    type: "findings",
+    mime: "application/json",
+    size: content.length,
+    sha256: createHash("sha256").update(content).digest("hex"),
+    created_by: "holp-fake-consensus-kernel",
+    created_at: clock.now(),
+  };
+  ctx.artifacts.set(artifactId, { envelope, content });
+  return envelope;
+}
+
+function safeArtifactPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]/g, "_");
 }
 
 function consensusDegradedPayload(

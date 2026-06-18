@@ -41,7 +41,10 @@ async function pollUntil(pred: () => boolean, label = "pollUntil", maxTicks = 70
   throw new Error(`${label}: predicate not satisfied`);
 }
 
-async function freshHarness(opts?: { semanticDecision?: boolean; registry?: AdapterRegistry }): Promise<{
+async function freshHarness(opts?: {
+  semanticDecision?: boolean;
+  registry?: AdapterRegistry;
+}): Promise<{
   ctx: ConnectionContext;
   events: EventNotificationParams[];
   dispatch: (method: string, params: unknown) => Promise<unknown>;

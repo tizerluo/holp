@@ -54,6 +54,32 @@ function fakeRuntimeSurfaces(): readonly RuntimeSurfaceDeclaration[] {
       global_mutation_required: false,
       declared_not_enforced: true,
     },
+    {
+      runtime_surface: "acp",
+      runtime_kind: "fake-acp-unwired",
+      surface_support: "unsupported",
+      isolation_profiles: rejectedProfiles("unsupported_runtime_surface"),
+      state_declaration_ref: "harness-state:fake:acp",
+      global_mutation_required: false,
+      declared_not_enforced: true,
+    },
+    {
+      runtime_surface: "direct_user_session",
+      runtime_kind: "fake-direct-session-unwired",
+      surface_support: "unknown",
+      isolation_profiles: rejectedProfiles("unknown_runtime_surface"),
+      direct_channel: {
+        channel_type: "product_session",
+        attach: "unknown",
+        inject: "unknown",
+        interrupt: "unknown",
+        cancel: "unknown",
+        owner_scope: "unknown",
+      },
+      state_declaration_ref: "harness-state:fake:direct_user_session",
+      global_mutation_required: false,
+      declared_not_enforced: true,
+    },
   ];
 }
 
