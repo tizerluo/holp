@@ -33,7 +33,7 @@ export async function driveRun(
   backend: AgentBackend,
   ctx: ConnectionContext,
   clock: Clock,
-  scheduler?: Scheduler,
+  scheduler: Scheduler,
 ): Promise<void> {
   const bus = run.bus;
   ctx.governance.ensureRunState(run.run_id, "queued", clock.now());
@@ -221,7 +221,7 @@ async function runConsensusGate(
   ctx: ConnectionContext,
   clock: Clock,
   artifactId: string | undefined,
-  scheduler?: Scheduler,
+  scheduler: Scheduler,
 ): Promise<boolean> {
   const consensus = run.consensus;
   if (!consensus) return true;
@@ -413,7 +413,7 @@ async function requestSemanticDecisionApproval(
   run: RunRecord,
   ctx: ConnectionContext,
   clock: Clock,
-  scheduler: Scheduler | undefined,
+  scheduler: Scheduler,
   details: ConsensusVerdictPayload | ConsensusDegradedPayload,
 ): Promise<boolean> {
   const approvalKinds = ctx.initialized?.negotiated.approval.kinds ?? [];
@@ -444,11 +444,9 @@ async function requestSemanticDecisionApproval(
       state: "pending",
       resumeBackend: resolve,
     };
-    if (scheduler) {
-      approvalRecord.expiryTimer = scheduler.schedule(expiresAt - clock.now(), () => {
-        expireApproval(ctx, approvalId, clock);
-      });
-    }
+    approvalRecord.expiryTimer = scheduler.schedule(expiresAt - clock.now(), () => {
+      expireApproval(ctx, approvalId, clock);
+    });
     ctx.approvals.set(approvalId, approvalRecord);
     run.pendingApprovals.add(approvalId);
     ctx.governance.transitionRun(run.run_id, "waiting_approval", clock.now(), "approval_requested");

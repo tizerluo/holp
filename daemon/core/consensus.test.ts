@@ -48,6 +48,37 @@ describe("consensus kernel", () => {
     expect(payload.quorum).toEqual({ required: 2, eligible: 3, met: false });
   });
 
+  it("treats completed reviews without verdict or severity as errors, not approve votes", () => {
+    const payload = buildConsensusVerdict({
+      target: { artifact_id: "art_1", produced_by_agent_id: "coder" },
+      panel: ["r1", "r2"],
+      quorum: 2,
+      producedByAgentId: "coder",
+      excludeAuthor: true,
+      results: [
+        { agent: "r1", status: "completed", verdict: "approve" },
+        { agent: "r2", status: "completed", max_severity: "NONE" },
+      ],
+    });
+
+    expect(payload.reviews).toEqual([]);
+    expect(payload.errors).toEqual([
+      {
+        agent: "r1",
+        status: "error",
+        reason: "completed_review_missing_max_severity",
+      },
+      {
+        agent: "r2",
+        status: "error",
+        reason: "completed_review_missing_verdict",
+      },
+    ]);
+    expect(payload.quorum).toEqual({ required: 2, eligible: 2, met: false });
+    expect(payload.outcome).toBe("approve");
+    expect(payload.max_severity).toBe("NONE");
+  });
+
   it("excludes the produced_by_agent_id author and computes eligible quorum", () => {
     const payload = buildConsensusVerdict({
       target: { artifact_id: "art_1", produced_by_agent_id: "codex" },

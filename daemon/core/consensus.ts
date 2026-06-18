@@ -108,8 +108,8 @@ export function aggregateMaxSeverity(
   results: readonly ConsensusReviewerResult[],
 ): ConsensusSeverity {
   return results.reduce<ConsensusSeverity>((max, result) => {
-    if (result.status !== "completed") return max;
-    const severity = result.max_severity ?? "NONE";
+    if (!isCompleteVote(result)) return max;
+    const severity = result.max_severity;
     return SEVERITY_RANK[severity] > SEVERITY_RANK[max] ? severity : max;
   }, "NONE");
 }
@@ -118,8 +118,8 @@ export function aggregateOutcome(
   results: readonly ConsensusReviewerResult[],
 ): ConsensusReviewVerdict {
   return results.reduce<ConsensusReviewVerdict>((max, result) => {
-    if (result.status !== "completed") return max;
-    const verdict = result.verdict ?? "approve";
+    if (!isCompleteVote(result)) return max;
+    const verdict = result.verdict;
     return OUTCOME_RANK[verdict] > OUTCOME_RANK[max] ? verdict : max;
   }, "approve");
 }
@@ -153,26 +153,26 @@ export function buildConsensusVerdict(args: {
       status: "abstain" as const,
       reason: "missing_review_result",
     };
-    if (result.status === "completed") {
+    if (isCompleteVote(result)) {
       reviews.push({
         agent,
         eligible: true,
         status: "completed",
-        verdict: result.verdict ?? "approve",
-        max_severity: result.max_severity ?? "NONE",
+        verdict: result.verdict,
+        max_severity: result.max_severity,
         ...(result.findings ? { findings: result.findings } : {}),
       });
     } else {
       errors.push({
         agent,
-        status: result.status,
-        reason: result.reason,
+        status: result.status === "completed" ? "error" : result.status,
+        reason: incompleteReason(result),
       });
     }
   }
 
   const completedEligibleResults = args.results.filter(
-    (result) => eligibleSet.has(result.agent) && result.status === "completed",
+    (result) => eligibleSet.has(result.agent) && isCompleteVote(result),
   );
   const met = eligibleAgents.length >= args.quorum &&
     completedEligibleResults.length >= args.quorum;
@@ -191,6 +191,29 @@ export function buildConsensusVerdict(args: {
     excluded,
     errors,
   };
+}
+
+function isCompleteVote(
+  result: ConsensusReviewerResult,
+): result is ConsensusReviewerResult & {
+  readonly status: "completed";
+  readonly verdict: ConsensusReviewVerdict;
+  readonly max_severity: ConsensusSeverity;
+} {
+  return result.status === "completed" &&
+    result.verdict !== undefined &&
+    result.max_severity !== undefined;
+}
+
+function incompleteReason(result: ConsensusReviewerResult): string | undefined {
+  if (result.status !== "completed") return result.reason;
+  const missing = [
+    result.verdict === undefined ? "verdict" : undefined,
+    result.max_severity === undefined ? "max_severity" : undefined,
+  ].filter((value): value is string => value !== undefined);
+  return missing.length > 0
+    ? `completed_review_missing_${missing.join("_and_")}`
+    : result.reason;
 }
 
 export function inlineFindings(agent: string, verdict: ConsensusReviewVerdict): ConsensusFindingInline {

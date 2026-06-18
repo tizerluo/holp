@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ConnectionContext } from "./context.js";
 import { EventBus } from "./eventBus.js";
 import { FakeClock } from "./clock.js";
+import { FakeScheduler } from "./scheduler.js";
 import { driveRun } from "./runEngine.js";
 import type { RunRecord } from "./stores.js";
 import type {
@@ -13,6 +14,7 @@ import type {
 describe("driveRun real-backend event forwarding", () => {
   it("forwards model/generic events and does not synthesize a fake artifact without fs-edit diff", async () => {
     const clock = new FakeClock();
+    const scheduler = new FakeScheduler();
     const ctx = new ConnectionContext();
     const bus = new EventBus("run_real", clock);
     const run: RunRecord = {
@@ -31,7 +33,7 @@ describe("driveRun real-backend event forwarding", () => {
       { type: "status", status: "idle" },
     ]);
 
-    await driveRun(run, backend, ctx, clock);
+    await driveRun(run, backend, ctx, clock, scheduler);
 
     const events = bus.allEvents();
     expect(events.map((event) => event.name)).toEqual([
@@ -48,6 +50,7 @@ describe("driveRun real-backend event forwarding", () => {
 
   it("emits run_gave_up when the backend rejects while waiting for approval", async () => {
     const clock = new FakeClock();
+    const scheduler = new FakeScheduler();
     const ctx = new ConnectionContext();
     const bus = new EventBus("run_waiting_reject", clock);
     const run = makeRun("run_waiting_reject", "approval then crash", bus);
@@ -56,7 +59,7 @@ describe("driveRun real-backend event forwarding", () => {
       throw new Error("provider crashed while approval was pending");
     });
 
-    await expect(driveRun(run, backend, ctx, clock)).resolves.toBeUndefined();
+    await expect(driveRun(run, backend, ctx, clock, scheduler)).resolves.toBeUndefined();
 
     expect(run.status).toBe("gave_up");
     expect(bus.allEvents().map((event) => event.name)).toEqual(["run_started", "run_gave_up"]);
@@ -70,6 +73,7 @@ describe("driveRun real-backend event forwarding", () => {
 
   it("emits run_merged when the backend completes while governance is waiting for approval", async () => {
     const clock = new FakeClock();
+    const scheduler = new FakeScheduler();
     const ctx = new ConnectionContext();
     const bus = new EventBus("run_waiting_complete", clock);
     const run = makeRun("run_waiting_complete", "approval then complete", bus);
@@ -77,7 +81,7 @@ describe("driveRun real-backend event forwarding", () => {
       ctx.governance.transitionRun(run.run_id, "waiting_approval", clock.now(), "approval_requested");
     });
 
-    await expect(driveRun(run, backend, ctx, clock)).resolves.toBeUndefined();
+    await expect(driveRun(run, backend, ctx, clock, scheduler)).resolves.toBeUndefined();
 
     expect(run.status).toBe("merged");
     expect(bus.allEvents().map((event) => event.name)).toEqual(["run_started", "run_merged"]);
