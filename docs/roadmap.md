@@ -152,7 +152,7 @@
 - [x] permission request 到 `approval_requested` 的映射,复用现有 injected `permissionHandler` / `ApprovalRecord.resumeBackend` await-Promise path。
 - [x] provider availability probe,用于 `flock.declare`/`flock.discover` 返回 `ready/degraded/rejected`。
 - [x] 本机已登录 Codex 的 safe prompt manual smoke:`flock.discover` ready + `model_output` + 无 artifact `run_merged`。
-- [ ] 本机真实 Codex approval/patched-workspace manual smoke(需单独临时 workspace 和人工确认,取决于 local auth/quota)。
+- [x] 本机真实 Codex approval/patched-workspace smoke:隔离 temp `CODEX_HOME` + temp git workspace;real-Codex patch、approve -> `run_merged`、reject -> `run_blocked` 均已实跑 PASS。该 smoke 仍需 `HOLP_REAL_CODEX_SMOKE=1` 显式开启,取决于 local auth/quota。
 
 验收标准:
 

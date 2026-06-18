@@ -18,6 +18,7 @@
 - `native-claude`、`acp` 仍是 honest stubs,不会伪装 ready。
 - `createFakeRegistry()` 继续保留 M1/M2 demo/test fake path;CLI demo 显式设置 `HOLP_REGISTRY=fake`。
 - 本机已登录 Codex 时,manual smoke 已验证 `flock.discover` ready + safe prompt `HOLP_SMOKE_OK` 进入 `model_output` 并以无 artifact 的 `run_merged` 收束。
+- 已新增显式 opt-in 的真实 Codex approval/patch smoke:`HOLP_REAL_CODEX_SMOKE=1 npm run smoke:codex:adapter` 覆盖 adapter-direct patch path;`HOLP_REAL_CODEX_SMOKE=1 npm run smoke:codex` 覆盖 daemon e2e patch + approval approve/reject。R2 修复后只有 patch、approve -> `run_merged`、reject -> `run_blocked` 全部跑通才 exit 0;实跑记录为 PASS。隔离边界见 `scripts/smoke/README.md`。
 
 ## 范围
 
