@@ -37,9 +37,12 @@ frame on demand.
 
 The e2e smoke prints one of three overall results and exits accordingly:
 
-- **PASS** (exit 0) — patch passed AND at least one approval sub-run actually exercised
-  the approval bridge end-to-end. Only this state may be cited as "real approval smoke
-  ran".
+- **PASS** (exit 0) — patch passed AND **both** approval directions ran end-to-end
+  (approve → `run_merged` AND reject → `run_blocked`). Only this state may be cited as
+  "real approval smoke ran".
+- **PASS_PARTIAL_APPROVAL** (exit 1) — nothing failed and one approval direction ran, but
+  the other was INCONCLUSIVE (provider didn't request approval that run). Half the bridge
+  is unproven; re-run. Non-zero on purpose.
 - **PASS_NO_APPROVAL** (exit 1) — nothing failed, but the provider never requested
   approval this run (both approval sub-runs INCONCLUSIVE). The approval path was *not*
   tested; re-run to get a real approval. Non-zero on purpose so it is never mistaken for
@@ -73,10 +76,10 @@ Each run builds, under the OS temp dir:
 
 - a temp **`CODEX_HOME`** = a copy of `~/.codex/auth.json` + a minimal `config.toml`
   containing only `notify = []`. Codex honours `$CODEX_HOME`, so all sessions, logs,
-  sqlite, state, version cache, and the app-server daemon dir land in temp — the real
-  `~/.codex/` is never read or written. The `notify = []` line overrides the user's
-  global `notify` hook (the `SkyComputerUseClient` that otherwise spawns orphans in
-  automation).
+  sqlite, state, version cache, and the app-server daemon dir land in temp. The real
+  `~/.codex/` is **never written**; it is **read once** to copy `auth.json` as a
+  login-credential seed. The `notify = []` line overrides the user's global `notify` hook
+  (the `SkyComputerUseClient` that otherwise spawns orphans in automation).
 - a temp **git workspace** seeded with a tracked `SMOKE.txt`. The adapter pins the
   session to `sandbox: workspace-write` rooted at this dir, so file edits are bounded here.
 
@@ -85,7 +88,8 @@ process group → `SIGKILL` → `rm -rf` both temp dirs.
 
 **Scope of the isolation claim:** Codex's own state (sessions, logs, sqlite, config,
 auth lookups) and the workspace file effects are fully redirected into temp and removed on
-teardown — `~/.codex` and the repo are never touched. The daemon is launched with the
+teardown — the real `~/.codex` is never written (only read once for the auth seed) and the
+repo is never touched. The daemon is launched with the
 repo-local `node_modules/.bin/tsx` (not `npx`) to avoid consulting user npm global
 cache/config. It does still inherit the rest of `process.env` (minus `HOLP_REGISTRY`,
 plus `CODEX_HOME`), so this is "Codex state + workspace effects are isolated", not "the

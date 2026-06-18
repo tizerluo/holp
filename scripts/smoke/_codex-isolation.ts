@@ -11,11 +11,12 @@
  *
  * This harness makes the smoke ROLLBACK-SAFE by construction:
  *   - A temp CODEX_HOME (mkdtemp) holds a copied auth.json + a minimal config.toml
- *     with `notify = []`. Codex honours $CODEX_HOME, so every session/log/sqlite/state
- *     file lands in temp and the real `~/.codex/` is never read or written.
+ *     with `notify = []`. The real `~/.codex/` is NEVER WRITTEN; it is only READ ONCE to
+ *     copy auth.json as a login-credential seed. Codex honours $CODEX_HOME, so every
+ *     session/log/sqlite/state file produced by the run lands in temp instead.
  *   - A temp git workspace (mkdtemp) seeded with a tracked SMOKE.txt bounds file edits.
- *   - Teardown (process-group kill + rm -rf) restores the machine even on crash; any
- *     residual leak can only land in the OS temp dir, never in `~/.codex` or the repo.
+ *   - Teardown (process-group kill + rm -rf) restores the machine even on crash. The real
+ *     `~/.codex/` is left untouched (we never write it); residual leaks land only in temp.
  *
  * Isolation lever (no production code change): through the live daemon path the only
  * externally-controllable knobs are the daemon process's own cwd (-> Codex cwd) and its
@@ -72,12 +73,32 @@ export const PATCH_PROMPT = [
  * — the scenario reports a clear INCONCLUSIVE if no approval is requested, rather than a
  * false pass or a spurious fail.
  */
+/** The exact inner shell command the approval scenario asks Codex to run. */
+export const EXPECTED_APPROVAL_COMMAND =
+  "curl -sS -m 10 https://example.com -o /dev/null && echo REACHABLE";
+
 export const APPROVAL_PROMPT = [
-  "Check whether this machine can reach the internet by running this shell command:",
-  "curl -sS -m 10 https://example.com -o /dev/null && echo REACHABLE.",
-  "Run it as a shell command.",
+  "Check whether this machine can reach the internet by running exactly this shell command",
+  "and nothing else:",
+  `${EXPECTED_APPROVAL_COMMAND}.`,
+  "Run it as a single shell command.",
   "If it fails inside the sandbox, request approval to run it outside the sandbox.",
 ].join(" ");
+
+/**
+ * Strict allowlist for the unattended approve sub-run. Returns true ONLY when the
+ * requested command is exactly EXPECTED_APPROVAL_COMMAND (optionally wrapped in a single
+ * `sh/bash/zsh -lc '<cmd>'` invocation, which is how Codex shells out). The compare is
+ * anchored and exact after whitespace normalization, so a deviation like
+ * `curl ... && rm -rf ~` does NOT match and is never auto-approved.
+ */
+export function isExpectedApprovalCommand(rawCommand: string): boolean {
+  const normalized = rawCommand.trim().replace(/\s+/g, " ");
+  // Strip an optional `<path>sh -lc '<inner>'` / `-c "<inner>"` wrapper.
+  const wrapper = /^(?:\S*\/)?(?:ba|z)?sh -l?c (['"])([\s\S]*)\1$/.exec(normalized);
+  const inner = (wrapper ? wrapper[2] : normalized).trim().replace(/\s+/g, " ");
+  return inner === EXPECTED_APPROVAL_COMMAND;
+}
 
 /** Path to the real user auth.json the smoke copies into the temp CODEX_HOME. */
 export function realAuthPath(): string {

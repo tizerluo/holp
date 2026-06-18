@@ -35,7 +35,9 @@ import { dirname, join, resolve } from "node:path";
 import {
   APPROVAL_PROMPT,
   createIsolatedEnv,
+  EXPECTED_APPROVAL_COMMAND,
   type IsolatedEnv,
+  isExpectedApprovalCommand,
   PATCH_PROMPT,
   preflight,
   sleep,
@@ -289,21 +291,20 @@ async function runApprovalScenario(decision: "approved" | "rejected"): Promise<S
     const requested = describeApproval(approval);
     console.log(`  approval_requested: ${approvalId} cmd=${JSON.stringify(requested.command)}`);
 
-    // SAFETY GATE: only auto-approve if the request matches the expected safe command.
-    // A model deviation (a different command, or a non-shell_command approval) must NEVER
-    // be approved by this unattended smoke — reject it and FAIL loudly. This guards the
-    // sandbox-escape: we approve "run the curl outside the sandbox", nothing else.
+    // SAFETY GATE (strict allowlist): only auto-approve if the request is a shell_command
+    // whose command is EXACTLY the expected probe (after stripping an optional shell
+    // wrapper). A model deviation — a different command, an appended `&& <extra>`, or a
+    // non-shell_command approval — must NEVER be approved by this unattended smoke. Reject
+    // it and FAIL loudly. This guards the sandbox-escape: we approve exactly one command.
     const expectedMatch =
-      requested.tool === "shell_command" &&
-      requested.command.includes("curl") &&
-      requested.command.includes("https://example.com");
+      requested.tool === "shell_command" && isExpectedApprovalCommand(requested.command);
 
     if (decision === "approved" && !expectedMatch) {
       await daemon.call("approval.resolve", { approval_id: approvalId, decision: "rejected", by: "user:smoke" });
       return {
         name,
         verdict: "FAIL",
-        detail: `unexpected approval request rejected for safety: tool=${requested.tool} cmd=${JSON.stringify(requested.command)}`,
+        detail: `unexpected approval request rejected for safety (expected exactly \`${EXPECTED_APPROVAL_COMMAND}\`): tool=${requested.tool} cmd=${JSON.stringify(requested.command)}`,
       };
     }
 
@@ -375,17 +376,28 @@ async function main(): Promise<void> {
     if (r.verdict === "FAIL") anyFail = true;
   }
 
-  // Honest gate (P2): a FAIL always fails. Separately, if NEITHER approval sub-run
-  // actually exercised approval (both INCONCLUSIVE), the approval path was not tested
-  // at all — so this run must NOT be cited as "real approval smoke 已跑完". Exit non-zero
-  // in that case even when nothing failed, so a green exit always means approval ran.
-  const approvalRan = [approveRun, rejectRun].some((r) => r.verdict === "PASS");
-  let overall: "PASS" | "FAIL" | "PASS_NO_APPROVAL";
+  // Honest gate (P2): a FAIL always fails. To claim "real approval/patch smoke 跑完",
+  // BOTH approval sub-runs must have actually exercised the bridge end-to-end:
+  //   approve -> run_merged AND reject -> run_blocked.
+  // If only one passed (the other INCONCLUSIVE), the approved->resume path or the
+  // reject->block path was not proven this run -> PASS_PARTIAL_APPROVAL (non-zero).
+  // If neither passed -> PASS_NO_APPROVAL (non-zero). Only a full PASS exits 0, so a
+  // green exit always means both approval directions ran against the real provider.
+  const fullApproval = approveRun.verdict === "PASS" && rejectRun.verdict === "PASS";
+  const anyApproval = approveRun.verdict === "PASS" || rejectRun.verdict === "PASS";
+  let overall: "PASS" | "FAIL" | "PASS_PARTIAL_APPROVAL" | "PASS_NO_APPROVAL";
   if (anyFail) overall = "FAIL";
-  else if (!approvalRan) overall = "PASS_NO_APPROVAL";
-  else overall = "PASS";
+  else if (fullApproval) overall = "PASS";
+  else if (anyApproval) overall = "PASS_PARTIAL_APPROVAL";
+  else overall = "PASS_NO_APPROVAL";
 
-  if (overall === "PASS_NO_APPROVAL") {
+  if (overall === "PASS_PARTIAL_APPROVAL") {
+    console.log(
+      "\n  note: patch passed and one approval direction ran, but the other was " +
+        "INCONCLUSIVE (provider did not request approval). Both approve->run_merged AND " +
+        "reject->run_blocked must run to cite this as 'real approval smoke 已跑完'. Re-run.",
+    );
+  } else if (overall === "PASS_NO_APPROVAL") {
     console.log(
       "\n  note: patch path passed but the provider never requested approval this run " +
         "(both approval sub-runs INCONCLUSIVE). The approval bridge was NOT exercised end-to-end — " +
@@ -393,7 +405,7 @@ async function main(): Promise<void> {
     );
   }
   console.log(`\n=== Result: ${overall} ===`);
-  // PASS -> 0; FAIL and PASS_NO_APPROVAL -> non-zero (the latter is not approval evidence).
+  // Only a full PASS (patch + both approval directions) exits 0.
   process.exit(overall === "PASS" ? 0 : 1);
 }
 
