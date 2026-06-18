@@ -10,6 +10,7 @@
 - Roadmap M4 要求 events-decisions-registry 数据骨架、decision record 写入、run state machine。
 - `protocol/spec.md` §11 说明 gate 字符串在 v0.1.x 仍是 daemon 私约定。
 - `protocol/spec.md` §12 说明 loopwright 是参考素材,不是整仓搬运。
+- Issue #11 的 [Cross-Agent Harness Isolation](./issue-11-agent-harness-isolation.md) SPEC 冻结了 harness identity、state declaration、isolation profile 和 fail-closed 词表;PR6 的 registry/run metadata 设计必须能承载这些概念,避免只存 transport string。
 
 ## 范围
 
