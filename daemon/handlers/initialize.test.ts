@@ -132,7 +132,7 @@ describe("initialize: capability negotiation (spec §2)", () => {
         protocol_version: SERVER_PROTOCOL_VERSION,
         capabilities: {
           // required approval, kinds disjoint from server's set → empty intersection
-          approval: { supported: true, required: true, kinds: ["semantic_decision"] },
+          approval: { supported: true, required: true, kinds: ["unknown_approval_kind"] },
         },
       }),
     )) as JsonRpcErrorResponse;
@@ -146,7 +146,7 @@ describe("initialize: capability negotiation (spec §2)", () => {
         client: { name: "x", version: "1.0" },
         protocol_version: SERVER_PROTOCOL_VERSION,
         capabilities: {
-          approval: { supported: true, kinds: ["semantic_decision"] }, // not required
+          approval: { supported: true, kinds: ["unknown_approval_kind"] }, // not required
         },
       }),
     )) as JsonRpcSuccessResponse;

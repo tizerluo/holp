@@ -27,6 +27,12 @@ import type { Clock } from "../core/clock.js";
 import type { Scheduler } from "../core/scheduler.js";
 import { driveRun } from "../core/runEngine.js";
 import { expireApproval } from "../core/approvalLifecycle.js";
+import type {
+  ConsensusPolicy,
+  ConsensusReviewerSelection,
+  OnQuorumUnsatisfiable,
+  AuthorProvenance,
+} from "../core/consensus.js";
 import {
   findRuntimeProfile,
   runtimeSelectionFromDeclaration,
@@ -62,6 +68,7 @@ export function handleOrchestrateRun(
   const goal = params.goal;
   const trigger = typeof params.trigger === "string" ? params.trigger : "manual";
   const roles = params.roles as Record<string, unknown>;
+  const consensusPolicy = parseConsensusPolicy(params.policy);
 
   // Collect all agent ids referenced.
   const agentRefs: Array<{ agentId: string; role: string; isPanel: boolean }> = [];
@@ -228,6 +235,7 @@ export function handleOrchestrateRun(
   // cannot mask the long-standing M1/M2 error ordering. It resolves declaration
   // metadata only; backend runtime isolation enforcement is deferred.
   const runtimeSelections = new Map<string, RuntimeSelectionMetadata>();
+  let reviewerRuntimeSelections: ConsensusReviewerSelection[] = [];
   for (const ref of agentRefs) {
     if (ref.isPanel) continue;
     const agent = ctx.flock.get(ref.agentId) as FlockAgent;
@@ -249,10 +257,14 @@ export function handleOrchestrateRun(
     for (const agentId of reviewerPanel) {
       const agent = ctx.flock.get(agentId) as FlockAgent;
       try {
-        reviewerSelections.push({
-          agentId,
-          selection: resolveRuntimeSelection(agent, "reviewer"),
-        });
+        const selection = resolveRuntimeSelection(agent, "reviewer");
+        if (selection.global_mutation_required) {
+          throw isolationError(agent, "reviewer", "read_only_review", {
+            reason: "global_mutation_required_for_read_only_review",
+            missing: ["global_mutation_required:false"],
+          });
+        }
+        reviewerSelections.push({ agentId, selection });
       } catch (error) {
         rejectedReviewers.push(isolationFailureForPanel(agentId, error));
       }
@@ -278,6 +290,10 @@ export function handleOrchestrateRun(
     for (const reviewer of reviewerSelections) {
       runtimeSelections.set(runtimeKey(reviewer.agentId, "reviewer"), reviewer.selection);
     }
+    reviewerRuntimeSelections = reviewerSelections.map((reviewer) => ({
+      agent_id: reviewer.agentId,
+      runtime: reviewer.selection,
+    }));
   }
 
   // --- Determine coder agent (required for the current single-backend run) ---
@@ -335,6 +351,16 @@ export function handleOrchestrateRun(
     status: "active",
     bus,
     runtime: coderRuntime,
+    ...(reviewerPanel.length > 0
+      ? {
+          consensus: {
+            panel: reviewerRuntimeSelections,
+            quorum,
+            policy: consensusPolicy,
+            producer_agent_id: coderAgentId,
+          },
+        }
+      : {}),
     pendingApprovals: new Set(),
     approvalSeq: 0,
   };
@@ -425,13 +451,37 @@ export function handleOrchestrateRun(
 
   // --- Kick off the run asynchronously ---
   // Fire-and-forget; backend.dispose in driveRun handles spawned adapter processes when the turn ends.
-  void driveRun(run, backend, ctx, clock);
+  void driveRun(run, backend, ctx, clock, scheduler);
 
   return { run_id: runId, accepted: true };
 }
 
 function runtimeKey(agentId: string, role: string): string {
   return `${agentId}:${role}`;
+}
+
+function parseConsensusPolicy(value: unknown): ConsensusPolicy {
+  const policy = isObject(value) ? value : {};
+  const authorProvenance = policy.author_provenance;
+  const onQuorumUnsatisfiable = policy.on_quorum_unsatisfiable;
+
+  return {
+    exclude_author: policy.exclude_author !== false,
+    author_provenance: isAuthorProvenance(authorProvenance)
+      ? authorProvenance
+      : "produced_by_agent_id",
+    on_quorum_unsatisfiable: isOnQuorumUnsatisfiable(onQuorumUnsatisfiable)
+      ? onQuorumUnsatisfiable
+      : "reject",
+  };
+}
+
+function isAuthorProvenance(value: unknown): value is AuthorProvenance {
+  return value === "produced_by_agent_id" || value === "commit_author" || value === "run_initiator";
+}
+
+function isOnQuorumUnsatisfiable(value: unknown): value is OnQuorumUnsatisfiable {
+  return value === "ask_human" || value === "reject" || value === "degrade_quorum";
 }
 
 function defaultIsolationProfileForRole(role: string): IsolationProfile {

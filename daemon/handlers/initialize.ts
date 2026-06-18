@@ -37,7 +37,7 @@ export const SERVER_CAPABILITIES: CapabilityMap = {
   consensus: { supported: true },
   approval: {
     supported: true,
-    kinds: ["merge_approval", "force_push_approval", "budget_exceeded"],
+    kinds: ["merge_approval", "force_push_approval", "semantic_decision", "budget_exceeded"],
   },
   unattended_loop: { supported: true },
   artifact_refs: { supported: true },

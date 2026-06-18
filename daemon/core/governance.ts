@@ -17,6 +17,8 @@ export type DecisionType =
   | "approval_resolved"
   | "approval_expired"
   | "approval_cancelled"
+  | "consensus_verdict"
+  | "consensus_degraded"
   | "run_terminal";
 
 export type RunLifecycleState =
