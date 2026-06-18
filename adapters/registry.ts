@@ -18,6 +18,44 @@ import type {
 } from "./agent-backend.js";
 import { createCodexAppServerBackendFactory, probeCodexAppServer } from "./codex-app-server.js";
 import { createFakeBackendFactory } from "./fake-backend.js";
+import {
+  rejectedProfiles,
+  withProfile,
+  type RuntimeSurfaceDeclaration,
+} from "./harness-declaration.js";
+
+function stubRuntimeSurfaces(reason = "unsupported_transport"): readonly RuntimeSurfaceDeclaration[] {
+  return [
+    {
+      runtime_surface: "headless",
+      runtime_kind: "stub",
+      surface_support: "unsupported",
+      isolation_profiles: rejectedProfiles(reason),
+      state_declaration_ref: "harness-state:stub",
+      global_mutation_required: false,
+      declared_not_enforced: true,
+    },
+  ];
+}
+
+function fakeRuntimeSurfaces(): readonly RuntimeSurfaceDeclaration[] {
+  const base = rejectedProfiles("unsupported_isolation_profile");
+  return [
+    {
+      runtime_surface: "headless",
+      runtime_kind: "fake",
+      surface_support: "supported",
+      isolation_profiles: withProfile(
+        withProfile(base, "coder_worktree", { readiness: "ready" }),
+        "read_only_review",
+        { readiness: "ready" },
+      ),
+      state_declaration_ref: "harness-state:fake",
+      global_mutation_required: false,
+      declared_not_enforced: true,
+    },
+  ];
+}
 
 /** 桩 factory:任何 transport 都返回未接线错误。 */
 export function createStubFactory(transport: TransportClass): AgentBackendFactory {
@@ -61,6 +99,9 @@ export function createAdapterRegistry(
       if (!factories[input.transport]) {
         return {
           status: "rejected",
+          harness_id: input.id,
+          transport_class: input.transport,
+          runtime_surfaces: stubRuntimeSurfaces("unsupported_transport"),
           resolved_roles: [],
           reason: "unsupported_transport",
           missing: input.roles.map((role) => `role:${role}`),
@@ -68,6 +109,9 @@ export function createAdapterRegistry(
       }
       return {
         status: "rejected",
+        harness_id: input.id,
+        transport_class: input.transport,
+        runtime_surfaces: stubRuntimeSurfaces("probe_not_configured"),
         resolved_roles: [],
         reason: "unsupported_transport",
         missing: input.roles.map((role) => `role:${role}`),
@@ -87,6 +131,10 @@ export function createDefaultAdapterRegistry(): AdapterRegistry {
     {
       "native-claude": (input) => ({
         status: "rejected",
+        harness_id: "claude-code",
+        vendor: "Anthropic",
+        transport_class: input.transport,
+        runtime_surfaces: stubRuntimeSurfaces("unsupported_transport"),
         resolved_roles: [],
         reason: "unsupported_transport",
         missing: input.roles.map((role) => `role:${role}`),
@@ -94,6 +142,9 @@ export function createDefaultAdapterRegistry(): AdapterRegistry {
       "mcp-codex": probeCodexAppServer,
       acp: (input) => ({
         status: "rejected",
+        harness_id: "acp",
+        transport_class: input.transport,
+        runtime_surfaces: stubRuntimeSurfaces("unsupported_transport"),
         resolved_roles: [],
         reason: "unsupported_transport",
         missing: input.roles.map((role) => `role:${role}`),
@@ -122,6 +173,12 @@ export function createFakeRegistry(): AdapterRegistry {
     {
       fake: (input) => ({
         status: "ready",
+        harness_id: "fake",
+        vendor: "HOLP",
+        transport_class: input.transport,
+        runtime_surfaces: fakeRuntimeSurfaces(),
+        state_declaration_ref: "harness-state:fake",
+        global_mutation_required: false,
         version: "0.0.1-fake",
         logged_in: true,
         resolved_roles: input.roles.length > 0 ? input.roles : ["coder", "reviewer", "tester"],

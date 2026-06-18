@@ -21,7 +21,9 @@ import { buildDispatcher } from "../runtime/server.js";
 import { ConnectionContext } from "../core/context.js";
 import { EventSink } from "../core/eventSink.js";
 import { FakeClock } from "../core/clock.js";
-import { createFakeRegistry, createAdapterRegistry } from "../../adapters/registry.js";
+import { createFakeRegistry, createAdapterRegistry, createStubFactory } from "../../adapters/registry.js";
+import { createFakeBackendFactory } from "../../adapters/fake-backend.js";
+import { rejectedProfiles, withProfile } from "../../adapters/harness-declaration.js";
 import type { EventNotificationParams } from "../core/eventSink.js";
 import type { JsonRpcResponse } from "../runtime/jsonrpc.js";
 import { HOLP_ERROR_CODES, JSONRPC_INVALID_REQUEST } from "../core/errors.js";
@@ -473,6 +475,341 @@ describe("3. orchestrate.run error ordering (spec §6.2 — fixed 4-stage order)
       }),
     );
     expect(e.code).toBe(HOLP_ERROR_CODES.approval_required_but_unsupported); // -32003
+  });
+
+  it("isolation rejection is appended after approval gate and does not mask -32003", async () => {
+    const registry = createAdapterRegistry(
+      { iso: createStubFactory("iso") },
+      {
+        iso: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "headless",
+            runtime_kind: "test",
+            surface_support: "supported",
+            isolation_profiles: rejectedProfiles("profile_rejected"),
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+      },
+    );
+    const ctx = new ConnectionContext();
+    const { sink } = makeCollectingSink();
+    const dispatcher = buildDispatcher(ctx, sink, registry, new FakeClock());
+    let idCtr = 1;
+    const dispatchNoApproval = async (method: string, params: unknown): Promise<unknown> =>
+      dispatcher.dispatch({ jsonrpc: "2.0", id: idCtr++, method, params });
+
+    await dispatchNoApproval("initialize", {
+      protocol_version: "0.1.4",
+      client: { name: "no-approval-client", version: "0.0.1" },
+    });
+    ok(await dispatchNoApproval("flock.declare", {
+      agents: [{ id: "iso", transport: "iso", roles: ["coder"] }],
+    }));
+
+    const e = err(await dispatchNoApproval("orchestrate.run", {
+      goal: "test",
+      roles: { coder: { agent: "iso" } },
+    }));
+    expect(e.code).toBe(HOLP_ERROR_CODES.approval_required_but_unsupported);
+  });
+
+  it("rejected isolation profile fails closed and does not create a run", async () => {
+    const registry = createAdapterRegistry(
+      { iso: createStubFactory("iso") },
+      {
+        iso: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "headless",
+            runtime_kind: "test",
+            surface_support: "supported",
+            isolation_profiles: rejectedProfiles("profile_rejected"),
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+      },
+    );
+    const { dispatch, ctx } = await freshDispatcher({ registry });
+    ok(await dispatch("flock.declare", { agents: [{ id: "iso", transport: "iso", roles: ["coder"] }] }));
+
+    const e = err(await dispatch("orchestrate.run", {
+      goal: "test",
+      roles: { coder: { agent: "iso" } },
+    }));
+
+    expect(e.code).toBe(HOLP_ERROR_CODES.isolation_profile_rejected);
+    expect(ctx.runs.size).toBe(0);
+  });
+
+  it("ready agent without runtime_surfaces fails closed and does not create a run", async () => {
+    const registry = createAdapterRegistry(
+      { iso: createStubFactory("iso") },
+      {
+        iso: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+        }),
+      },
+    );
+    const { dispatch, ctx } = await freshDispatcher({ registry });
+    ok(await dispatch("flock.declare", { agents: [{ id: "iso", transport: "iso", roles: ["coder"] }] }));
+
+    const e = err(await dispatch("orchestrate.run", {
+      goal: "test",
+      roles: { coder: { agent: "iso" } },
+    }));
+
+    expect(e.code).toBe(HOLP_ERROR_CODES.isolation_profile_rejected);
+    expect(ctx.runs.size).toBe(0);
+  });
+
+  it("degraded isolation profile is accepted and emitted in run_started metadata", async () => {
+    const profiles = withProfile(
+      rejectedProfiles("unsupported_isolation_profile"),
+      "coder_worktree",
+      {
+        readiness: "degraded",
+        reason: "readiness_gap",
+        missing: ["state_override"],
+        warnings: ["declared_not_enforced"],
+      },
+    );
+    const registry = createAdapterRegistry(
+      { iso: createFakeBackendFactory() },
+      {
+        iso: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "headless",
+            runtime_kind: "test-degraded",
+            surface_support: "supported",
+            isolation_profiles: profiles,
+            state_declaration_ref: "harness-state:iso",
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+      },
+    );
+    const { dispatch, events } = await freshDispatcher({ registry });
+    ok(await dispatch("flock.declare", { agents: [{ id: "iso", transport: "iso", roles: ["coder"] }] }));
+    const { run_id } = ok<{ run_id: string }>(
+      await dispatch("orchestrate.run", { goal: "x", roles: { coder: { agent: "iso" } } }),
+    );
+    ok(await dispatch("events.subscribe", { run_id, after_seq: 0 }));
+    await pollUntil(() => events.some((e) => e.name === "run_started"));
+
+    const started = events.find((e) => e.name === "run_started")!;
+    const runtime = (started.payload as Record<string, unknown>).runtime as Record<string, unknown>;
+    expect(runtime.runtime_kind).toBe("test-degraded");
+    expect(runtime.isolation_status).toBe("degraded");
+    expect(runtime.isolation_missing).toEqual(["state_override"]);
+    expect(runtime.declared_not_enforced).toBe(true);
+
+    await dispatch("task.cancel", { run_id });
+  });
+
+  it("fallback coder selection skips ready agents without coder role or profile", async () => {
+    const readyProfiles = withProfile(
+      rejectedProfiles("unsupported_isolation_profile"),
+      "coder_worktree",
+      { readiness: "ready" },
+    );
+    const registry = createAdapterRegistry(
+      {
+        reviewer: createFakeBackendFactory(),
+        coder: createFakeBackendFactory(),
+      },
+      {
+        reviewer: () => ({
+          status: "ready",
+          resolved_roles: ["reviewer"],
+          runtime_surfaces: [{
+            runtime_surface: "headless",
+            runtime_kind: "reviewer-only",
+            surface_support: "supported",
+            isolation_profiles: readyProfiles,
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+        coder: () => ({
+          status: "ready",
+          resolved_roles: ["coder"],
+          runtime_surfaces: [{
+            runtime_surface: "headless",
+            runtime_kind: "fallback-coder",
+            surface_support: "supported",
+            isolation_profiles: readyProfiles,
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+      },
+    );
+    const { dispatch, events } = await freshDispatcher({ registry });
+    ok(await dispatch("flock.declare", {
+      agents: [
+        { id: "reviewer-first", transport: "reviewer", roles: ["reviewer"] },
+        { id: "coder-second", transport: "coder", roles: ["coder"] },
+      ],
+    }));
+
+    const { run_id } = ok<{ run_id: string }>(
+      await dispatch("orchestrate.run", { goal: "x", roles: {} }),
+    );
+    ok(await dispatch("events.subscribe", { run_id, after_seq: 0 }));
+    await pollUntil(() => events.some((e) => e.name === "run_started"));
+
+    const started = events.find((e) => e.name === "run_started")!;
+    const runtime = (started.payload as Record<string, unknown>).runtime as Record<string, unknown>;
+    expect(runtime.agent_id).toBe("coder-second");
+    expect(runtime.runtime_kind).toBe("fallback-coder");
+
+    await dispatch("task.cancel", { run_id });
+  });
+
+  it("reviewer panel member with rejected read_only_review profile fails closed after quorum checks", async () => {
+    const coderProfiles = withProfile(
+      rejectedProfiles("unsupported_isolation_profile"),
+      "coder_worktree",
+      { readiness: "ready" },
+    );
+    const registry = createAdapterRegistry(
+      {
+        coder: createStubFactory("coder"),
+        reviewer: createStubFactory("reviewer"),
+      },
+      {
+        coder: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "headless",
+            runtime_kind: "coder",
+            surface_support: "supported",
+            isolation_profiles: coderProfiles,
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+        reviewer: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "headless",
+            runtime_kind: "reviewer",
+            surface_support: "supported",
+            isolation_profiles: rejectedProfiles("read_only_review_rejected"),
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+      },
+    );
+    const { dispatch, ctx } = await freshDispatcher({ registry });
+    ok(await dispatch("flock.declare", {
+      agents: [
+        { id: "coder", transport: "coder", roles: ["coder"] },
+        { id: "reviewer", transport: "reviewer", roles: ["reviewer"] },
+      ],
+    }));
+
+    const e = err(await dispatch("orchestrate.run", {
+      goal: "x",
+      roles: {
+        coder: { agent: "coder" },
+        reviewer: { panel: ["reviewer"], quorum: 1 },
+      },
+    }));
+    expect(e.code).toBe(HOLP_ERROR_CODES.isolation_profile_rejected);
+    expect(ctx.runs.size).toBe(0);
+  });
+
+  it("reviewer panel isolation honors quorum and accepts when enough reviewers are selectable", async () => {
+    const coderProfiles = withProfile(
+      rejectedProfiles("unsupported_isolation_profile"),
+      "coder_worktree",
+      { readiness: "ready" },
+    );
+    const reviewerReadyProfiles = withProfile(
+      rejectedProfiles("unsupported_isolation_profile"),
+      "read_only_review",
+      { readiness: "ready" },
+    );
+    const registry = createAdapterRegistry(
+      {
+        coder: createFakeBackendFactory(),
+        reviewerReady: createStubFactory("reviewerReady"),
+        reviewerBad: createStubFactory("reviewerBad"),
+      },
+      {
+        coder: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "headless",
+            runtime_kind: "coder",
+            surface_support: "supported",
+            isolation_profiles: coderProfiles,
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+        reviewerReady: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "headless",
+            runtime_kind: "reviewer-ready",
+            surface_support: "supported",
+            isolation_profiles: reviewerReadyProfiles,
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+        reviewerBad: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "headless",
+            runtime_kind: "reviewer-bad",
+            surface_support: "supported",
+            isolation_profiles: rejectedProfiles("read_only_review_rejected"),
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+      },
+    );
+    const { dispatch, events } = await freshDispatcher({ registry });
+    ok(await dispatch("flock.declare", {
+      agents: [
+        { id: "coder", transport: "coder", roles: ["coder"] },
+        { id: "reviewer-good", transport: "reviewerReady", roles: ["reviewer"] },
+        { id: "reviewer-bad", transport: "reviewerBad", roles: ["reviewer"] },
+      ],
+    }));
+
+    const { run_id } = ok<{ run_id: string }>(await dispatch("orchestrate.run", {
+      goal: "x",
+      roles: {
+        coder: { agent: "coder" },
+        reviewer: { panel: ["reviewer-bad", "reviewer-good"], quorum: 1 },
+      },
+    }));
+    ok(await dispatch("events.subscribe", { run_id, after_seq: 0 }));
+    await pollUntil(() => events.some((e) => e.name === "run_started"));
+
+    expect(events.some((e) => e.name === "run_started")).toBe(true);
+    await dispatch("task.cancel", { run_id });
   });
 });
 

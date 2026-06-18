@@ -6,7 +6,7 @@
  * no message parsing). Standard JSON-RPC -32600/-32601 are also used by the
  * dispatcher (catalog "HOLP 也用的 JSON-RPC 标准错误码").
  *
- * All 21 HOLP codes are defined as named constants here so later milestones can
+ * All HOLP codes are defined as named constants here so later milestones can
  * reference them by name; M1a only actually triggers a subset (see PR SPEC).
  */
 
@@ -34,6 +34,7 @@ export type HolpErrorName =
   | "role_unsupported"
   | "agent_not_found"
   | "invalid_event_category"
+  | "isolation_profile_rejected"
   | "internal_error";
 
 /** HOLP-specific JSON-RPC error codes (-32001..-32020, +-32099 fallback). */
@@ -58,6 +59,7 @@ export const HOLP_ERROR_CODES = {
   role_unsupported: -32018,
   agent_not_found: -32019,
   invalid_event_category: -32020,
+  isolation_profile_rejected: -32021,
   internal_error: -32099,
 } as const satisfies Record<HolpErrorName, number>;
 
@@ -90,6 +92,7 @@ const DEFAULT_MESSAGES: Record<HolpErrorName, string> = {
   role_unsupported: "role not in agent resolved_roles",
   agent_not_found: "agent not in this connection's flock",
   invalid_event_category: "categories empty or contains unknown category",
+  isolation_profile_rejected: "agent isolation profile is unavailable",
   internal_error: "internal error",
 };
 

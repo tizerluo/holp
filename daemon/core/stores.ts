@@ -6,6 +6,10 @@
  */
 
 import type { AgentBackend } from "../../adapters/agent-backend.js";
+import type {
+  HarnessDeclarationMetadata,
+  RuntimeSelectionMetadata,
+} from "../../adapters/harness-declaration.js";
 import type { EventBus } from "./eventBus.js";
 
 // ---------------------------------------------------------------------------
@@ -16,7 +20,7 @@ import type { EventBus } from "./eventBus.js";
 export type AgentStatus = "ready" | "degraded" | "rejected";
 
 /** Per-agent flock record stored on the connection after flock.declare/discover. */
-export interface FlockAgent {
+export interface FlockAgent extends HarnessDeclarationMetadata {
   readonly id: string;
   readonly transport: string;
   readonly status: AgentStatus;
@@ -90,6 +94,8 @@ export interface RunRecord {
   sessionId?: string;
   /** Per-run event bus — replay + live delivery. */
   readonly bus: EventBus;
+  /** Runtime/profile selected for this specific run; declaration only, not enforcement. */
+  readonly runtime?: RuntimeSelectionMetadata;
   /** Pending approval ids (for task.cancel to drain). */
   readonly pendingApprovals: Set<string>;
   /** Monotonic per-run counter for deterministic approval id generation. */

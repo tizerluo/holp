@@ -22,6 +22,7 @@ import type { ConnectionContext } from "../core/context.js";
 import type { FlockAgent } from "../core/stores.js";
 import { serializeFlockAgent } from "./flock_declare.js";
 import type { AdapterRegistry } from "../../adapters/registry.js";
+import { rejectedProfiles, type IsolationProfile } from "../../adapters/harness-declaration.js";
 
 export async function handleFlockDiscover(
   req: JsonRpcRequest,
@@ -59,14 +60,43 @@ export async function handleFlockDiscover(
     const id = discoveredAgentId(transport);
     const roles = ["coder", "reviewer", "tester"];
     const agent: FlockAgent = probe
-      ? toFlockAgent(id, transport, await registry.probe({ id, transport, roles, cwd: process.cwd() }))
+      ? toFlockAgent(
+          id,
+          transport,
+          await registry.probe({
+            id,
+            transport,
+            roles,
+            cwd: process.cwd(),
+            runtimeSurface: "headless",
+            isolationProfile: defaultProbeIsolationProfile(roles),
+            runIntent: "flock.discover",
+            workspaceId: process.cwd(),
+            sessionRouteKey: id,
+          }),
+        )
       : {
           id,
           transport,
+          harness_id: id,
+          transport_class: transport,
           status: "degraded",
           resolved_roles: roles,
           reason: "not_probed",
           missing: [],
+          runtime_surfaces: [
+            {
+              runtime_surface: "headless",
+              runtime_kind: "not_probed",
+              surface_support: "unknown",
+              isolation_profiles: rejectedProfiles("not_probed"),
+              state_declaration_ref: `harness-state:${id}`,
+              global_mutation_required: false,
+              declared_not_enforced: true,
+            },
+          ],
+          state_declaration_ref: `harness-state:${id}`,
+          global_mutation_required: false,
         };
 
     ctx.flock.set(agent.id, agent);
@@ -76,6 +106,10 @@ export async function handleFlockDiscover(
   return {
     agents: discovered.map(serializeFlockAgent),
   };
+}
+
+function defaultProbeIsolationProfile(roles: readonly string[]): IsolationProfile {
+  return roles.includes("coder") ? "coder_worktree" : "read_only_review";
 }
 
 function discoveredAgentId(transport: string): string {
@@ -101,11 +135,17 @@ function toFlockAgent(
   return {
     id,
     transport,
+    harness_id: probeResult.harness_id,
+    vendor: probeResult.vendor,
+    transport_class: probeResult.transport_class,
     status: probeResult.status,
     version: probeResult.version,
     logged_in: probeResult.logged_in,
     resolved_roles: probeResult.resolved_roles ?? [],
     missing: probeResult.missing,
     reason: probeResult.reason,
+    runtime_surfaces: probeResult.runtime_surfaces,
+    state_declaration_ref: probeResult.state_declaration_ref,
+    global_mutation_required: probeResult.global_mutation_required,
   };
 }

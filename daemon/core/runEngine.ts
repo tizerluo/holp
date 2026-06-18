@@ -28,7 +28,11 @@ export async function driveRun(
 
   try {
     // 1. Emit run_started (seq=1)
-    bus.publish("run", "run_started", { goal: run.goal, trigger: run.trigger });
+    bus.publish("run", "run_started", {
+      goal: run.goal,
+      trigger: run.trigger,
+      ...(run.runtime ? { runtime: run.runtime } : {}),
+    });
 
     // Track whether the backend signalled a stop/error (e.g. approval denied).
     let aborted = false;

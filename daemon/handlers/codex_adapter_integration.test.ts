@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createCodexAppServerBackendFactory } from "../../adapters/codex-app-server.js";
+import { rejectedProfiles, withProfile } from "../../adapters/harness-declaration.js";
 import { createAdapterRegistry } from "../../adapters/registry.js";
 import { FakeClock } from "../core/clock.js";
 import { ConnectionContext } from "../core/context.js";
@@ -35,6 +36,19 @@ describe("Codex adapter dispatcher integration", () => {
           version: "fake-codex-app-server",
           logged_in: true,
           resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "headless",
+            runtime_kind: "app_server",
+            surface_support: "supported",
+            isolation_profiles: withProfile(
+              rejectedProfiles("unsupported_isolation_profile"),
+              "coder_worktree",
+              { readiness: "ready", warnings: ["declared_not_enforced"] },
+            ),
+            state_declaration_ref: "harness-state:codex",
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
         }),
       },
     );
