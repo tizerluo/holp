@@ -41,12 +41,12 @@
  *   Consensus
  *     stage-1 static panel validation ...... m1b_contract.test.ts §3 (agent_not_found /
  *                                            role_unsupported / invalid_quorum incl. rejected-in-panel)
- *     stage-2 + verdict + quorum.met ....... DEFERRED — see §F (consensus execution is M4/M5;
- *                                            roadmap M4 "consensus aggregator", M5 "quorum.met")
+ *     stage-2 + verdict + quorum.met ....... PR7/M4b covers explicit reviewer panels;
+ *                                            §F keeps single-coder no-consensus honest
  *
  * Honesty discipline (CLAUDE.md Rule 5): the DEFERRED items are NOT skipped to
- * hide a gap — they are future-milestone FEATURES (consensus execution,
- * heartbeat emission) that M1/M2 deliberately does not implement
+ * hide a gap — heartbeat emission and M5 demo remain future-milestone FEATURES
+ * that M1/M2 deliberately does not implement
  * (spec PR4: "不扩展 daemon feature"). §F asserts the CURRENT honest behavior
  * (the absence) and cites the milestone that will add the richer semantic, so the
  * boundary is visible and auditable rather than faked.
@@ -348,7 +348,7 @@ describe("E. provenance artifact_id as identity (spec §2 / §8.1)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// F. M4a expiry + remaining honest deferral boundary — semantics that land in M4/M5 (NOT faked)
+// F. M4a/M4b unlocked semantics + remaining honest deferral boundary (NOT faked)
 // ---------------------------------------------------------------------------
 //
 // These tests lock the CURRENT honest behavior and name the milestone that will
@@ -363,9 +363,9 @@ describe("E. provenance artifact_id as identity (spec §2 / §8.1)", () => {
 // and the coverage-boundary note in docs/roadmap.md M2.
 
 describe("F. M4a expiry + deferred-semantics boundary", () => {
-  it("a single-coder run emits NO consensus-category event (consensus_verdict is M4/M5)", async () => {
-    // Roadmap: consensus aggregator = M4; quorum.met/excluded[] = M5. M1/M2 runs
-    // drive only the coder; there is no consensus execution to assert yet.
+  it("a single-coder run emits NO consensus-category event without an explicit reviewer panel", async () => {
+    // PR7/M4b emits consensus only for explicit reviewer panels. M1/M2 single-coder
+    // runs drive only the coder and must remain wire-compatible.
     const h = await freshDispatcher();
     const { approvalId } = await runToApproval(h);
     ok(await h.dispatch("approval.resolve", { approval_id: approvalId, decision: "approved", by: "u" }));

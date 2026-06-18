@@ -10,6 +10,7 @@ import type {
   HarnessDeclarationMetadata,
   RuntimeSelectionMetadata,
 } from "../../adapters/harness-declaration.js";
+import type { ConsensusRunConfig } from "./consensus.js";
 import type { EventBus } from "./eventBus.js";
 import type { ScheduledTask } from "./scheduler.js";
 
@@ -98,6 +99,8 @@ export interface RunRecord {
   readonly bus: EventBus;
   /** Runtime/profile selected for this specific run; declaration only, not enforcement. */
   readonly runtime?: RuntimeSelectionMetadata;
+  /** Optional PR7 consensus configuration; present only for explicit reviewer panels. */
+  readonly consensus?: ConsensusRunConfig;
   /** Pending approval ids (for task.cancel to drain). */
   readonly pendingApprovals: Set<string>;
   /** Monotonic per-run counter for deterministic approval id generation. */
