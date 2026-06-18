@@ -37,7 +37,7 @@ export type HolpErrorName =
   | "isolation_profile_rejected"
   | "internal_error";
 
-/** HOLP-specific JSON-RPC error codes (-32001..-32020, +-32099 fallback). */
+/** HOLP-specific JSON-RPC error codes (-32001..-32021, +-32099 fallback). */
 export const HOLP_ERROR_CODES = {
   protocol_version_mismatch: -32001,
   capability_required_but_unsupported: -32002,

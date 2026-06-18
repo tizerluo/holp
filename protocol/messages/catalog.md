@@ -90,7 +90,7 @@
 
 JSON-RPC error object:`{ code, message, data }`。HOLP 专用码用区间 `-32000 ~ -32099`,一错误一 code。可重试列只对 transient 错误标 ✓(§10:`missing_auth`/`lease_stolen`/`run_locked`)。
 
-### HOLP 专用错误码(21 个,§10)
+### HOLP 专用错误码(22 个,§10)
 
 | code | 名称 | 触发 | 可重试? | spec § |
 |---|---|---|---|---|
@@ -114,6 +114,7 @@ JSON-RPC error object:`{ code, message, data }`。HOLP 专用码用区间 `-3200
 | -32018 | `role_unsupported` | 派给某 agent 的角色不在其 `resolved_roles`(或 degraded 缺该角色) | | §4.2 / §10 |
 | -32019 | `agent_not_found` | 引用本连接 flock 从未返回过的 agent id | | §4.2 / §10 |
 | -32020 | `invalid_event_category` | `events.subscribe.categories` 为空数组或含未知 category | | §5 / §10 |
+| -32021 | `isolation_profile_rejected` | 选中的 runtime surface / isolation profile 缺失或为 rejected | | §6.2 / §10 |
 | -32099 | `internal_error` | 兜底 | | §10 |
 
 ### HOLP 也用的 JSON-RPC 标准错误码
