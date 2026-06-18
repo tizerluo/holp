@@ -95,7 +95,7 @@ const RUNTIME_SURFACES: readonly RuntimeSurface[] = [
 const ALLOWED_TRANSITIONS: Record<RunLifecycleState, readonly RunLifecycleState[]> = {
   queued: ["running"],
   running: ["waiting_approval", "merged", "gave_up", "blocked", "cancelling"],
-  waiting_approval: ["running", "cancelling", "blocked"],
+  waiting_approval: ["running", "cancelling", "blocked", "merged", "gave_up"],
   cancelling: ["cancelled"],
   merged: [],
   gave_up: [],

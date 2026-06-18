@@ -127,8 +127,8 @@ export async function driveRun(
     // 5a. If the backend was aborted (e.g. approval rejected), emit run_blocked
     //     and skip artifact registration entirely.
     if (aborted) {
-      run.status = "blocked";
       ctx.governance.transitionRun(run.run_id, "blocked", clock.now(), abortReason ?? "approval_rejected");
+      run.status = "blocked";
       ctx.governance.recordDecision({
         decision_type: "run_terminal",
         run_id: run.run_id,
@@ -160,8 +160,8 @@ export async function driveRun(
 
     // 6. Emit terminal run_merged. A run may complete without a diff artifact
     // if the real provider produced only lifecycle/model output.
-    run.status = "merged";
     ctx.governance.transitionRun(run.run_id, "merged", clock.now(), "run completed");
+    run.status = "merged";
     ctx.governance.recordDecision({
       decision_type: "run_terminal",
       run_id: run.run_id,
@@ -176,8 +176,8 @@ export async function driveRun(
     });
   } catch (err) {
     if (run.status === "active") {
-      run.status = "gave_up";
       ctx.governance.transitionRun(run.run_id, "gave_up", clock.now(), "run_error");
+      run.status = "gave_up";
       ctx.governance.recordDecision({
         decision_type: "run_terminal",
         run_id: run.run_id,
