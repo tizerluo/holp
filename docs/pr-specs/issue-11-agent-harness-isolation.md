@@ -24,8 +24,8 @@ HOLP 的协议基准目标不是"今天就完整支持 12 个 agent 的所有运
 - `headless`:通过 CLI/API 一次性或可续跑命令执行,适合 Commander 派工、review、test、execution run。典型例子:`claude -p`、`kimi -p`、`opencode run`。
 - `acp`:通过 Agent Client Protocol 或 bridge 进行会话控制,适合结构化 session/update、permission、mode/model 控制。并非所有 agent 都有原生 ACP。
 - `direct_user_session`:用户可直接进入并通讯的会话层。它至少包含两类子形态:
-  - product session:类似 Happy/Happier 的本地/远程 UI 会话,需要 session service、message queue、metadata、permission UI、ready/keepalive、resume/handoff 等产品能力。
-  - terminal session:类似 Warp、cmux、tmux 的终端会话,用户可 attach 到同一终端/PTY/tmux pane,或由控制面向该会话注入输入、读取输出、发送中断。
+  - product session:类似 Happy/Happier 的本地/远程 UI 会话,通常需要 message queue、metadata、permission UI、resume/handoff 等产品能力。
+  - terminal session:类似 Warp、cmux、tmux 的终端会话。不同工具能力差异很大,可能提供 PTY/tmux attach、input injection、output stream、interrupt/cancel 等子能力;HOLP 必须逐项声明,不能把三者抹平成同一种既有能力。
 
 `direct_user_session` 不是单个 backend adapter 自动具备的能力。它必须显式声明 direct channel 类型、attach/inject/cancel 能力、会话归属和隔离边界。
 
@@ -42,7 +42,7 @@ HOLP 的协议基准目标不是"今天就完整支持 12 个 agent 的所有运
 
 ## 调研依据
 
-- `loopwright`:治理 registry 和 runtime backend 应分层。`harness_id`、`transport_class`、role、lifecycle 是治理维度;CLI / ACP / app-server / MCP 是执行维度。
+- `loopwright`:治理 registry 和 runtime backend 应分层。`harness_id`、`transport_class`、`role_fitness` 是 harness registry 治理维度;lifecycle 属于另一套事件词表;CLI / ACP / app-server / MCP 是执行维度。
 - `happier`:provider isolation 适合先生成 per-run isolation bundle,叠加 XDG state/cache/data,同时保留 `HOME`,避免破坏 OAuth、Keychain 或 provider 自身 auth。
 - `warp`:第三方 harness 自己负责 config/env/resume payload;driver 不应拆 provider 私有状态,也不应在通用层猜测 resume payload。
 - `cmux`:hook 安装是用户全局副作用,hook 运行时路由是 per-session/per-workspace 行为。两者必须拆开建模,不能把"装过 hook"误认为"本次 run 已隔离"。
