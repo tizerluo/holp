@@ -24,14 +24,15 @@
 - protocol draft + adapter 契约桩。
 - 参考 daemon 协议骨架(`daemon/`):stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
 - 参考 consumer CLI(`consumers/cli/`)+ M1 e2e 闭环——**仅用 fake backend**(`fake` transport),非真实 provider。
-- M2 契约回归网(`daemon/handlers/m2_contract.test.ts`):已锁定当前实现的关键 v0.1.4 语义；consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5,由 §F 负向锁定当前缺席行为。参考 daemon 代码常量仍按 v0.1.4 contract 运行;v0.1.5 的 runtime surface / isolation readiness matrix 由 Issue #11 / PR6+ 承接。
+- M2 契约回归网(`daemon/handlers/m2_contract.test.ts`):已锁定当前实现的关键 v0.1.4 语义；approval 超时已由 M4a skeleton 接入正向 contract,consensus 执行 / heartbeat 仍转交后续。
 - M3 首个真实 adapter:`"mcp-codex"` 接 Codex app-server over stdio;`flock.declare`/`flock.discover` 通过 registry probe 返回 honest `ready/degraded/rejected`;permission resume 复用 injected `permissionHandler` + `ApprovalRecord.resumeBackend` path。自动测试覆盖 fake app-server harness;真实 provider smoke 取决于本机 Codex binary/auth。
+- M4a governance data/state/decision skeleton partial:内部记录 events、`decision_made`、harness registry runtime/isolation matrix、run lifecycle state machine,并实现 approval expiry timer。该层无 public query API;`permission_surface` / `observability_surface` 为保留列且当前统一 `unknown`,不表示完整 consensus/gate policy 已完成。
 
 **参考 daemon 下一步 milestone**:
-- 治理内核/events-decisions-registry 数据骨架/共识/状态机 从 loopwright 搬入(M4)。
+- 完整治理内核/共识/gate policy 从 loopwright 搬入(M4/M5 后续)。
 - **未做(不声称)**:native-claude/acp 真接线、12 个 agent 的三类运行面完整支持、Web 传输。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
 
-> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter + v0.1.5 runtime surface/isolation baseline」,不声称已接 native-claude/acp 真 agent,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`。
+> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter + v0.1.5 runtime surface/isolation baseline + M4a governance data/state/decision skeleton partial」,不声称已接 native-claude/acp 真 agent,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称 consensus/gate 已完成。
 
 ## 变更记录
 

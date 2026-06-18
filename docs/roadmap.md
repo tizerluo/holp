@@ -16,14 +16,14 @@
 - `daemon/`:参考 daemon 协议骨架,支持 stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
 - `consumers/cli/`:参考 consumer CLI,可跑通 M1 fake backend 闭环。
 - M1 e2e 闭环:`initialize -> flock.declare -> orchestrate.run -> events.subscribe -> approval.resolve -> artifact.get`。**fake backend,非真实 provider**。
-- M2 契约回归网:`daemon/handlers/m2_contract.test.ts` 已锁定当前实现的关键 v0.1.4 语义；consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5,由 §F 负向锁定当前缺席行为。
+- M2 契约回归网:`daemon/handlers/m2_contract.test.ts` 已锁定当前实现的关键 v0.1.4 语义；approval 超时已由 M4a skeleton 接入正向 contract,consensus 执行 / heartbeat 仍转交 M4/M5/M3+。
 - 参考 daemon 代码常量仍按 v0.1.4 contract 运行;v0.1.5 是当前协议基准修订,PR6+ 必须承接 runtime surface / isolation readiness matrix。
 
 当前仓未落地,也不声称已落地:
 
 - native-claude/acp 真接线。
 - 12 个 agent 在 `headless` / `acp` / `direct_user_session` 三类运行面的完整 adapter 实现。
-- 治理内核/events-decisions-registry 数据骨架/共识/状态机。
+- M4a 之后的完整治理内核/共识/gate policy。
 - Web 传输。
 - Remote execution。
 
@@ -101,7 +101,7 @@
 
 ## M2:Protocol Contract Tests
 
-> 状态(2026-06-18,PR #9):**契约层已锁定**——consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5(由 `daemon/handlers/m2_contract.test.ts` §F 负向锁定其当前缺席,见下方 Deferral 边界)。**非**无保留的「全覆盖完成」。
+> 状态(2026-06-18,PR #9 + PR6/M4a):**契约层已锁定**——approval 超时已由 M4a 接入正向 contract;consensus 执行 / heartbeat 仍转交 M3/M4/M5(由 `daemon/handlers/m2_contract.test.ts` §F 锁定边界)。**非**无保留的「全覆盖完成」。
 
 目标:把 spec 关键语义变成测试,让后续 provider 接线不会破坏协议层。
 
@@ -125,7 +125,7 @@
 - `artifact_refs:false` 时 findings/details 内联降级,但 `target.artifact_id` / `provenance.artifact_id` 仍可作为身份字段出现。
 - `events.subscribe` 支持 seq replay 和多 subscription 归属。
 
-> **覆盖边界(M1/M2 实现 vs 转交后续)**:上面是按 v0.1.4 协议面的**理想全集**列举。其中 consensus 第 2 段 / `consensus_verdict` / `quorum.met` / `excluded[]` / `errors[]`(转 M4/M5)、approval `approval_expired` 超时(转 M4 run state machine)、heartbeat 不受 category 过滤(转 M3+)、consensus `findings` 内联降级(转 M5)在 M1/M2 **未实现**,故 M2 不把它们做成正向 contract test,而由 `daemon/handlers/m2_contract.test.ts` 的 §F **负向锁定其当前缺席行为**;owning milestone 落地时必须改写/删除对应 §F 断言并补正向测试。逐项拆分见 `docs/pr-specs/pr4-m2-contract-tests.md` 的 **Deferral ledger**。M2 的「consensus 两段式」在本里程碑只锁第 1 段静态 panel 校验(错误码分流);approval/findings 的 `artifact_refs:false` 内联降级在 M2 只锁 approval `details`(§D)。
+> **覆盖边界(M1/M2 实现 vs 转交后续)**:上面是按 v0.1.4 协议面的**理想全集**列举。其中 approval `approval_expired` 超时已由 M4a run state machine/timer 接入正向 contract。consensus 第 2 段 / `consensus_verdict` / `quorum.met` / `excluded[]` / `errors[]`(转 M4/M5)、heartbeat 不受 category 过滤(转 M3+)、consensus `findings` 内联降级(转 M5)仍未实现,由 `daemon/handlers/m2_contract.test.ts` 的 §F 锁定当前边界;owning milestone 落地时必须改写/删除对应 §F 断言并补正向测试。逐项拆分见 `docs/pr-specs/pr4-m2-contract-tests.md` 的 **Deferral ledger**。M2 的「consensus 两段式」在本里程碑只锁第 1 段静态 panel 校验(错误码分流);approval/findings 的 `artifact_refs:false` 内联降级在 M2 只锁 approval `details`(§D)。
 
 验收标准:
 
@@ -171,6 +171,8 @@
 - 不把 happier 变成协议依赖。
 
 ## M4:Governance Kernel Import
+
+> 状态(PR6/M4a):data/state/decision skeleton partial 已落地:内部 event archive、`decision_made`、harness registry archive、run lifecycle state machine、approval expiry timer。`permission_surface` / `observability_surface` 已作为保留列记录为 `unknown`;完整 consensus aggregator / gate policy 仍未落地。
 
 目标:从 loopwright 挑拷纯逻辑治理内核,不要搬整个旧仓。
 

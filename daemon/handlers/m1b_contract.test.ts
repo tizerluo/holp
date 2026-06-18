@@ -113,7 +113,7 @@ async function pollUntil(pred: () => boolean, maxTicks = 500): Promise<void> {
 
 describe("1. Closed-loop e2e — full protocol run", () => {
   it("emits run_started, tool_called, approval_requested, approval_resolved, run_merged with all 7-field envelopes and contiguous seq", async () => {
-    const { events, dispatch } = await freshDispatcher();
+    const { ctx, events, dispatch } = await freshDispatcher();
 
     // Declare fake agent
     ok(await dispatch("flock.declare", { agents: [{ id: "agent-1", transport: "fake", roles: ["coder"] }] }));
@@ -153,6 +153,16 @@ describe("1. Closed-loop e2e — full protocol run", () => {
     expect(names).toContain("approval_requested");
     expect(names).toContain("approval_resolved");
     expect(names).toContain("run_merged");
+    expect(ctx.governance.events.map((e) => e.name)).toEqual(names);
+    expect(ctx.governance.decisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "decision_made", decision_type: "run_accepted" }),
+        expect.objectContaining({ kind: "decision_made", decision_type: "runtime_selected" }),
+        expect.objectContaining({ kind: "decision_made", decision_type: "approval_requested" }),
+        expect.objectContaining({ kind: "decision_made", decision_type: "approval_resolved" }),
+        expect.objectContaining({ kind: "decision_made", decision_type: "run_terminal" }),
+      ]),
+    );
 
     // Assert every event has all 7 fields (spec §5)
     for (const ev of events) {

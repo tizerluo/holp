@@ -27,6 +27,7 @@ import { Dispatcher } from "../core/dispatcher.js";
 import { ConnectionContext } from "../core/context.js";
 import { EventSink } from "../core/eventSink.js";
 import { systemClock, type Clock } from "../core/clock.js";
+import { systemScheduler, type Scheduler } from "../core/scheduler.js";
 import { handleInitialize } from "../handlers/initialize.js";
 import { handleEventsSubscribe } from "../handlers/events_subscribe.js";
 import { handleEventsUnsubscribe } from "../handlers/events_unsubscribe.js";
@@ -69,17 +70,20 @@ export function buildDispatcher(
   sink?: EventSink,
   registry = createDefaultAdapterRegistry(),
   clock: Clock = systemClock,
+  scheduler: Scheduler = systemScheduler,
 ): Dispatcher {
   const dispatcher = new Dispatcher(ctx);
   dispatcher
     .register("initialize", handleInitialize)
     .register("events.subscribe", (req, c) => handleEventsSubscribe(req, c, sink))
     .register("events.unsubscribe", handleEventsUnsubscribe)
-    .register("flock.declare", (req, c) => handleFlockDeclare(req, c, registry))
-    .register("flock.discover", (req, c) => handleFlockDiscover(req, c, registry))
-    .register("orchestrate.run", (req, c) => handleOrchestrateRun(req, c, registry, clock))
-    .register("approval.resolve", handleApprovalResolve)
-    .register("task.cancel", handleTaskCancel)
+    .register("flock.declare", (req, c) => handleFlockDeclare(req, c, registry, clock))
+    .register("flock.discover", (req, c) => handleFlockDiscover(req, c, registry, clock))
+    .register("orchestrate.run", (req, c) =>
+      handleOrchestrateRun(req, c, registry, clock, scheduler)
+    )
+    .register("approval.resolve", (req, c) => handleApprovalResolve(req, c, clock))
+    .register("task.cancel", (req, c) => handleTaskCancel(req, c, clock))
     .register("artifact.get", handleArtifactGet);
   return dispatcher;
 }

@@ -67,13 +67,13 @@
 - Artifact:永远返回 `content` / 截断字段 / `artifact_refs:false` 时 **approval `details`** 内联降级 / provenance 裸 `artifact_id` 作为身份字段(不受 `artifact_refs` 控制)。
 - Consensus:**第 1 段静态 panel 校验**的错误码分流(unknown→`agent_not_found`、role mismatch→`role_unsupported`、rejected-in-panel 与 quorum 形状→`invalid_quorum`),固定顺序。
 
-**转交后续里程碑(v0.1.4 已定义,M1/M2 未实现 → §F 负向锁定其当前缺席,owning PR 落地时必须改写/删除对应 §F 断言并补正向 contract test):**
+**转交后续里程碑(v0.1.4 已定义,M1/M2 未实现 → §F 锁定当前边界,owning PR 落地时必须改写/删除对应 §F 断言并补正向 contract test):**
 
 | 协议语义 | owning milestone | §F 负向锁定 | 解锁动作 |
 |---|---|---|---|
 | consensus 第 2 段(排除作者后精确校验)+ `consensus_verdict` + `quorum.{required,eligible,met}` + `excluded[]` + `errors[]` | M4(aggregator)/ M5(`quorum.met`、`excluded[]`、`errors[]`) | 单 coder run 不发 `consensus` category 事件、无 `consensus_verdict` | M4/M5 实现共识执行时,删除该负向断言,补「正常 verdict 不出现 `quorum.met:false`」「排除作者」等正向断言 |
 | `quorum_unsatisfiable`(`-32004`)的可达触发 | M4(第 2 段 eligible<quorum) | (随上一行;M2 形状校验路径下不可达,仅注释说明) | M4 第 2 段实现后补该错误码的正向断言 |
-| approval `requested → expired` + 超时定时器 | M4(run state machine) | pending approval 不会自发 `approval_expired`(无定时器);`expires_at` 字段已存在供未来定时器使用 | M4 实现 expiry timer 时,删除负向断言,补 `approval_expired` 状态机正向断言 + §7 race 的 server-timeout 分支 |
+| approval `requested → expired` + 超时定时器 | M4a(run state machine) | PR6 已解锁:fake scheduler advance 后自发 `approval_expired`;server-timeout 先终态后 `approval.resolve` 返回 `approval_already_resolved` | 后续只需在完整 policy/gate 引入时扩展 timeout policy 覆盖,不得回退到无 timer |
 | heartbeat 不受 `categories` 过滤 | M3+(lifecycle heartbeat 发射后) | 当前不发 heartbeat;`include_heartbeats` 参数已解析但 bus 未旁路 | heartbeat 发射落地时,补 bus 旁路 + 「心跳不受 category 过滤」正向断言 |
 | `artifact_refs:false` 时 consensus **`reviews[].findings`** 内联降级 | M5(findings 随共识产出) | (approval `details` 内联已在 §D 锁定;findings 待共识执行) | M5 共识执行产出 findings 时,补 findings 内联降级断言 |
 | v0.1.5 runtime surface / isolation readiness matrix | Issue #11 / PR6+ | M2 只锁 v0.1.4 关键语义;不要求 fake daemon 正向产出 `runtime_surfaces` 矩阵 | PR6 引入 governance data skeleton 时,补 declare/discover 与 registry/run metadata 的矩阵正向 contract test |

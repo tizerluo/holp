@@ -23,11 +23,13 @@ import type { FlockAgent } from "../core/stores.js";
 import { serializeFlockAgent } from "./flock_declare.js";
 import type { AdapterRegistry } from "../../adapters/registry.js";
 import { rejectedProfiles, type IsolationProfile } from "../../adapters/harness-declaration.js";
+import type { Clock } from "../core/clock.js";
 
 export async function handleFlockDiscover(
   req: JsonRpcRequest,
   ctx: ConnectionContext,
   registry: AdapterRegistry,
+  clock: Clock,
 ): Promise<unknown> {
   const params = isObject(req.params) ? req.params : {};
 
@@ -100,6 +102,7 @@ export async function handleFlockDiscover(
         };
 
     ctx.flock.set(agent.id, agent);
+    ctx.governance.archiveHarnessAgent(agent, clock.now());
     discovered.push(agent);
   }
 

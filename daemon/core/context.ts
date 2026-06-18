@@ -10,6 +10,7 @@
 
 import type { NegotiatedCapabilities } from "./capabilities.js";
 import type { FlockAgent, RunRecord, ArtifactRecord, ApprovalRecord } from "./stores.js";
+import { GovernanceStore } from "./governance.js";
 
 /** A live event subscription (spec §5). seq starts at 1; 0 is the empty sentinel. */
 export interface Subscription {
@@ -70,6 +71,9 @@ export class ConnectionContext {
 
   /** Approval records keyed by approval_id (§7). */
   readonly approvals: Map<string, ApprovalRecord> = new Map();
+
+  /** Internal M4a governance state: events, decisions, registry snapshots, run lifecycle. */
+  readonly governance: GovernanceStore = new GovernanceStore();
 
   private subscriptionCounter = 0;
 

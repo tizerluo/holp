@@ -32,6 +32,8 @@ export interface BusSubscriber {
   readonly sink: EventSink;
 }
 
+export type EventRecorder = (runId: string, event: StoredEvent) => void;
+
 export class EventBus {
   private events: StoredEvent[] = [];
   private seq = 0;
@@ -40,6 +42,7 @@ export class EventBus {
   constructor(
     readonly runId: string,
     private readonly clock: Clock,
+    private readonly recorder?: EventRecorder,
   ) {}
 
   /** Current maximum seq (0 if no events have been published). */
@@ -61,6 +64,7 @@ export class EventBus {
       payload,
     };
     this.events.push(event);
+    this.recorder?.(this.runId, event);
 
     for (const sub of this.subscribers) {
       if (matchesFilter(event, sub.categories)) {

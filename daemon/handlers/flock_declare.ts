@@ -21,6 +21,7 @@ import type { ConnectionContext } from "../core/context.js";
 import type { FlockAgent } from "../core/stores.js";
 import type { AdapterRegistry } from "../../adapters/registry.js";
 import type { IsolationProfile } from "../../adapters/harness-declaration.js";
+import type { Clock } from "../core/clock.js";
 
 /**
  * Probe a declared agent against the adapter registry.
@@ -73,6 +74,7 @@ export async function handleFlockDeclare(
   req: JsonRpcRequest,
   ctx: ConnectionContext,
   registry: AdapterRegistry,
+  clock: Clock,
 ): Promise<unknown> {
   const params = isObject(req.params) ? req.params : {};
 
@@ -100,6 +102,7 @@ export async function handleFlockDeclare(
     const resolved = await probeAgent(declared, registry);
     // Store into connection flock — even rejected agents are "known" (§4.2).
     ctx.flock.set(resolved.id, resolved);
+    ctx.governance.archiveHarnessAgent(resolved, clock.now());
     results.push(resolved);
   }
 
