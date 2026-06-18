@@ -485,7 +485,18 @@ async function requestSemanticDecisionApproval(
 function degradedOutcome(
   action: NonNullable<ConsensusDegradedPayload["policy_action"]>,
 ): ConsensusDegradedOutcome {
-  if (action === "degrade_quorum") return "degrade_quorum";
-  if (action === "reject") return "reject";
-  return "ask_human";
+  switch (action) {
+    case "degrade_quorum":
+      return "degrade_quorum";
+    case "reject":
+      return "reject";
+    case "ask_human":
+      return "ask_human";
+    default:
+      return assertNever(action);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`unhandled consensus degraded action: ${String(value)}`);
 }

@@ -218,6 +218,36 @@ describe("M4b consensus integration", () => {
     });
   });
 
+  it("does not silently pass degrade_quorum when author exclusion leaves zero reviewers", async () => {
+    const h = await freshHarness();
+    ok(await h.dispatch("flock.declare", {
+      agents: [
+        { id: "author", transport: "fake", roles: ["coder", "reviewer"] },
+      ],
+    }));
+    const { run_id } = ok<{ run_id: string }>(await h.dispatch("orchestrate.run", {
+      goal: "zero eligible degrade",
+      roles: {
+        coder: { agent: "author" },
+        reviewer: { panel: ["author"], quorum: 1 },
+      },
+      policy: { on_quorum_unsatisfiable: "degrade_quorum" },
+    }));
+    ok(await h.dispatch("events.subscribe", { run_id, after_seq: 0 }));
+
+    await approveFirstMergeApproval(h);
+    await pollUntil(() => h.events.some((event) => event.name === "consensus_degraded"), "degraded");
+    await pollUntil(() => h.events.some((event) => event.name === "run_blocked"), "blocked");
+
+    const degraded = h.events.find((event) => event.name === "consensus_degraded")!;
+    expect(degraded.payload).toMatchObject({
+      outcome: "degrade_quorum",
+      policy_action: "degrade_quorum",
+      quorum: { required: 1, eligible: 0, met: false },
+    });
+    expect(h.events.some((event) => event.name === "consensus_verdict")).toBe(false);
+  });
+
   it("routes ask_human through the approval state machine before continuing", async () => {
     const h = await freshHarness({ semanticDecision: true });
     ok(await h.dispatch("flock.declare", {
