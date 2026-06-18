@@ -12,8 +12,14 @@ import { HolpRpcError } from "../core/dispatcher.js";
 import { isObject } from "../core/internal.js";
 import type { JsonRpcRequest } from "../runtime/jsonrpc.js";
 import type { ConnectionContext } from "../core/context.js";
+import { clearApprovalTimer } from "../core/approvalLifecycle.js";
+import { systemClock, type Clock } from "../core/clock.js";
 
-export function handleTaskCancel(req: JsonRpcRequest, ctx: ConnectionContext): unknown {
+export function handleTaskCancel(
+  req: JsonRpcRequest,
+  ctx: ConnectionContext,
+  clock: Clock = systemClock,
+): unknown {
   const params = isObject(req.params) ? req.params : {};
 
   const runId = params.run_id;
@@ -36,6 +42,7 @@ export function handleTaskCancel(req: JsonRpcRequest, ctx: ConnectionContext): u
   }
 
   // Mark cancelled.
+  ctx.governance.transitionRun(runId, "cancelling", clock.now(), "task.cancel");
   run.status = "cancelled";
 
   // Cancel backend (if available).
@@ -47,11 +54,20 @@ export function handleTaskCancel(req: JsonRpcRequest, ctx: ConnectionContext): u
   for (const approvalId of run.pendingApprovals) {
     const approval = ctx.approvals.get(approvalId);
     if (approval && approval.state === "pending") {
+      clearApprovalTimer(approval);
       approval.state = "cancelled";
       run.bus.publish("approval", "approval_cancelled", {
         approval_id: approvalId,
         state: "cancelled",
         reason: "run_cancelled",
+      });
+      ctx.governance.recordDecision({
+        decision_type: "approval_cancelled",
+        run_id: runId,
+        approval_id: approvalId,
+        reason: "run_cancelled",
+        ts: clock.now(),
+        data: { kind: approval.kind },
       });
       // Resolve the pending Promise with deny so the backend unblocks.
       approval.resumeBackend("deny");
@@ -61,6 +77,14 @@ export function handleTaskCancel(req: JsonRpcRequest, ctx: ConnectionContext): u
 
   // Emit terminal run_gave_up.
   run.bus.publish("run", "run_gave_up", { reason: "cancelled" });
+  ctx.governance.transitionRun(runId, "cancelled", clock.now(), "task.cancel");
+  ctx.governance.recordDecision({
+    decision_type: "run_terminal",
+    run_id: runId,
+    reason: "cancelled",
+    ts: clock.now(),
+    data: { state: "cancelled" },
+  });
 
   return { run_id: runId, cancelling: true };
 }

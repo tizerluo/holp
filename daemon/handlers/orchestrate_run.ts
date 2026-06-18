@@ -20,11 +20,13 @@ import { HolpRpcError } from "../core/dispatcher.js";
 import { isObject } from "../core/internal.js";
 import type { JsonRpcRequest } from "../runtime/jsonrpc.js";
 import type { ConnectionContext } from "../core/context.js";
-import type { FlockAgent, RunRecord } from "../core/stores.js";
+import type { ApprovalRecord, FlockAgent, RunRecord } from "../core/stores.js";
 import { EventBus } from "../core/eventBus.js";
 import type { AdapterRegistry } from "../../adapters/registry.js";
 import type { Clock } from "../core/clock.js";
+import type { Scheduler } from "../core/scheduler.js";
 import { driveRun } from "../core/runEngine.js";
+import { expireApproval } from "../core/approvalLifecycle.js";
 import {
   findRuntimeProfile,
   runtimeSelectionFromDeclaration,
@@ -45,6 +47,7 @@ export function handleOrchestrateRun(
   ctx: ConnectionContext,
   registry: AdapterRegistry,
   clock: Clock,
+  scheduler: Scheduler,
 ): unknown {
   const params = isObject(req.params) ? req.params : {};
 
@@ -320,7 +323,10 @@ export function handleOrchestrateRun(
 
   // --- Create run record ---
   const runId = nextRunId();
-  const bus = new EventBus(runId, clock);
+  const bus = new EventBus(runId, clock, (recordRunId, event) => {
+    ctx.governance.recordEvent(recordRunId, event);
+  });
+  ctx.governance.ensureRunState(runId, "queued", clock.now());
 
   const run: RunRecord = {
     run_id: runId,
@@ -333,6 +339,23 @@ export function handleOrchestrateRun(
     approvalSeq: 0,
   };
   ctx.runs.set(runId, run);
+  ctx.governance.transitionRun(runId, "running", clock.now(), "run_accepted");
+  ctx.governance.recordDecision({
+    decision_type: "run_accepted",
+    run_id: runId,
+    agent_id: coderAgentId,
+    reason: "orchestrate.run accepted",
+    ts: clock.now(),
+    data: { trigger, goal },
+  });
+  ctx.governance.recordDecision({
+    decision_type: "runtime_selected",
+    run_id: runId,
+    agent_id: coderAgentId,
+    reason: "coder runtime selected",
+    ts: clock.now(),
+    data: coderRuntime,
+  });
 
   // --- Create backend and wire it ---
   const backend = factory({
@@ -354,7 +377,7 @@ export function handleOrchestrateRun(
           );
         };
 
-        ctx.approvals.set(approvalId, {
+        const approvalRecord: ApprovalRecord = {
           approval_id: approvalId,
           run_id: runId,
           kind: "merge_approval",
@@ -362,8 +385,22 @@ export function handleOrchestrateRun(
           expires_at: expiresAt,
           state: "pending",
           resumeBackend,
+        };
+        approvalRecord.expiryTimer = scheduler.schedule(expiresAt - clock.now(), () => {
+          expireApproval(ctx, approvalId, clock);
         });
+        ctx.approvals.set(approvalId, approvalRecord);
         run.pendingApprovals.add(approvalId);
+        ctx.governance.transitionRun(runId, "waiting_approval", clock.now(), "approval_requested");
+        ctx.governance.recordDecision({
+          decision_type: "approval_requested",
+          run_id: runId,
+          agent_id: coderAgentId,
+          approval_id: approvalId,
+          reason: `${toolName} requires human approval`,
+          ts: clock.now(),
+          data: { kind: "merge_approval", tool: toolName },
+        });
 
         bus.publish("approval", "approval_requested", {
           approval_id: approvalId,

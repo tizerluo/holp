@@ -25,8 +25,10 @@ export async function driveRun(
   clock: Clock,
 ): Promise<void> {
   const bus = run.bus;
+  ctx.governance.ensureRunState(run.run_id, "queued", clock.now());
 
   try {
+    ctx.governance.transitionRun(run.run_id, "running", clock.now(), "backend_starting");
     // 1. Emit run_started (seq=1)
     bus.publish("run", "run_started", {
       goal: run.goal,
@@ -118,12 +120,22 @@ export async function driveRun(
     // including any pending permissionHandler Promise being resolved externally.
     await backend.sendPrompt(sessionId, run.goal);
 
-    if (run.status !== "active") return; // Cancelled during run.
+    // A lifecycle side path (cancel/expiry) may claim terminal ownership while
+    // the backend was paused; in that case it already emitted the terminal event.
+    if (run.status !== "active") return;
 
     // 5a. If the backend was aborted (e.g. approval rejected), emit run_blocked
     //     and skip artifact registration entirely.
     if (aborted) {
+      ctx.governance.transitionRun(run.run_id, "blocked", clock.now(), abortReason ?? "approval_rejected");
       run.status = "blocked";
+      ctx.governance.recordDecision({
+        decision_type: "run_terminal",
+        run_id: run.run_id,
+        reason: abortReason ?? "approval_rejected",
+        ts: clock.now(),
+        data: { state: "blocked" },
+      });
       bus.publish("run", "run_blocked", {
         reason: abortReason ?? "approval_rejected",
       });
@@ -148,7 +160,15 @@ export async function driveRun(
 
     // 6. Emit terminal run_merged. A run may complete without a diff artifact
     // if the real provider produced only lifecycle/model output.
+    ctx.governance.transitionRun(run.run_id, "merged", clock.now(), "run completed");
     run.status = "merged";
+    ctx.governance.recordDecision({
+      decision_type: "run_terminal",
+      run_id: run.run_id,
+      reason: "run completed",
+      ts: clock.now(),
+      data: { state: "merged", artifact_id: artifactId },
+    });
     bus.publish("run", "run_merged", {
       ...(artifactId ? { artifact_id: artifactId } : {}),
       ...(diffArtifactPath ? { path: diffArtifactPath } : {}),
@@ -156,7 +176,15 @@ export async function driveRun(
     });
   } catch (err) {
     if (run.status === "active") {
+      ctx.governance.transitionRun(run.run_id, "gave_up", clock.now(), "run_error");
       run.status = "gave_up";
+      ctx.governance.recordDecision({
+        decision_type: "run_terminal",
+        run_id: run.run_id,
+        reason: err instanceof Error ? err.message : String(err),
+        ts: clock.now(),
+        data: { state: "gave_up" },
+      });
       bus.publish("run", "run_gave_up", {
         reason: err instanceof Error ? err.message : String(err),
       });

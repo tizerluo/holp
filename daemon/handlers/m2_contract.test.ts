@@ -31,7 +31,7 @@
  *     no approval.cancel method ............ NEW here (§B)
  *     先终态者赢 (resolve wins) race ......... NEW here (§C)
  *     approval_already_resolved ............ m1b_contract.test.ts §4
- *     requested → expired .................. DEFERRED — see §F (no expiry timer yet; M4 run state machine)
+ *     requested → expired .................. NEW here (§F) — PR6/M4a timer path
  *   Cancel
  *     terminal idempotency / unknown run ... m1b_contract.test.ts §5
  *   Artifact
@@ -45,8 +45,8 @@
  *                                            roadmap M4 "consensus aggregator", M5 "quorum.met")
  *
  * Honesty discipline (CLAUDE.md Rule 5): the DEFERRED items are NOT skipped to
- * hide a gap — they are future-milestone FEATURES (consensus execution, approval
- * expiry timer, heartbeat emission) that M1/M2 deliberately does not implement
+ * hide a gap — they are future-milestone FEATURES (consensus execution,
+ * heartbeat emission) that M1/M2 deliberately does not implement
  * (spec PR4: "不扩展 daemon feature"). §F asserts the CURRENT honest behavior
  * (the absence) and cites the milestone that will add the richer semantic, so the
  * boundary is visible and auditable rather than faked.
@@ -60,6 +60,7 @@ import { buildDispatcher } from "../runtime/server.js";
 import { ConnectionContext } from "../core/context.js";
 import { EventSink } from "../core/eventSink.js";
 import { FakeClock } from "../core/clock.js";
+import { FakeScheduler } from "../core/scheduler.js";
 import { createFakeRegistry } from "../../adapters/registry.js";
 import type { EventNotificationParams } from "../core/eventSink.js";
 import type { JsonRpcResponse } from "../runtime/jsonrpc.js";
@@ -102,6 +103,8 @@ interface Harness {
   ctx: ConnectionContext;
   events: EventNotificationParams[];
   dispatcher: Dispatcher;
+  clock: FakeClock;
+  scheduler: FakeScheduler;
   /** Auto-incrementing-id dispatch; returns the full JSON-RPC response. */
   dispatch: (method: string, params: unknown, id?: number | string) => Promise<unknown>;
 }
@@ -110,9 +113,10 @@ interface Harness {
 async function freshDispatcher(opts?: { initialize?: boolean }): Promise<Harness> {
   const registry = createFakeRegistry();
   const clock = new FakeClock();
+  const scheduler = new FakeScheduler();
   const ctx = new ConnectionContext();
   const { sink, events } = makeCollectingSink();
-  const dispatcher = buildDispatcher(ctx, sink, registry, clock);
+  const dispatcher = buildDispatcher(ctx, sink, registry, clock, scheduler);
 
   let idCounter = 1;
   const dispatch = async (method: string, params: unknown, id?: number | string): Promise<unknown> =>
@@ -126,7 +130,7 @@ async function freshDispatcher(opts?: { initialize?: boolean }): Promise<Harness
     });
   }
 
-  return { ctx, events, dispatcher, dispatch };
+  return { ctx, events, dispatcher, clock, scheduler, dispatch };
 }
 
 /**
@@ -262,6 +266,7 @@ describe("C. Approval terminal race (spec §7: first terminal wins)", () => {
       .map((ev) => ev.name);
     expect(namesForApproval).toContain("approval_cancelled");
     expect(namesForApproval).not.toContain("approval_resolved");
+    expect(h.scheduler.pendingCount()).toBe(0);
   });
 });
 
@@ -343,13 +348,13 @@ describe("E. provenance artifact_id as identity (spec §2 / §8.1)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// F. Honest deferral boundary — semantics that land in M3/M4/M5 (NOT faked)
+// F. M4a expiry + remaining honest deferral boundary — semantics that land in M4/M5 (NOT faked)
 // ---------------------------------------------------------------------------
 //
-// These tests lock the CURRENT honest behavior (the absence of a not-yet-built
-// feature) and name the milestone that will implement it. They are the
-// regression guard that M3 "可以在不改 contract expectations 的前提下继续"
-// (spec PR4 acceptance): when consensus/expiry/heartbeats land, the team updates
+// These tests lock the CURRENT honest behavior and name the milestone that will
+// implement remaining deferred pieces. They are the regression guard that M3
+// "可以在不改 contract expectations 的前提下继续" (spec PR4 acceptance): when
+// consensus/heartbeats land, the team updates
 // THESE expectations together with the feature, in the owning milestone.
 //
 // AUTHORITATIVE reconciliation (which §F item transfers to which milestone, and
@@ -357,7 +362,7 @@ describe("E. provenance artifact_id as identity (spec §2 / §8.1)", () => {
 // just here: see the "Deferral ledger" in docs/pr-specs/pr4-m2-contract-tests.md
 // and the coverage-boundary note in docs/roadmap.md M2.
 
-describe("F. Deferred-semantics boundary (M3/M4/M5) — current behavior locked honestly", () => {
+describe("F. M4a expiry + deferred-semantics boundary", () => {
   it("a single-coder run emits NO consensus-category event (consensus_verdict is M4/M5)", async () => {
     // Roadmap: consensus aggregator = M4; quorum.met/excluded[] = M5. M1/M2 runs
     // drive only the coder; there is no consensus execution to assert yet.
@@ -370,22 +375,47 @@ describe("F. Deferred-semantics boundary (M3/M4/M5) — current behavior locked 
     expect(h.events.some((e) => e.name === "consensus_verdict")).toBe(false);
   });
 
-  it("no approval_expired self-fires while a request sits pending (expiry timer is M4)", async () => {
-    // §7 defines approval_expired, but the run state machine / expiry timer that
-    // would emit it is M4. expires_at is set NOW (future timer input); assert that,
-    // and assert nothing auto-expires under the FakeClock without a timer.
+  it("approval_expired self-fires via fake scheduler; later resolve loses with approval_already_resolved (-32010)", async () => {
     const h = await freshDispatcher();
-    const { runId } = await runToApproval(h);
+    const { approvalId } = await runToApproval(h);
 
     const reqEv = h.events.find((e) => e.name === "approval_requested")!;
-    expect(typeof (reqEv.payload as Record<string, unknown>).expires_at).toBe("number");
+    const expiresAt = (reqEv.payload as Record<string, unknown>).expires_at as number;
+    expect(typeof expiresAt).toBe("number");
+    expect(h.scheduler.pendingCount()).toBe(1);
 
-    // Drain microtasks generously — without a timer, no expiry transition occurs.
-    const FAKE_DRAIN_TICKS = 200; // generous microtask drain; M2 has no real expiry timer
-    for (let i = 0; i < FAKE_DRAIN_TICKS; i++) await Promise.resolve();
+    h.clock.set(expiresAt);
+    h.scheduler.advance(300);
+    await pollUntil(() => h.events.some((e) => e.name === "approval_expired"), "approval_expired");
+    await pollUntil(() => h.events.some((e) => e.name === "run_blocked"), "run_blocked");
+    expect(h.events.filter((e) => e.name === "run_blocked")).toHaveLength(1);
+
+    const e = err(await h.dispatch("approval.resolve", { approval_id: approvalId, decision: "approved", by: "u" }));
+    expect(e.code).toBe(-32010);
+
+    const namesForApproval = h.events
+      .filter((ev) => (ev.payload as Record<string, unknown>).approval_id === approvalId)
+      .map((ev) => ev.name);
+    expect(namesForApproval).toContain("approval_expired");
+    expect(namesForApproval).not.toContain("approval_resolved");
+    expect(namesForApproval).not.toContain("approval_cancelled");
+
+    expect(h.ctx.approvals.get(approvalId)?.state).toBe("expired");
+    expect(h.ctx.governance.decisions.some((d) => d.decision_type === "approval_expired")).toBe(true);
+    expect(h.ctx.governance.decisions.filter((d) => d.decision_type === "run_terminal")).toHaveLength(1);
+    expect(h.ctx.governance.runStates.values().next().value?.state).toBe("blocked");
+    expect(h.scheduler.pendingCount()).toBe(0);
+  });
+
+  it("resolve-first clears the expiry timer so scheduler advance does not emit approval_expired", async () => {
+    const h = await freshDispatcher();
+    const { approvalId } = await runToApproval(h);
+
+    ok(await h.dispatch("approval.resolve", { approval_id: approvalId, decision: "approved", by: "u" }));
+    await pollUntil(() => h.events.some((e) => e.name === "run_merged"), "run_merged");
+
+    h.scheduler.advance(1000);
     expect(h.events.some((e) => e.name === "approval_expired")).toBe(false);
-
-    // Clean up the genuinely-paused run.
-    ok(await h.dispatch("task.cancel", { run_id: runId }));
+    expect(h.scheduler.pendingCount()).toBe(0);
   });
 });

@@ -11,6 +11,7 @@ import type {
   RuntimeSelectionMetadata,
 } from "../../adapters/harness-declaration.js";
 import type { EventBus } from "./eventBus.js";
+import type { ScheduledTask } from "./scheduler.js";
 
 // ---------------------------------------------------------------------------
 // Flock (§3 / §4.2)
@@ -71,6 +72,7 @@ export interface ApprovalRecord {
   state: ApprovalState;
   decision?: "approved" | "rejected";
   by?: string;
+  expiryTimer?: ScheduledTask;
   /** Resolves the Promise the fake backend is awaiting. */
   readonly resumeBackend: (decision: "allow" | "deny") => void;
 }

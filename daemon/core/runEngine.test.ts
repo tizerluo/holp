@@ -45,7 +45,62 @@ describe("driveRun real-backend event forwarding", () => {
     expect(merged?.payload).toEqual({ reason: "run completed" });
     expect(ctx.artifacts.size).toBe(0);
   });
+
+  it("emits run_gave_up when the backend rejects while waiting for approval", async () => {
+    const clock = new FakeClock();
+    const ctx = new ConnectionContext();
+    const bus = new EventBus("run_waiting_reject", clock);
+    const run = makeRun("run_waiting_reject", "approval then crash", bus);
+    const backend = new LifecycleBackend(async () => {
+      ctx.governance.transitionRun(run.run_id, "waiting_approval", clock.now(), "approval_requested");
+      throw new Error("provider crashed while approval was pending");
+    });
+
+    await expect(driveRun(run, backend, ctx, clock)).resolves.toBeUndefined();
+
+    expect(run.status).toBe("gave_up");
+    expect(bus.allEvents().map((event) => event.name)).toEqual(["run_started", "run_gave_up"]);
+    expect(ctx.governance.runStates.get(run.run_id)?.history.map((entry) => entry.to)).toEqual([
+      "queued",
+      "running",
+      "waiting_approval",
+      "gave_up",
+    ]);
+  });
+
+  it("emits run_merged when the backend completes while governance is waiting for approval", async () => {
+    const clock = new FakeClock();
+    const ctx = new ConnectionContext();
+    const bus = new EventBus("run_waiting_complete", clock);
+    const run = makeRun("run_waiting_complete", "approval then complete", bus);
+    const backend = new LifecycleBackend(async () => {
+      ctx.governance.transitionRun(run.run_id, "waiting_approval", clock.now(), "approval_requested");
+    });
+
+    await expect(driveRun(run, backend, ctx, clock)).resolves.toBeUndefined();
+
+    expect(run.status).toBe("merged");
+    expect(bus.allEvents().map((event) => event.name)).toEqual(["run_started", "run_merged"]);
+    expect(ctx.governance.runStates.get(run.run_id)?.history.map((entry) => entry.to)).toEqual([
+      "queued",
+      "running",
+      "waiting_approval",
+      "merged",
+    ]);
+  });
 });
+
+function makeRun(runId: string, goal: string, bus: EventBus): RunRecord {
+  return {
+    run_id: runId,
+    goal,
+    trigger: "manual",
+    status: "active",
+    bus,
+    pendingApprovals: new Set(),
+    approvalSeq: 0,
+  };
+}
 
 class MessageBackend implements AgentBackend {
   private handlers: AgentMessageHandler[] = [];
@@ -60,6 +115,32 @@ class MessageBackend implements AgentBackend {
     for (const message of this.messages) {
       for (const handler of this.handlers) handler(message);
     }
+  }
+
+  onMessage(handler: AgentMessageHandler): void {
+    this.handlers.push(handler);
+  }
+
+  offMessage(handler: AgentMessageHandler): void {
+    this.handlers = this.handlers.filter((candidate) => candidate !== handler);
+  }
+
+  async cancel(): Promise<void> {}
+
+  async dispose(): Promise<void> {}
+}
+
+class LifecycleBackend implements AgentBackend {
+  private handlers: AgentMessageHandler[] = [];
+
+  constructor(private readonly onSendPrompt: () => Promise<void> | void) {}
+
+  async startSession(): Promise<{ sessionId: string }> {
+    return { sessionId: "lifecycle-session" };
+  }
+
+  async sendPrompt(): Promise<void> {
+    await this.onSendPrompt();
   }
 
   onMessage(handler: AgentMessageHandler): void {

@@ -18,8 +18,14 @@ import { HolpRpcError } from "../core/dispatcher.js";
 import { isObject } from "../core/internal.js";
 import type { JsonRpcRequest } from "../runtime/jsonrpc.js";
 import type { ConnectionContext } from "../core/context.js";
+import { clearApprovalTimer, resumeWaitingRun } from "../core/approvalLifecycle.js";
+import { systemClock, type Clock } from "../core/clock.js";
 
-export function handleApprovalResolve(req: JsonRpcRequest, ctx: ConnectionContext): unknown {
+export function handleApprovalResolve(
+  req: JsonRpcRequest,
+  ctx: ConnectionContext,
+  clock: Clock = systemClock,
+): unknown {
   const params = isObject(req.params) ? req.params : {};
 
   const approvalId = params.approval_id;
@@ -60,6 +66,7 @@ export function handleApprovalResolve(req: JsonRpcRequest, ctx: ConnectionContex
   }
 
   // Mark terminal.
+  clearApprovalTimer(approval);
   approval.state = "resolved";
   approval.decision = decision;
   approval.by = by;
@@ -68,6 +75,15 @@ export function handleApprovalResolve(req: JsonRpcRequest, ctx: ConnectionContex
   const run = ctx.runs.get(approval.run_id);
   if (run) {
     run.pendingApprovals.delete(approvalId);
+    resumeWaitingRun(ctx, run, clock, "approval_resolved");
+    ctx.governance.recordDecision({
+      decision_type: "approval_resolved",
+      run_id: run.run_id,
+      approval_id: approvalId,
+      reason: "user_decision",
+      ts: clock.now(),
+      data: { decision, by },
+    });
 
     // Emit approval_resolved event (spec §7).
     run.bus.publish("approval", "approval_resolved", {
