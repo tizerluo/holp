@@ -8,6 +8,7 @@ import { FakeScheduler } from "../core/scheduler.js";
 import { createFakeRegistry } from "../../adapters/registry.js";
 import type { RuntimeSurfaceDeclaration } from "../../adapters/harness-declaration.js";
 import type { JsonRpcResponse } from "../runtime/jsonrpc.js";
+import { HOLP_ERROR_CODES } from "../core/errors.js";
 
 function makeCollectingSink(): { sink: EventSink; events: EventNotificationParams[] } {
   const events: EventNotificationParams[] = [];
@@ -24,6 +25,12 @@ function ok<T>(res: unknown): T {
   const response = res as JsonRpcResponse;
   if ("error" in response) throw new Error(response.error.message);
   return response.result as T;
+}
+
+function err(res: unknown): { code: number; message: string; data?: unknown } {
+  const response = res as JsonRpcResponse;
+  if ("result" in response) throw new Error(`Expected error: ${JSON.stringify(response.result)}`);
+  return response.error;
 }
 
 async function pollUntil(pred: () => boolean, label = "pollUntil", maxTicks = 700): Promise<void> {
@@ -158,6 +165,23 @@ describe("M5 multi-agent consensus demo contract", () => {
 
     const reviews = (verdict.payload as Record<string, unknown>).reviews as Array<Record<string, unknown>>;
     expect(reviews.map((review) => review.agent)).toEqual(["r1", "r2"]);
+
+    const mergeApproval = h.events.find((event) => event.name === "approval_requested")!;
+    const details = (mergeApproval.payload as Record<string, unknown>).details as Record<string, unknown>;
+    expect(details.inline).toBeUndefined();
+    expect(details).toMatchObject({
+      type: "approval_details",
+      mime: "application/json",
+    });
+    const approvalDetails = ok<Record<string, unknown>>(await h.dispatch("artifact.get", {
+      artifact_id: details.artifact_id,
+    }));
+    expect((approvalDetails.envelope as Record<string, unknown>).sha256)
+      .toBe(createHash("sha256").update(approvalDetails.content as string).digest("hex"));
+    expect(JSON.parse(approvalDetails.content as string)).toMatchObject({
+      tool: "write_file",
+    });
+
     for (const review of reviews) {
       const findings = review.findings as Record<string, unknown>;
       expect(findings.inline).toBeUndefined();
@@ -233,5 +257,73 @@ describe("M5 multi-agent consensus demo contract", () => {
 
     expect(h.events.some((event) => event.category === "consensus")).toBe(false);
     expect(h.events.some((event) => event.name === "consensus_verdict")).toBe(false);
+  });
+
+  it("rejects duplicate reviewer ids before they can satisfy quorum twice", async () => {
+    const h = await freshHarness({ artifactRefs: true });
+    ok(await h.dispatch("flock.declare", {
+      agents: [
+        { id: "producer", transport: "fake", roles: ["coder"] },
+        { id: "r1", transport: "fake", roles: ["reviewer"] },
+      ],
+    }));
+
+    const e = err(await h.dispatch("orchestrate.run", {
+      goal: "duplicate reviewer quorum",
+      roles: {
+        coder: { agent: "producer" },
+        reviewer: { panel: ["r1", "r1"], quorum: 2 },
+      },
+    }));
+
+    expect(e.code).toBe(HOLP_ERROR_CODES.invalid_quorum);
+    expect(h.ctx.runs.size).toBe(0);
+  });
+
+  it("keeps findings artifacts distinct when reviewer ids sanitize to the same string", async () => {
+    const h = await freshHarness({ artifactRefs: true });
+    ok(await h.dispatch("flock.declare", {
+      agents: [
+        { id: "producer", transport: "fake", roles: ["coder"] },
+        { id: "r/1", transport: "fake", roles: ["reviewer"] },
+        { id: "r_1", transport: "fake", roles: ["reviewer"] },
+      ],
+    }));
+    const { run_id } = ok<{ run_id: string }>(await h.dispatch("orchestrate.run", {
+      goal: "sanitize collision findings",
+      roles: {
+        coder: { agent: "producer" },
+        reviewer: { panel: ["r/1", "r_1"], quorum: 2 },
+      },
+    }));
+    ok(await h.dispatch("events.subscribe", { run_id, after_seq: 0 }));
+
+    await pollUntil(() => h.events.some((event) => event.name === "approval_requested"), "approval_requested");
+    const approval = h.events.find((event) => event.name === "approval_requested")!;
+    ok(await h.dispatch("approval.resolve", {
+      approval_id: (approval.payload as Record<string, unknown>).approval_id,
+      decision: "approved",
+      by: "user:test",
+    }));
+    await pollUntil(() => h.events.some((event) => event.name === "consensus_verdict"), "consensus_verdict");
+
+    const verdict = h.events.find((event) => event.name === "consensus_verdict")!;
+    const reviews = (verdict.payload as Record<string, unknown>).reviews as Array<Record<string, unknown>>;
+    const artifactIds = reviews.map((review) =>
+      ((review.findings as Record<string, unknown>).artifact_id as string)
+    );
+    expect(new Set(artifactIds).size).toBe(2);
+    expect(artifactIds.every((id) => id.includes("r_1"))).toBe(true);
+
+    for (const review of reviews) {
+      const findings = review.findings as Record<string, unknown>;
+      const artifact = ok<Record<string, unknown>>(await h.dispatch("artifact.get", {
+        artifact_id: findings.artifact_id,
+      }));
+      expect(JSON.parse(artifact.content as string)).toMatchObject({
+        agent: review.agent,
+        verdict: "approve",
+      });
+    }
   });
 });

@@ -18,6 +18,7 @@ import type { Scheduler } from "./scheduler.js";
 import type { AgentBackend } from "../../adapters/agent-backend.js";
 import { createHash } from "node:crypto";
 import { expireApproval } from "./approvalLifecycle.js";
+import { evidencePayload } from "./evidence.js";
 import {
   buildConsensusVerdict,
   inlineFindings,
@@ -347,22 +348,23 @@ function fakeFindings(
     findings: [],
     generated_by: "holp-fake-consensus-kernel",
   });
-  const artifactId = `art_findings_${run.run_id}_${safeArtifactPart(agent)}`;
-  const envelope = {
-    artifact_id: artifactId,
+  const artifactId = `art_findings_${run.run_id}_${safeArtifactPart(agent)}_${shortHash(agent)}`;
+  return evidencePayload({
+    ctx,
+    clock,
+    artifactId,
     type: "findings",
-    mime: "application/json",
-    size: content.length,
-    sha256: createHash("sha256").update(content).digest("hex"),
-    created_by: "holp-fake-consensus-kernel",
-    created_at: clock.now(),
-  };
-  ctx.artifacts.set(artifactId, { envelope, content });
-  return envelope;
+    content,
+    createdBy: "holp-fake-consensus-kernel",
+  }) as ConsensusFindingWire;
 }
 
 function safeArtifactPart(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]/g, "_");
+}
+
+function shortHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 8);
 }
 
 function consensusDegradedPayload(
@@ -508,13 +510,14 @@ async function requestSemanticDecisionApproval(
         step_id: "step_consensus",
         artifact_id: details.target.artifact_id,
       },
-      details: {
-        inline: true,
+      details: evidencePayload({
+        ctx,
+        clock,
+        artifactId: `art_approval_${approvalId}_details`,
         type: "approval_details",
-        mime: "application/json",
         content: JSON.stringify(details),
-        truncated: false,
-      },
+        createdBy: "holp-reference-daemon",
+      }),
     });
   });
 

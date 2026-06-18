@@ -1,6 +1,6 @@
 # PR8 SPEC - M5 Multi-Agent Consensus Demo
 
-> 状态(PR8):deterministic fake+fake demo 已落地。`npm run demo:m5` 通过真实 stdio JSON-RPC daemon wire 跑两条场景:`artifact_refs:true` findings artifact envelope 和 `artifact_refs:false` inline fallback。该 demo 不接真实 reviewer backend,不新增稳定 gate surface。
+> 状态(PR8):deterministic unanimous-approve fake+fake demo 已落地。`npm run demo:m5` 通过真实 stdio JSON-RPC daemon wire 跑两条场景:`artifact_refs:true` findings artifact envelope 和 `artifact_refs:false` inline fallback。该 demo 不接真实 reviewer backend,不覆盖 dissent/timeout demo,不新增稳定 gate surface。
 
 ## 目的
 
@@ -13,7 +13,7 @@
 - `docs/roadmap.md` M5 允许 real+fake 或 fake+fake reviewer backend。
 - `protocol/spec.md` 默认 findings 用 artifact envelope,`artifact_refs:false` 时走 inline fallback。
 - M5 必须独立于 M4,因为 demo 成功不能替代内核测试。
-- 当前 PR8 采用 fake+fake deterministic reviewer path:producer/reviewer 声明仍走真实 flock/orchestrate/event/artifact wire,但 reviewer votes 由 fake consensus path 合成,不表示真实 reviewer provider sessions 已执行。
+- 当前 PR8 采用 fake+fake deterministic unanimous-approve reviewer path:producer/reviewer 声明仍走真实 flock/orchestrate/event/artifact wire,但 reviewer votes 由 fake consensus path 合成,不表示真实 reviewer provider sessions 或 dissent/timeout demo 已执行。
 
 ## 范围
 

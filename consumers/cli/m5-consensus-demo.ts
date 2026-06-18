@@ -119,7 +119,7 @@ async function call<T>(proc: ChildProcess, pump: DaemonPump, method: string, par
   return withTimeout(pump.waitResponse(id), `response:${method}`) as Promise<T>;
 }
 
-async function withTimeout<T>(promise: Promise<T>, label: string, ms = 5000): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, label: string, ms = 15000): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
@@ -143,7 +143,8 @@ async function runScenario(name: string, artifactRefs: boolean): Promise<boolean
     env: { ...process.env, HOLP_REGISTRY: "fake" },
   });
   proc.on("error", (err) => {
-    throw new Error(`failed to spawn daemon: ${err.message}`);
+    console.error(`failed to spawn daemon: ${err.message}`);
+    process.exit(1);
   });
   const pump = new DaemonPump(proc);
   const events: EventFrame[] = [];
@@ -154,7 +155,10 @@ async function runScenario(name: string, artifactRefs: boolean): Promise<boolean
 
   try {
     console.log(`\n=== ${name} (artifact_refs:${String(artifactRefs)}) ===`);
-    const initialized = await call<{ protocol_version: string; capabilities: Record<string, { supported: boolean }> }>(
+    const initialized = await withTimeout(call<{
+      protocol_version: string;
+      capabilities: Record<string, { supported: boolean } | undefined>;
+    }>(
       proc,
       pump,
       "initialize",
@@ -167,9 +171,9 @@ async function runScenario(name: string, artifactRefs: boolean): Promise<boolean
           ...(artifactRefs ? { artifact_refs: { supported: true } } : {}),
         },
       },
-    );
+    ), "response:initialize", 15000);
     console.log(`  initialized protocol=${initialized.protocol_version}`);
-    console.log(`  negotiated artifact_refs=${initialized.capabilities.artifact_refs.supported}`);
+    console.log(`  negotiated artifact_refs=${initialized.capabilities.artifact_refs?.supported ?? false}`);
 
     const declared = await call<{
       agents: Array<{ id: string; status: string; runtime_surfaces: Array<Record<string, unknown>> }>;
@@ -180,6 +184,7 @@ async function runScenario(name: string, artifactRefs: boolean): Promise<boolean
         { id: "r2", transport: "fake", roles: ["reviewer"] },
       ],
     });
+    verifyFakeRegistryDeclarations(declared.agents);
     printRuntimeDeclarations(declared.agents);
 
     const run = await call<{ run_id: string; accepted: boolean }>(proc, pump, "orchestrate.run", {
@@ -241,6 +246,25 @@ async function runScenario(name: string, artifactRefs: boolean): Promise<boolean
   }
 }
 
+function verifyFakeRegistryDeclarations(
+  agents: Array<{ id: string; status: string; runtime_surfaces: Array<Record<string, unknown>> }>,
+): void {
+  for (const agent of agents) {
+    const headless = agent.runtime_surfaces.find((surface) => surface.runtime_surface === "headless");
+    const acp = agent.runtime_surfaces.find((surface) => surface.runtime_surface === "acp");
+    const direct = agent.runtime_surfaces.find((surface) => surface.runtime_surface === "direct_user_session");
+    if (
+      agent.status !== "ready" ||
+      headless?.runtime_kind !== "fake" ||
+      headless?.surface_support !== "supported" ||
+      acp?.surface_support !== "unsupported" ||
+      direct?.surface_support !== "unknown"
+    ) {
+      throw new Error(`fake registry declaration check failed for ${agent.id}`);
+    }
+  }
+}
+
 function verifyScenario(events: readonly EventFrame[], artifactRefs: boolean): boolean {
   const verdict = events.find((ev) => ev.name === "consensus_verdict");
   const merged = events.find((ev) => ev.name === "run_merged");
@@ -289,7 +313,7 @@ function printRuntimeDeclarations(
 }
 
 async function main(): Promise<void> {
-  console.log("\n=== HOLP M5 Multi-Agent Consensus Demo ===");
+  console.log("\n=== HOLP M5 Deterministic Unanimous-Approve Consensus Demo ===");
   const artifactRefsPass = await runScenario("scenario 1: findings artifacts", true);
   const inlinePass = await runScenario("scenario 2: inline fallback", false);
   const allOk = artifactRefsPass && inlinePass;
