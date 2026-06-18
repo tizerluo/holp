@@ -21,7 +21,8 @@ import { expireApproval } from "./approvalLifecycle.js";
 import {
   buildConsensusVerdict,
   inlineFindings,
-  type ConsensusOutcome,
+  type ConsensusDegradedOutcome,
+  type ConsensusDegradedPayload,
   type ConsensusReviewerResult,
   type ConsensusVerdictPayload,
 } from "./consensus.js";
@@ -229,6 +230,7 @@ async function runConsensusGate(
     const degraded = consensusDegradedPayload(run, undefined, consensus.quorum, {
       reason: "missing_reviewable_artifact",
       outcome: "reject",
+      policy_action: "reject",
     });
     publishConsensusDegraded(run, ctx, clock, degraded, "missing_reviewable_artifact");
     blockRun(run, ctx, clock, "missing_reviewable_artifact");
@@ -250,7 +252,8 @@ async function runConsensusGate(
   if (eligible < consensus.quorum) {
     const degraded = consensusDegradedPayload(run, artifactId, consensus.quorum, {
       reason: "quorum_unsatisfiable_after_author_exclusion",
-      outcome: consensus.policy.on_quorum_unsatisfiable === "reject" ? "reject" : "ask_human",
+      outcome: degradedOutcome(consensus.policy.on_quorum_unsatisfiable),
+      policy_action: consensus.policy.on_quorum_unsatisfiable,
     });
     publishConsensusDegraded(
       run,
@@ -325,8 +328,12 @@ function consensusDegradedPayload(
   run: RunRecord,
   artifactId: string | undefined,
   required: number,
-  detail: { reason: string; outcome?: ConsensusOutcome },
-): ConsensusVerdictPayload & { readonly reason: string } {
+  detail: {
+    reason: string;
+    outcome?: ConsensusDegradedOutcome;
+    policy_action?: ConsensusDegradedPayload["policy_action"];
+  },
+): ConsensusDegradedPayload {
   const consensus = run.consensus!;
   return {
     target: {
@@ -362,6 +369,7 @@ function consensusDegradedPayload(
       : [],
     errors: [],
     reason: detail.reason,
+    policy_action: detail.policy_action,
   };
 }
 
@@ -369,7 +377,7 @@ function publishConsensusDegraded(
   run: RunRecord,
   ctx: ConnectionContext,
   clock: Clock,
-  payload: ConsensusVerdictPayload & { readonly reason?: string },
+  payload: ConsensusDegradedPayload | ConsensusVerdictPayload,
   reason: string,
 ): void {
   ctx.governance.recordDecision({
@@ -406,7 +414,7 @@ async function requestSemanticDecisionApproval(
   ctx: ConnectionContext,
   clock: Clock,
   scheduler: Scheduler | undefined,
-  details: ConsensusVerdictPayload,
+  details: ConsensusVerdictPayload | ConsensusDegradedPayload,
 ): Promise<boolean> {
   const approvalKinds = ctx.initialized?.negotiated.approval.kinds ?? [];
   if (
@@ -472,4 +480,12 @@ async function requestSemanticDecisionApproval(
   });
 
   return decision === "allow";
+}
+
+function degradedOutcome(
+  action: NonNullable<ConsensusDegradedPayload["policy_action"]>,
+): ConsensusDegradedOutcome {
+  if (action === "degrade_quorum") return "degrade_quorum";
+  if (action === "reject") return "reject";
+  return "ask_human";
 }

@@ -205,6 +205,12 @@ describe("M4b consensus integration", () => {
     await pollUntil(() => h.events.some((event) => event.name === "consensus_degraded"), "degraded");
     await pollUntil(() => h.events.some((event) => event.name === "consensus_verdict"), "verdict");
 
+    const degraded = h.events.find((event) => event.name === "consensus_degraded")!;
+    expect(degraded.payload).toMatchObject({
+      outcome: "degrade_quorum",
+      policy_action: "degrade_quorum",
+      quorum: { required: 2, eligible: 1, met: false },
+    });
     const verdict = h.events.find((event) => event.name === "consensus_verdict")!;
     expect(verdict.payload).toMatchObject({
       quorum: { required: 1, eligible: 1, met: true },

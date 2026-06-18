@@ -3,6 +3,7 @@ import type { RuntimeSelectionMetadata } from "../../adapters/harness-declaratio
 export type ConsensusReviewStatus = "completed" | "timeout" | "error" | "abstain";
 export type ConsensusReviewVerdict = "approve" | "request_changes" | "reject";
 export type ConsensusOutcome = ConsensusReviewVerdict | "ask_human";
+export type ConsensusDegradedOutcome = ConsensusOutcome | "degrade_quorum";
 export type ConsensusSeverity = "P0" | "P1" | "P2" | "NONE";
 export type AuthorProvenance = "produced_by_agent_id" | "commit_author" | "run_initiator";
 export type OnQuorumUnsatisfiable = "ask_human" | "reject" | "degrade_quorum";
@@ -82,6 +83,12 @@ export interface ConsensusVerdictPayload {
   readonly reviews: readonly ConsensusReviewWire[];
   readonly excluded: readonly ConsensusExcludedWire[];
   readonly errors: readonly ConsensusErrorWire[];
+}
+
+export interface ConsensusDegradedPayload extends Omit<ConsensusVerdictPayload, "outcome"> {
+  readonly outcome: ConsensusDegradedOutcome;
+  readonly reason: string;
+  readonly policy_action?: OnQuorumUnsatisfiable;
 }
 
 const SEVERITY_RANK: Record<ConsensusSeverity, number> = {
