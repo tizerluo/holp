@@ -50,7 +50,7 @@ HOLP 不重新发明轮子,各章设计标注来源:
 
 ## 不做（non-goals）
 
-- **不重造 agent 接入层**:不自己写 claude/codex/gemini 的协议适配;HOLP 优先通过 wrapper 或抽取包复用 happier backend 模块,不重造同一套 provider 接入。
+- **不重造完整 agent 运行时**:HOLP 可保留最小 adapter wrapper(如 Codex app-server),但不把 happier 变成运行时依赖,也不复制它的 CLI runtime/config/isolation 整套体系。
 - **不做付费云 / 闭源服务端**:这是 Oz 的领地,HOLP 是它的开源对位,不进同一赛道。
 - **v0.1.x 不做 Remote**:Remote 不进 v0.1.x wire(不留半截 opaque 占位),实现+协议都待 V3 独立 proposal。
 - **不绑定任何终端/APP**:协议 vendor-neutral,谁都能接(cmux/Warp/happier/CLI)。

@@ -1,7 +1,7 @@
 # HOLP Roadmap
 
 > 状态:规划文档,不表示对应实现已经存在。
-> 核查依据:`protocol/spec.md` v0.1.4、`protocol/version.md`、`docs/positioning.md`、`adapters/` 当前桩接口。
+> 核查依据:`protocol/spec.md` v0.1.4、`protocol/version.md`、`docs/positioning.md`、`adapters/` 当前实现。
 > 8 PR 拆解:见 `docs/pr-specs/`。
 
 ## 当前事实
@@ -12,7 +12,7 @@
 - `protocol/version.md`:版本规则和 v0.1.4 范围。
 - `docs/positioning.md`:定位、non-goals、设计来源边界。
 - `docs/pr-specs/`:M0-M5 拆解 SPEC。
-- `adapters/`:朝下 adapter contract + native-claude/mcp-codex/acp stub；`fake` transport 仅用于 demo/test。
+- `adapters/`:朝下 adapter contract + Codex app-server real adapter(`mcp-codex`) + native-claude/acp stub；`fake` transport 仅用于 demo/test。
 - `daemon/`:参考 daemon 协议骨架,支持 stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
 - `consumers/cli/`:参考 consumer CLI,可跑通 M1 fake backend 闭环。
 - M1 e2e 闭环:`initialize -> flock.declare -> orchestrate.run -> events.subscribe -> approval.resolve -> artifact.get`。**fake backend,非真实 provider**。
@@ -20,7 +20,7 @@
 
 当前仓未落地,也不声称已落地:
 
-- native-claude/mcp-codex/acp 真接线。
+- native-claude/acp 真接线。
 - 治理内核/events-decisions-registry 数据骨架/共识/状态机。
 - Web 传输。
 - Remote execution。
@@ -92,7 +92,7 @@
 
 非目标:
 
-- 不接 native-claude/mcp-codex/acp 真 agent。
+- 不接 native-claude/acp 真 agent;`mcp-codex` 已在 M3 接 Codex app-server。
 - 不做持久化数据库。
 - 不做 WebSocket。
 
@@ -137,7 +137,7 @@
 
 ## M3:First Real Adapter
 
-目标:只接通一家真实 agent,验证 adapter contract 和 permission resume 语义。
+目标:只接通一家真实 agent,验证 adapter contract 和 permission resume 语义。当前实现选择 **Codex app-server over stdio**,注册为 HOLP transport `"mcp-codex"`;`native-claude`/`acp` 仍是桩。
 
 建议顺序:
 
@@ -147,11 +147,12 @@
 
 交付物:
 
-- 一个真实 `AgentBackendFactory` wrapper。
-- provider message 到 `AgentMessage` 的映射。
-- permission request 到 `approval_requested` 的映射。
-- `approval.resolve` 回灌到 `resolvePermission(request_id, decision)`。
-- provider availability probe,用于 `flock.discover` 返回 `ready/degraded/rejected`。
+- [x] 一个真实 `AgentBackendFactory` wrapper(Codex app-server)。
+- [x] provider message 到 `AgentMessage` 的映射。
+- [x] permission request 到 `approval_requested` 的映射,复用现有 injected `permissionHandler` / `ApprovalRecord.resumeBackend` await-Promise path。
+- [x] provider availability probe,用于 `flock.declare`/`flock.discover` 返回 `ready/degraded/rejected`。
+- [x] 本机已登录 Codex 的 safe prompt manual smoke:`flock.discover` ready + `model_output` + 无 artifact `run_merged`。
+- [x] 本机真实 Codex approval/patched-workspace smoke:隔离 temp `CODEX_HOME` + temp git workspace;real-Codex patch、approve -> `run_merged`、reject -> `run_blocked` 均已实跑 PASS。该 smoke 仍需 `HOLP_REAL_CODEX_SMOKE=1` 显式开启,取决于 local auth/quota。
 
 验收标准:
 

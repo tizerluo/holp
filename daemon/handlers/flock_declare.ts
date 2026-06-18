@@ -5,9 +5,9 @@
  * issues. Unsupported transport / missing adapter / missing auth → that agent
  * gets status:"rejected" with a reason. Only a malformed request → -32600.
  *
- * "fake" transport: resolves to status:"ready" (demo-only; see adapters/fake-backend.ts).
- * All real transports (native-claude/mcp-codex/acp): resolved to "rejected"
- * because their factories are stubs (no real agent available).
+ * Probes are delegated to the adapter registry so real transports can honestly
+ * report ready/degraded/rejected without this handler hard-coding transport
+ * details.
  *
  * Resolved agents are stored into the connection flock so orchestrate.run
  * can validate agent references (§4.2).
@@ -26,60 +26,38 @@ import type { AdapterRegistry } from "../../adapters/registry.js";
  * Returns a FlockAgent with the appropriate status.
  *
  * Honest contract:
- *   - "fake" transport → status:"ready", all declared roles available.
- *   - real transports → status:"rejected", reason:"unsupported_transport"
- *     (their factories are stubs that will throw on startSession).
+ *   - registry probes decide per-transport status and capabilities.
+ *   - fake remains ready in createFakeRegistry(); mcp-codex can be ready/degraded/rejected
+ *     in the default registry; native-claude/acp remain honest rejected stubs.
  */
-function probeAgent(
+async function probeAgent(
   declared: { id: string; transport: string; roles?: string[] },
   registry: AdapterRegistry,
-): FlockAgent {
-  const factory = registry.resolve(declared.transport);
+): Promise<FlockAgent> {
   const roles = Array.isArray(declared.roles) ? declared.roles.map(String) : [];
-
-  if (!factory) {
-    // No adapter registered for this transport.
-    return {
-      id: declared.id,
-      transport: declared.transport,
-      status: "rejected",
-      resolved_roles: [],
-      reason: "unsupported_transport",
-      missing: roles.map((r) => `role:${r}`),
-    };
-  }
-
-  // "fake" transport factory exists → treat as ready (DEMO ONLY).
-  // Real transports also have stubs — detect by trying to check if it's the fake.
-  // We identify fake by transport name, not by factory identity, to keep it simple.
-  if (declared.transport === "fake") {
-    return {
-      id: declared.id,
-      transport: declared.transport,
-      status: "ready",
-      version: "0.0.1-fake",
-      logged_in: true,
-      resolved_roles: roles.length > 0 ? roles : ["coder", "reviewer"],
-    };
-  }
-
-  // Real transport stub: it has a factory but startSession will throw.
-  // Return rejected with the reason.
+  const result = await registry.probe({
+    id: declared.id,
+    transport: declared.transport,
+    roles,
+    cwd: process.cwd(),
+  });
   return {
     id: declared.id,
     transport: declared.transport,
-    status: "rejected",
-    resolved_roles: [],
-    reason: "unsupported_transport",
-    missing: roles.map((r) => `role:${r}`),
+    status: result.status,
+    version: result.version,
+    logged_in: result.logged_in,
+    resolved_roles: result.resolved_roles ?? [],
+    missing: result.missing,
+    reason: result.reason,
   };
 }
 
-export function handleFlockDeclare(
+export async function handleFlockDeclare(
   req: JsonRpcRequest,
   ctx: ConnectionContext,
   registry: AdapterRegistry,
-): unknown {
+): Promise<unknown> {
   const params = isObject(req.params) ? req.params : {};
 
   // Malformed: no agents field → -32600.
@@ -103,7 +81,7 @@ export function handleFlockDeclare(
       roles: Array.isArray(raw.roles) ? (raw.roles as unknown[]).map(String) : [],
     };
 
-    const resolved = probeAgent(declared, registry);
+    const resolved = await probeAgent(declared, registry);
     // Store into connection flock — even rejected agents are "known" (§4.2).
     ctx.flock.set(resolved.id, resolved);
     results.push(resolved);

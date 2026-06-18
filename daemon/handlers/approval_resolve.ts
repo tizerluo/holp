@@ -4,11 +4,11 @@
  * - Unknown approval_id → approval_not_found (-32009).
  * - Already terminal approval → approval_already_resolved (-32010).
  * - Success → mark resolved, emit approval_resolved, resolve the pending Promise
- *   (unblocks the fake backend), return { approval_id, accepted:true }.
+ *   (unblocks the backend), return { approval_id, accepted:true }.
  *
  * The "resume backend" path: approval.resolve calls approval.resumeBackend(decision),
- * which resolves the Promise the fake's sendPrompt is awaiting. The fake unblocks
- * and continues its scenario. The resumeBackend closure is captured at approval-creation
+ * which resolves the Promise the backend's sendPrompt is awaiting. The backend
+ * unblocks and continues its scenario. The resumeBackend closure is captured at approval-creation
  * time in orchestrate_run.ts's permissionHandler. There is no separate resolvePermission
  * call — the Promise is resolved exactly once via the closure.
  */
@@ -79,7 +79,7 @@ export function handleApprovalResolve(req: JsonRpcRequest, ctx: ConnectionContex
     });
   }
 
-  // Resume the fake backend (resolve its pending Promise).
+  // Resume the backend (resolve its pending permissionHandler Promise).
   // decision "approved" → "allow"; "rejected" → "deny".
   // The resumeBackend closure was captured at approval-creation time in
   // orchestrate_run.ts's permissionHandler. This is the single resume path.

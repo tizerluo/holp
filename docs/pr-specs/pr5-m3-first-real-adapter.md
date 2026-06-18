@@ -4,16 +4,25 @@
 
 接通第一家真实 agent backend,并把 provider 细节隔离在 adapter 层。
 
-## 当前代码事实
+## PR5 前代码事实
 
 - `adapters/agent-backend.ts` 定义稳定朝下接口:`startSession`、`sendPrompt`、`cancel`、`onMessage`、可选 `waitForResponseComplete`、可选 `resolvePermission`、`dispose`。
-- `adapters/registry.ts` 当前把 `native-claude`、`mcp-codex`、`acp` 都接到 stub factory。
+- `adapters/registry.ts` 在 PR5 前把 `native-claude`、`mcp-codex`、`acp` 都接到 stub factory。
+- `orchestrate.run` 当前通过注入 `permissionHandler` 创建 approval record,并把 `resumeBackend(decision)` closure 存进 `ApprovalRecord`;`approval.resolve` / `task.cancel` 调该 closure 恢复 backend。这个 closure path 已经是 await-Promise 模型,受 M1/M2 契约测试保护。
 - roadmap 建议 Codex first。
 - 现有注释明确 happier backend 需要 wrapper/extraction,不能直接当 HOLP adapter。
 
+## 当前实施状态
+
+- `"mcp-codex"` 已接 Codex app-server over stdio 真实 adapter。
+- `native-claude`、`acp` 仍是 honest stubs,不会伪装 ready。
+- `createFakeRegistry()` 继续保留 M1/M2 demo/test fake path;CLI demo 显式设置 `HOLP_REGISTRY=fake`。
+- 本机已登录 Codex 时,manual smoke 已验证 `flock.discover` ready + safe prompt `HOLP_SMOKE_OK` 进入 `model_output` 并以无 artifact 的 `run_merged` 收束。
+- 已新增显式 opt-in 的真实 Codex approval/patch smoke:`HOLP_REAL_CODEX_SMOKE=1 npm run smoke:codex:adapter` 覆盖 adapter-direct patch path;`HOLP_REAL_CODEX_SMOKE=1 npm run smoke:codex` 覆盖 daemon e2e patch + approval approve/reject。R2 修复后只有 patch、approve -> `run_merged`、reject -> `run_blocked` 全部跑通才 exit 0;实跑记录为 PASS。隔离边界见 `scripts/smoke/README.md`。
+
 ## 范围
 
-新增一个真实 adapter。建议目标:Codex,具体走 CLI/MCP/happier wrapper 取决于实现调研。
+新增一个真实 adapter。目标:Codex。PR5 选定接入面为 **Codex app-server over stdio**,注册到 HOLP 既有 transport 名 `"mcp-codex"`。这里的 transport 名沿用协议词表,但实现面是 Codex app-server,不是 `codex mcp-server`,也不是 happier ACP wrapper。
 
 预期产出:
 
@@ -27,13 +36,19 @@
   - `fs-edit`
   - `permission-request`
   - 必要时 generic event
-  - 来源校准(对照 happier ACP 实测):`model-output`/`status`/`tool-call`/`tool-result`/`permission-request` 由 ACP session update 直接产出,可直通;`fs-edit` **不是 ACP 源生消息**(happier 的 fs-edit 是上层从 tool-call 推导),codex path 下应从 tool-call/patch 推导,不可假设 ACP 直接给;codex 专属的 `exec-approval-request`、`patch-apply-begin/end`、`terminal-output`、`token-count` 不在 HOLP 7 类里——映射为 HOLP `event`(generic),或归并进 `permission-request`(exec-approval)/`fs-edit`(patch)。不得静默丢弃 patch/exec 这类有副作用的消息。
+  - Codex app-server 映射以本地 `codex app-server generate-ts --experimental` 的 schema 为准: `turn/started|completed` → `status`;`item/agentMessage/delta` → `model-output`;`item/commandExecution/requestApproval` / `item/fileChange/requestApproval` / legacy `execCommandApproval` / `applyPatchApproval` → `permission-request`;`item/fileChange/patchUpdated` → `fs-edit`;command/process output/tool-like updates → `tool-result` 或 generic `event`。app-server 未覆盖或无法归并的 side-effect 消息必须进入 generic `event`,不得静默丢弃 patch/exec 这类有副作用的消息。
 - permission bridge(**必做,非 degraded 选项**):
   - provider permission request → HOLP `ask_human`
-  - `approval.resolve` → `resolvePermission(request_id, decision)` → resume/deny 原 tool call
-  - 实现机制(对照 happier 实测):happier `AcpBackend` 的 `permissionHandler.handleToolCall(...)` 是 **`await` 一个 Promise** 的模型——HOLP adapter 实现该 handler 时,返回一个**挂起的 Promise**,先发 `ask_human`(带 `request_id`/`call_id`),把 resolve 句柄存进 `Map<request_id, resolve>`,**不立即 resolve**;ACP agent 这侧自然阻塞在 await 上,tool call 真被暂停;`approval.resolve` 进来后从 Map 取句柄、用 decision resolve 它 → handler 返回 → agent resume(approved)或按 deny 路径中止。这条 resume 链是 §12.1 `resolvePermission` 的设计目标,happier 的 await-Promise 模型原生支持,**不是"可能做不到"的能力**。
+  - PR5 **复用现有 daemon bridge**:`orchestrate.run` 注入的 `permissionHandler` 创建 HOLP approval 并返回 pending Promise;Codex adapter 在 app-server approval request 到达时调用并 `await` 该 injected handler;`approval.resolve` / `task.cancel` 仍通过 `ApprovalRecord.resumeBackend(decision)` 解析 Promise;adapter 随后把 verdict 回写给 app-server(approved → accept/approved,rejected → decline/denied)。本 PR 不把 daemon 迁移到 `backend.resolvePermission`;该可选接口继续保留给未来无法用 injected handler 表达的 provider。
 - registry wiring:能选择真实 adapter,但不能把所有 transport 都伪装成 ready。
 - auth/binary/login 缺失时返回 `rejected` 或 `degraded`。
+  - 建议 probe 规则:缺 `codex` binary → `rejected` + `missing:["binary:codex"]`;binary 存在但 `codex doctor` 显示 auth 未配置或 app-server 启动失败 → `degraded`/`rejected`(带 reason,不得 ready);已登录且 app-server initialize 成功 → `ready`。
+  - probe 必须有超时,不得因本地 Codex 卡住而阻塞 daemon。
+  - real backend 的 `cancel()` / `dispose()` 必须终止 app-server 子进程并清理 pending request;daemon 退出/任务取消不能留下 orphan child。
+  - real backend 的 `sendPrompt()` 只在 app-server turn 完成后 resolve;不能在仅发送 `turn/start` 后提前返回。
+  - `daemon/core/runEngine.ts` / `driveRun` 在 PR5 scope 内:当前 fake hardcoded diff + `run_merged` artifact 只允许用于 fake backend。real Codex run 不得 emit 带 fake hardcoded diff 的 `run_merged`;真实 artifact 只能来自 provider 消息或 adapter 明确产物;若没有真实 artifact,可 emit 不带 artifact 的 terminal event 或按 blocked/gave_up 收束,但不得把 fake diff 当真实 provider 产物。
+  - `driveRun` 必须转发 `model-output` 和 generic `event`,不能让 adapter 已映射的 side-effect 消息在 engine 层落入 `default: break`。
+  - live daemon registry 必须能选择 real Codex adapter。`main()` 不能永远只使用 `createFakeRegistry()`;可用环境变量或显式 factory 选择 demo fake vs default real registry,但真实接线验收必须能跑到 `"mcp-codex"` factory。
 
 ## 非目标
 
@@ -49,8 +64,9 @@
 - 有凭证/binary 时,真实 adapter 能跑一个单步 local prompt。
 - 缺 binary/login/token 时返回 per-agent `status=rejected` 或 `degraded`。
 - 至少一种真实 provider event 能进入 HOLP event flow。
-- codex(happier ACP path)**必须**实现完整 permission resume:`ask_human` 能暂停 tool call,`approval.resolve` 能 resume(approved)或 deny 原 tool call。这是必做项——happier 的 await-Promise handler 模型原生支持挂起+回灌(见"范围"的实现机制),**不接受"做不到就标 degraded"**。
+- codex(app-server path)**必须**实现完整 permission resume:`ask_human` 能暂停 tool call,`approval.resolve` 能 resume(approved)或 deny 原 tool call。这是必做项——现有 daemon injected `permissionHandler` 的 await-Promise 模型原生支持挂起+回灌,**不接受"做不到就标 degraded"**。
 - degraded 逃生舱**仅**适用于 provider 协议本身不支持 deferred permission 的 path(codex **不属此类**)。走 degraded 必须举证:指出是哪一层协议机制不支持 deferred permission,不能仅因实现复杂度而降级。
+- existing M1/M2 fake path 和 M2 contract tests 必须继续通过;不得为真实 adapter 改破 approval race / cancel race / `artifact_refs:false` 语义。
 
 ## Review 重点
 

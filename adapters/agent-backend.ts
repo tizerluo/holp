@@ -6,8 +6,8 @@
  *
  * 设计借自 happier 的 AgentBackend 接口(`apps/cli/src/agent/core/AgentBackend.ts`)
  * 与 ExecutionRunBackendFactory(`apps/cli/src/agent/executionRuns/registry/`)。
- * v0.1.x 参考实现先提供 native-claude + mcp-codex + acp 的桩;真实接线规划通过
- * wrapper 或抽取包复用 happier backend 模块。
+ * v0.1.x 参考实现已将 mcp-codex 接到 Codex app-server;native-claude/acp 仍是桩。
+ * 后续 provider 接线可通过 wrapper 或抽取包复用 happier backend 模块。
  *
  * 关键接缝(对应协议能力):
  * - onMessage(事件流) → 协议事件流的料(tool_called/fs_edited/...),经 events.subscribe 订阅后回吐
@@ -47,9 +47,9 @@ export type AgentMessageHandler = (msg: AgentMessage) => void;
 /**
  * 权限裁决(工具调用前介入)。来源 loopwright PermissionPolicy + happier AcpPermissionHandler。
  *
- * v0.1.x 修复(codex P1-4):ask_human 必须是**可恢复对象**——带 request_id/call_id,
- * resolve 后 adapter 能 resume/deny 原始 tool call。v0.1 初版只有 allow/deny/ask_human 裸返回,
- * 缺 pending tool call handle,resolve 后无法回灌 agent。
+ * v0.1.x 主路径:daemon 注入 permissionHandler,它创建 HOLP approval 并返回 pending Promise;
+ * approval.resolve 通过 ApprovalRecord.resumeBackend 解析为 allow/deny,adapter 再回写 provider。
+ * ask_human 对象形态保留给未来需要显式 request handle 的 provider wrapper。
  */
 export type PermissionVerdict =
   | { decision: "allow"; reason: string }
@@ -74,8 +74,24 @@ export interface AgentBackendOptions {
   readonly cwd: string;
   readonly env?: Readonly<Record<string, string>>;
   readonly modelId?: string;
-  /** 工具调用前介入;缺省 → 放行(degraded)。注入 daemon 裁决内核即"中途拦"。 */
+  /** 工具调用前介入;各 adapter 定义缺省策略。PR5 Codex adapter 缺省拒绝以避免无人值守放行。 */
   readonly permissionHandler?: PermissionHandler;
+}
+
+export interface AgentProbeInput {
+  readonly id: string;
+  readonly transport: TransportClass;
+  readonly roles: readonly string[];
+  readonly cwd: string;
+}
+
+export interface AgentProbeResult {
+  readonly status: "ready" | "degraded" | "rejected";
+  readonly version?: string;
+  readonly logged_in?: boolean;
+  readonly resolved_roles?: readonly string[];
+  readonly missing?: readonly string[];
+  readonly reason?: string;
 }
 
 /**
@@ -102,8 +118,9 @@ export interface AgentBackend {
   /** sendPrompt 后等本轮结束(收完所有 chunk)。 */
   waitForResponseComplete?(timeoutMs?: number): Promise<void>;
   /**
-   * 恢复一个 pending 的 permission/ask_human 请求(codex P1-4)。
-   * approval.resolve 后,daemon 调此方法把决定回灌 agent(resume/deny 原 tool call)。
+   * 兼容/未来扩展:恢复一个 pending 的 permission/ask_human 请求。
+   * PR5 的 Codex app-server 主路径不调用此方法;它通过注入的 permissionHandler
+   * pending Promise + ApprovalRecord.resumeBackend 完成 resume/deny。
    */
   resolvePermission?(request_id: string, decision: "allow" | "deny"): Promise<void>;
   dispose(): Promise<void>;
@@ -111,3 +128,6 @@ export interface AgentBackend {
 
 /** 工厂:按 transport 选 backend。形状启发自 happier `ExecutionRunBackendFactory`(但后者 opts 更大:backendId/modelId/accountSettings/isolation 等,接入需 wrapper)。 */
 export type AgentBackendFactory = (opts: AgentBackendOptions) => AgentBackend;
+
+/** Lightweight availability probe used by flock.declare/discover; must not start a long-lived session. */
+export type AgentBackendProbe = (input: AgentProbeInput) => AgentProbeResult | Promise<AgentProbeResult>;

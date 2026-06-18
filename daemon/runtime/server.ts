@@ -17,9 +17,9 @@
  * The `dev` script is a human/debug convenience (stderr logs visible); it is NOT
  * for protocol I/O.
  *
- * Fake backend: M1b wires the fake adapter registry so the demo can run end-to-end
- * with a "fake" transport agent. Real adapters (native-claude/mcp-codex/acp) remain
- * stubs — no real agent is connected in M1b.
+ * Runtime registry: the daemon defaults to the real/default adapter registry
+ * (including mcp-codex in M3). Set HOLP_REGISTRY=fake for the deterministic
+ * demo/test fake backend.
  */
 
 import { NdjsonReader, createWriter } from "./ndjson.js";
@@ -36,7 +36,7 @@ import { handleOrchestrateRun } from "../handlers/orchestrate_run.js";
 import { handleApprovalResolve } from "../handlers/approval_resolve.js";
 import { handleTaskCancel } from "../handlers/task_cancel.js";
 import { handleArtifactGet } from "../handlers/artifact_get.js";
-import { createFakeRegistry } from "../../adapters/registry.js";
+import { createDefaultAdapterRegistry, createFakeRegistry } from "../../adapters/registry.js";
 import type {
   AgentBackendFactory,
   TransportClass,
@@ -61,13 +61,13 @@ function log(...args: unknown[]): void {
  * Used both by main() and by in-process tests.
  *
  * sink is needed for events.subscribe to replay events to subscribers.
- * registry is the adapter registry (defaults to fake registry for M1b demo).
+ * registry is the adapter registry (defaults to the live/default registry).
  * clock is injectable so tests can pin event timestamps and approval ids.
  */
 export function buildDispatcher(
   ctx: ConnectionContext,
   sink?: EventSink,
-  registry = createFakeRegistry(),
+  registry = createDefaultAdapterRegistry(),
   clock: Clock = systemClock,
 ): Dispatcher {
   const dispatcher = new Dispatcher(ctx);
@@ -156,7 +156,9 @@ export function makeFrameLoop({
 export function main(): void {
   const ctx = new ConnectionContext();
   const write = createWriter((line) => process.stdout.write(line));
-  const registry = createFakeRegistry();
+  const registry = process.env.HOLP_REGISTRY === "fake"
+    ? createFakeRegistry()
+    : createDefaultAdapterRegistry();
 
   // FIX 2: forward-ref pattern — makeFrameLoop returns sinkWrite which is needed
   // to build the sink; the dispatcher is assigned before any frame can arrive.
@@ -194,7 +196,9 @@ export function main(): void {
     void getChain().finally(() => process.exit(0));
   });
 
-  log("holp-reference-daemon M1b: listening on stdio");
+  log(
+    `holp-reference-daemon: listening on stdio (${process.env.HOLP_REGISTRY === "fake" ? "fake" : "default"} registry)`,
+  );
 }
 
 // Run when invoked as the entrypoint (tsx daemon/runtime/server.ts).
