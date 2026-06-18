@@ -44,6 +44,9 @@ import {
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const serverEntry = join(repoRoot, "daemon", "runtime", "server.ts");
+// Repo-local tsx (not `npx`) so the daemon launch does not consult the user's npm
+// global cache/config — keeps the spawn deterministic and avoids ambient npm state.
+const tsxBin = join(repoRoot, "node_modules", ".bin", "tsx");
 
 /** Driver-side per-phase ceilings, shorter than the adapter's 10-min turn timeout. */
 const APPROVAL_WAIT_MS = 90_000;
@@ -74,7 +77,7 @@ class Daemon {
     // ambient export in the caller's shell can't silently downgrade to the fake path.
     delete (env as Record<string, string | undefined>).HOLP_REGISTRY;
 
-    this.proc = spawn("npx", ["tsx", serverEntry], {
+    this.proc = spawn(tsxBin, [serverEntry], {
       cwd: workspace, // -> becomes Codex cwd via process.cwd() in orchestrate_run.ts.
       env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -283,7 +286,28 @@ async function runApprovalScenario(decision: "approved" | "rejected"): Promise<S
     }
 
     const approvalId = approval.payload.approval_id as string;
-    console.log(`  approval_requested: ${approvalId} -> ${decision}`);
+    const requested = describeApproval(approval);
+    console.log(`  approval_requested: ${approvalId} cmd=${JSON.stringify(requested.command)}`);
+
+    // SAFETY GATE: only auto-approve if the request matches the expected safe command.
+    // A model deviation (a different command, or a non-shell_command approval) must NEVER
+    // be approved by this unattended smoke — reject it and FAIL loudly. This guards the
+    // sandbox-escape: we approve "run the curl outside the sandbox", nothing else.
+    const expectedMatch =
+      requested.tool === "shell_command" &&
+      requested.command.includes("curl") &&
+      requested.command.includes("https://example.com");
+
+    if (decision === "approved" && !expectedMatch) {
+      await daemon.call("approval.resolve", { approval_id: approvalId, decision: "rejected", by: "user:smoke" });
+      return {
+        name,
+        verdict: "FAIL",
+        detail: `unexpected approval request rejected for safety: tool=${requested.tool} cmd=${JSON.stringify(requested.command)}`,
+      };
+    }
+
+    console.log(`  -> ${decision}`);
     await daemon.call("approval.resolve", { approval_id: approvalId, decision, by: "user:smoke" });
 
     const terminal = await daemon.waitEventOrNull(isTerminal(runId), TERMINAL_DEADLINE_MS);
@@ -304,6 +328,28 @@ async function runApprovalScenario(decision: "approved" | "rejected"): Promise<S
   }
 }
 
+/**
+ * Pull the requested tool + command out of an approval_requested event. The payload
+ * carries `details.content` = JSON.stringify({ tool, input }) (orchestrate_run.ts), and
+ * the adapter puts the shell command in `input.command` (commandApprovalInput).
+ */
+function describeApproval(approval: EventFrame): { tool: string; command: string } {
+  let tool = "";
+  let command = "";
+  const details = approval.payload.details as { content?: unknown } | undefined;
+  if (details && typeof details.content === "string") {
+    try {
+      const parsed = JSON.parse(details.content) as { tool?: unknown; input?: unknown };
+      if (typeof parsed.tool === "string") tool = parsed.tool;
+      const input = parsed.input as { command?: unknown } | undefined;
+      if (input && typeof input.command === "string") command = input.command;
+    } catch {
+      /* leave defaults; the safety gate will treat an unparseable request as non-matching */
+    }
+  }
+  return { tool, command };
+}
+
 function errDetail(err: unknown, daemon: Daemon): string {
   const tail = daemon.stderr.slice(-5).join(" | ");
   return `error: ${err instanceof Error ? err.message : String(err)}${tail ? ` | stderr: ${tail}` : ""}`;
@@ -317,10 +363,10 @@ async function main(): Promise<void> {
   }
 
   console.log("=== HOLP end-to-end Codex smoke (patch + approval) ===");
-  const results: ScenarioResult[] = [];
-  results.push(await runPatchScenario());
-  results.push(await runApprovalScenario("approved"));
-  results.push(await runApprovalScenario("rejected"));
+  const patch = await runPatchScenario();
+  const approveRun = await runApprovalScenario("approved");
+  const rejectRun = await runApprovalScenario("rejected");
+  const results = [patch, approveRun, rejectRun];
 
   console.log("\n=== Results ===");
   let anyFail = false;
@@ -328,10 +374,27 @@ async function main(): Promise<void> {
     console.log(`  ${r.verdict.padEnd(12)} ${r.name} — ${r.detail}`);
     if (r.verdict === "FAIL") anyFail = true;
   }
-  // INCONCLUSIVE approval runs do not fail the smoke (the trigger is provider-dependent),
-  // but a FAIL (wrong terminal event, probe failure, etc.) does.
-  console.log(`\n=== Result: ${anyFail ? "FAIL" : "PASS"} ===`);
-  process.exit(anyFail ? 1 : 0);
+
+  // Honest gate (P2): a FAIL always fails. Separately, if NEITHER approval sub-run
+  // actually exercised approval (both INCONCLUSIVE), the approval path was not tested
+  // at all — so this run must NOT be cited as "real approval smoke 已跑完". Exit non-zero
+  // in that case even when nothing failed, so a green exit always means approval ran.
+  const approvalRan = [approveRun, rejectRun].some((r) => r.verdict === "PASS");
+  let overall: "PASS" | "FAIL" | "PASS_NO_APPROVAL";
+  if (anyFail) overall = "FAIL";
+  else if (!approvalRan) overall = "PASS_NO_APPROVAL";
+  else overall = "PASS";
+
+  if (overall === "PASS_NO_APPROVAL") {
+    console.log(
+      "\n  note: patch path passed but the provider never requested approval this run " +
+        "(both approval sub-runs INCONCLUSIVE). The approval bridge was NOT exercised end-to-end — " +
+        "do not cite this run as 'real approval smoke 已跑完'. Re-run to get a real approval.",
+    );
+  }
+  console.log(`\n=== Result: ${overall} ===`);
+  // PASS -> 0; FAIL and PASS_NO_APPROVAL -> non-zero (the latter is not approval evidence).
+  process.exit(overall === "PASS" ? 0 : 1);
 }
 
 main().catch((err) => {

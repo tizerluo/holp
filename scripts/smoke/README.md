@@ -33,6 +33,28 @@ frame on demand.
 | `codex-approval-patch.adapter.ts` | `npm run smoke:codex:adapter` | **Layer 1, adapter-direct PATCH.** Real provider emits an `fs-edit` with a non-empty diff and applies the patch on disk; turn ends clean. Lowest flake. |
 | `codex-approval-patch.e2e.ts` | `npm run smoke:codex` | **Layer 2, end-to-end daemon.** Live `initialize → flock.declare → orchestrate.run → events.subscribe → [approval.resolve] → [artifact.get]`. Three scenarios: **patch** (edit → `run_merged` + file changed); **approval approve** (network cmd → `run_merged`); **approval reject** (network cmd → `run_blocked`). Approval sub-runs report **INCONCLUSIVE** (not FAIL) if the provider declines to request approval that run. |
 
+### Exit codes (e2e)
+
+The e2e smoke prints one of three overall results and exits accordingly:
+
+- **PASS** (exit 0) — patch passed AND at least one approval sub-run actually exercised
+  the approval bridge end-to-end. Only this state may be cited as "real approval smoke
+  ran".
+- **PASS_NO_APPROVAL** (exit 1) — nothing failed, but the provider never requested
+  approval this run (both approval sub-runs INCONCLUSIVE). The approval path was *not*
+  tested; re-run to get a real approval. Non-zero on purpose so it is never mistaken for
+  approval evidence or used as a merge gate.
+- **FAIL** (exit 1) — a wrong terminal event, a probe/auth failure, a missing terminal
+  event, or an unexpected approval request (see safety gate below).
+
+### Safety gate on approval
+
+The unattended `approved` sub-run only resolves `approved` if the requested approval is a
+`shell_command` whose command matches the expected safe probe (`curl ... https://example.com`).
+Any other request — a different command, or a non-`shell_command` approval — is
+**rejected and the run FAILs**, so a model deviation can never get an unexpected command
+approved outside the sandbox.
+
 ## Run
 
 ```bash
@@ -59,8 +81,15 @@ Each run builds, under the OS temp dir:
   session to `sandbox: workspace-write` rooted at this dir, so file edits are bounded here.
 
 Teardown runs in a `finally` even on crash: graceful daemon-stdin close → `SIGTERM` the
-process group → `SIGKILL` → `rm -rf` both temp dirs. Any residual leak can only land in
-the OS temp dir, never in `~/.codex` or the repo.
+process group → `SIGKILL` → `rm -rf` both temp dirs.
+
+**Scope of the isolation claim:** Codex's own state (sessions, logs, sqlite, config,
+auth lookups) and the workspace file effects are fully redirected into temp and removed on
+teardown — `~/.codex` and the repo are never touched. The daemon is launched with the
+repo-local `node_modules/.bin/tsx` (not `npx`) to avoid consulting user npm global
+cache/config. It does still inherit the rest of `process.env` (minus `HOLP_REGISTRY`,
+plus `CODEX_HOME`), so this is "Codex state + workspace effects are isolated", not "the
+process touches nothing outside the OS temp dir".
 
 **No production code is changed.** Isolation is purely launch-time: the daemon's own `cwd`
 becomes Codex's `cwd`, and `CODEX_HOME` in the daemon's env is inherited by the spawned
