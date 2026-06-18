@@ -7,6 +7,7 @@
 ## 当前代码事实
 
 - PR7 应已提供 consensus/gate/triage kernel 和合法 `consensus_verdict` 产出。
+- PR7 应已消费 PR6 的 runtime surface / isolation readiness matrix。M5 demo 不能退回只展示 transport/role/status。
 - `docs/roadmap.md` M5 允许 real+fake 或 fake+fake reviewer backend。
 - `protocol/spec.md` 默认 findings 用 artifact envelope,`artifact_refs:false` 时走 inline fallback。
 - M5 必须独立于 M4,因为 demo 成功不能替代内核测试。
@@ -21,6 +22,7 @@
   - 一个 producer artifact
   - `produced_by_agent_id`
   - 至少两个 reviewer backend
+  - producer/reviewer fixture 明确声明 runtime surface、runtime kind、isolation profile readiness
   - reviewer panel 排除 producer
   - 至少一个 completed review
   - 可选 timeout/error/abstain case
@@ -36,12 +38,16 @@
 - 不加 Remote/cloud execution。
 - 不用 demo 成功降低 M4 unit-level tests 要求。
 - 不要求多个真实 provider;fake+fake 可接受,只要 wire path 真实。
+- 不把 demo 成功解释成 12 个 agent 的 `headless` / `acp` / `direct_user_session` 都已支持。
+- 不实现 direct_user_session 产品/终端会话 demo;除非后续 consumer/session PR 已经提供 Happy/Happier 或 Warp/cmux/tmux 接入。
 
 ## 验收
 
 - `consensus_verdict.payload.excluded[]` 明确排除 author。
 - `quorum.required`、`quorum.eligible`、`quorum.met` 与实际 panel 一致。
 - `errors[]` 不混入 completed votes。
+- demo 输出能看到被选中的 reviewer 是在某个 runtime surface + isolation profile 下可调度,而不是 agent 整体 ready。
+- unsupported/unknown runtime surface 在 demo fixture 中应显式出现为 unsupported/unknown/rejected,证明协议不会把空白当 ready。
 - consensus result 只作为 `events.event` 发送,且 `category=consensus`,`name=consensus_verdict`。
 - `artifact_refs:true` path 展示 findings envelope。
 - `artifact_refs:false` path 展示 inline findings/details fallback,同时 provenance `artifact_id` 仍可作为身份字段出现。

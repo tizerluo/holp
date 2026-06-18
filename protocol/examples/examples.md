@@ -1,6 +1,6 @@
-# HOLP v0.1.4 最小 JSON 示例集
+# HOLP v0.1.5 最小 JSON 示例集
 
-> 示例派生自 `spec.md` v0.1.4,字段语义以 `spec.md` 为准。
+> 示例派生自 `spec.md` v0.1.5,字段语义以 `spec.md` 为准。
 
 本文档为 M0 验收材料:**9 个方法各至少一组 request/response**,**每类关键 notification 至少一条**。
 所有 JSON 为合法 JSON;`jsonc` 代码块中保留的 `//` 注释仅供阅读,去掉注释后结构仍合法(引号闭合、无非法尾逗号)。
@@ -24,7 +24,7 @@
       "unattended_loop": { "supported": true, "required": true },
       "artifact_refs":{ "supported": true }
     },
-    "protocol_version": "0.1.4"
+    "protocol_version": "0.1.5"
   }
 }
 ```
@@ -35,14 +35,14 @@
 {
   "jsonrpc": "2.0", "id": 1,
   "result": {
-    "server": { "name": "holp-reference-daemon", "version": "0.1.4" },
+    "server": { "name": "holp-reference-daemon", "version": "0.1.5" },
     "capabilities": {
       "consensus":    { "supported": true },
       "approval":     { "supported": true, "kinds": ["merge_approval","force_push_approval","budget_exceeded"] },
       "unattended_loop": { "supported": true },
       "artifact_refs":{ "supported": true }
     },
-    "protocol_version": "0.1.4"
+    "protocol_version": "0.1.5"
   }
 }
 ```
@@ -68,7 +68,20 @@
       "version": "1.0.0", "logged_in": true, "resolved_roles": ["architect","reviewer","coder","tester"] },
     { "id": "codex", "transport": "mcp-codex", "status": "degraded",
       "version": "0.21.0", "logged_in": true, "resolved_roles": ["coder","reviewer","tester"],
-      "missing": ["role:architect"] }
+      "missing": ["role:architect"],
+      "runtime_surfaces": [
+        { "runtime_surface": "headless", "runtime_kind": "app_server", "surface_support": "supported",
+          "isolation_profiles": {
+            "coder_worktree": { "readiness": "ready" },
+            "real_provider_smoke": { "readiness": "ready", "warnings": ["inherits:network"] },
+            "high_isolation": { "readiness": "degraded", "missing": ["keychain_isolation"] }
+          },
+          "state_declaration_ref": "harness-state:codex", "global_mutation_required": false },
+        { "runtime_surface": "direct_user_session", "runtime_kind": "tmux", "surface_support": "unknown",
+          "isolation_profiles": { "multi_agent_concurrent": { "readiness": "rejected", "reason": "route_not_declared" } },
+          "direct_channel": { "channel_type": "tmux", "attach": "unknown", "inject": "unknown", "interrupt": "unknown", "cancel": "unknown", "owner_scope": "unknown" },
+          "global_mutation_required": false }
+      ] }
   ]
 } }
 ```
@@ -87,7 +100,12 @@
   "agents": [
     { "id": "gemini", "transport": "acp", "status": "degraded",
       "version": "0.3.0", "logged_in": true, "resolved_roles": ["reviewer"],
-      "missing": ["role:coder"] }
+      "missing": ["role:coder"],
+      "runtime_surfaces": [
+        { "runtime_surface": "acp", "runtime_kind": "acp", "surface_support": "experimental",
+          "isolation_profiles": { "read_only_review": { "readiness": "ready" }, "coder_worktree": { "readiness": "rejected", "reason": "role_missing" } },
+          "state_declaration_ref": "harness-state:gemini", "global_mutation_required": false }
+      ] }
   ]
 } }
 ```

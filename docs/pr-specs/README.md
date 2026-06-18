@@ -21,7 +21,7 @@
 
 ## Related issue SPEC
 
-- [Issue #11 - Cross-Agent Harness Isolation](./issue-11-agent-harness-isolation.md):真实 provider / 多 agent harness 隔离模型。PR6 及后续真实 adapter 工作必须先读取这份 SPEC,避免把 Codex smoke 的局部方案误扩成通用机制。
+- [Issue #11 - Cross-Agent Harness Isolation](./issue-11-agent-harness-isolation.md):v0.1.5 协议基准修订来源,定义真实 provider / 多 agent harness 隔离模型。PR6 及后续治理、adapter、consumer/session 工作必须先读取这份 SPEC,避免把 Codex smoke 的局部方案误扩成通用机制,也避免把 HOLP 做窄成 `transport + ready`。
 
 ## 拆分原则
 

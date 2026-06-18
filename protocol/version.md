@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-**v0.1.4 (draft)** — 见 `spec.md`。
+**v0.1.5 (draft)** — 见 `spec.md`。
 
 ## 版本号
 
@@ -14,24 +14,32 @@
 
 `initialize` 时双方报 `protocol_version`(比 `MAJOR.MINOR`),major 不匹配 → 拒绝(`protocol_version_mismatch`)。
 
-## v0.1.4 范围
+## v0.1.5 范围
 
 **协议层(draft)**:spec 全章有定义——握手+能力(descriptor) / flock(declare+discover) / orchestrate.run(含 §4.2 agent 引用绑定 flock + role 校验) / events.subscribe(categories 白名单语义 + seq 从 1 起) / consensus(两段式 quorum + artifact_refs 降级 findings) / approval(单通道状态机 + artifact_refs 降级 details) / task.cancel / artifact(强制 content + provenance artifact_id 例外) / 版本化 / 错误模型 / unattended policy / 实现边界。
+
+**v0.1.5 基准修订**:Issue #11 的 harness isolation baseline 已进入协议主干。`flock.declare`/`flock.discover` 必须能表达 runtime surface / isolation readiness matrix,覆盖 `headless`、`acp`、`direct_user_session` 三类运行面、runtime kind、direct channel、isolation profile readiness、state declaration ref、global mutation risk。`ready` 只表示某个 runtime surface + isolation profile 下可调度,不表示 agent 整体可用。当前实现可以返回 unknown/unsupported/rejected,但不能省略该语义。
 
 **当前仓已落地**:
 - protocol draft + adapter 契约桩。
 - 参考 daemon 协议骨架(`daemon/`):stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
 - 参考 consumer CLI(`consumers/cli/`)+ M1 e2e 闭环——**仅用 fake backend**(`fake` transport),非真实 provider。
-- M2 契约回归网(`daemon/handlers/m2_contract.test.ts`):已锁定当前实现的关键 v0.1.4 语义；consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5,由 §F 负向锁定当前缺席行为。
+- M2 契约回归网(`daemon/handlers/m2_contract.test.ts`):已锁定当前实现的关键 v0.1.4 语义；consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5,由 §F 负向锁定当前缺席行为。参考 daemon 代码常量仍按 v0.1.4 contract 运行;v0.1.5 的 runtime surface / isolation readiness matrix 由 Issue #11 / PR6+ 承接。
 - M3 首个真实 adapter:`"mcp-codex"` 接 Codex app-server over stdio;`flock.declare`/`flock.discover` 通过 registry probe 返回 honest `ready/degraded/rejected`;permission resume 复用 injected `permissionHandler` + `ApprovalRecord.resumeBackend` path。自动测试覆盖 fake app-server harness;真实 provider smoke 取决于本机 Codex binary/auth。
 
 **参考 daemon 下一步 milestone**:
 - 治理内核/events-decisions-registry 数据骨架/共识/状态机 从 loopwright 搬入(M4)。
-- **未做(不声称)**:native-claude/acp 真接线、Web 传输。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
+- **未做(不声称)**:native-claude/acp 真接线、12 个 agent 的三类运行面完整支持、Web 传输。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
 
-> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter」,不声称已接 native-claude/acp 真 agent。
+> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter + v0.1.5 runtime surface/isolation baseline」,不声称已接 native-claude/acp 真 agent,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`。
 
 ## 变更记录
+
+### v0.1.5 (draft) — Issue #11 baseline amendment
+- P1:把 runtime surface / isolation readiness matrix 提升为协议基准,而非后续可选扩展。
+- P1:`flock.declare`/`flock.discover` 必须能表达 `headless` / `acp` / `direct_user_session` 三类运行面、runtime kind、direct channel、isolation profile readiness、state declaration ref、global mutation risk。
+- P1:澄清 `ready` 不是 agent 整体 ready,只是在某个 runtime surface + isolation profile 下 ready。
+- P2:当前实现允许返回 unknown/unsupported/rejected,但空白不是合格声明;PR6+ 必须承接该数据模型。
 
 ### v0.1.4 (draft) — 跨仓 review 后补互操作缺口
 - P1:`artifact_refs` 不可用时 consensus findings / approval details 内联降级,并澄清 provenance 裸 `artifact_id` 不受该能力控制(§2/§6.1/§7/§8.1)。

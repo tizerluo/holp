@@ -51,3 +51,7 @@
 ## Review 重点
 
 这是冻结门。如果 PR 开始写 daemon 或测试框架,就不再是 M0,应拆分。
+
+## 后续基准修订
+
+M0 冻结的是 v0.1.4 以前的协议面。Issue #11 后续已把 runtime surface / isolation readiness matrix 提升为 v0.1.5 draft 基准;这不倒改 PR1 的完成边界,但后续 SPEC/实现必须以 v0.1.5 为当前协议目标。

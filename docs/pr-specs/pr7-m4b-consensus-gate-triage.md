@@ -7,6 +7,7 @@
 ## 当前代码事实
 
 - PR6 应已提供 internal event/decision/state foundation。
+- PR6 应已提供 harness runtime surface / isolation readiness registry foundation。PR7 不能退回只按 transport/role/status 选择 agent。
 - `protocol/spec.md` §6 定义 `consensus_verdict`、quorum、errors、excluded、provenance。
 - `protocol/spec.md` §7 定义 approval 是唯一人工介入通道。
 - `docs/positioning.md` 说明 loopwright 提供 `aggregateVerdict`/`aggregateConsensus` 和 `reviewerCandidates` 思路,但 HOLP wire 是新设计。
@@ -36,6 +37,11 @@
   - role mismatch
   - rejected agent
   - degraded agent 缺 reviewer role
+- Runtime/isolation eligibility validation:
+  - reviewer/coder/tester 的 required runtime surface 是否 declared
+  - required isolation profile 是否 ready 或 policy 明确接受 degraded
+  - `direct_user_session` 是否声明 attach/inject/interrupt/cancel 能力
+  - global mutation risk 是否与 gate policy 兼容
 - 最小 triage/gate hooks:
   - 足够展示 decision 和 approval interaction
   - 不暴露 v0.2 gate protocol surface
@@ -47,12 +53,15 @@
 - 不新增第二家真实 provider,除非 M3 已经落地。
 - 不把 gate object/event/outcome 暴露成稳定 wire。
 - 不 wholesale copy loopwright。
+- 不实现 12 个 agent 的三类运行面 adapter;本 PR 只消费 PR6 的声明矩阵做选择和拒绝。
 
 ## 验收
 
 - aggregation 有独立单元测试。
 - author exclusion 和 quorum math 有独立测试。
 - rejected/degraded/role mismatch 处理符合 `protocol/spec.md`。
+- runtime surface / isolation profile 不满足时 fail-closed,不得把 agent 整体 `ready` 当成可调度。
+- read-only reviewer 不能被分配到会写 workspace 或需要 user_global_install 的 profile,除非 policy 明确升级给人。
 - gate/approval interaction 不绕过 §7 approval state machine。
 - fake backend run 能发出合法 `consensus_verdict`。
 - M2 contract tests 继续通过。

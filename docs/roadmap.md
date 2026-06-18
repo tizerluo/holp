@@ -1,15 +1,15 @@
 # HOLP Roadmap
 
 > 状态:规划文档,不表示对应实现已经存在。
-> 核查依据:`protocol/spec.md` v0.1.4、`protocol/version.md`、`docs/positioning.md`、`adapters/` 当前实现。
+> 核查依据:`protocol/spec.md` v0.1.5、`protocol/version.md`、`docs/positioning.md`、`adapters/` 当前实现。
 > 8 PR 拆解:见 `docs/pr-specs/`。
 
 ## 当前事实
 
 当前仓已落地:
 
-- `protocol/spec.md`:v0.1.4 draft,覆盖 stdio JSON-RPC、capability descriptor、flock、orchestrate、events、consensus、approval、task.cancel、artifact、versioning、error model、unattended policy、implementation boundary。
-- `protocol/version.md`:版本规则和 v0.1.4 范围。
+- `protocol/spec.md`:v0.1.5 draft,覆盖 stdio JSON-RPC、capability descriptor、flock runtime surface/isolation readiness matrix、orchestrate、events、consensus、approval、task.cancel、artifact、versioning、error model、unattended policy、implementation boundary。
+- `protocol/version.md`:版本规则和 v0.1.5 范围。
 - `docs/positioning.md`:定位、non-goals、设计来源边界。
 - `docs/pr-specs/`:M0-M5 拆解 SPEC。
 - `adapters/`:朝下 adapter contract + Codex app-server real adapter(`mcp-codex`) + native-claude/acp stub；`fake` transport 仅用于 demo/test。
@@ -17,10 +17,12 @@
 - `consumers/cli/`:参考 consumer CLI,可跑通 M1 fake backend 闭环。
 - M1 e2e 闭环:`initialize -> flock.declare -> orchestrate.run -> events.subscribe -> approval.resolve -> artifact.get`。**fake backend,非真实 provider**。
 - M2 契约回归网:`daemon/handlers/m2_contract.test.ts` 已锁定当前实现的关键 v0.1.4 语义；consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5,由 §F 负向锁定当前缺席行为。
+- 参考 daemon 代码常量仍按 v0.1.4 contract 运行;v0.1.5 是当前协议基准修订,PR6+ 必须承接 runtime surface / isolation readiness matrix。
 
 当前仓未落地,也不声称已落地:
 
 - native-claude/acp 真接线。
+- 12 个 agent 在 `headless` / `acp` / `direct_user_session` 三类运行面的完整 adapter 实现。
 - 治理内核/events-decisions-registry 数据骨架/共识/状态机。
 - Web 传输。
 - Remote execution。
@@ -33,6 +35,7 @@
 4. 单 provider 先于多 provider:真实 adapter 首个里程碑只接一家,避免把 provider 差异和协议 bug 混在一起。
 5. 复用但不绑定:happier backend 是 wrapper/extraction 的素材,不是 HOLP 协议依赖;loopwright 是治理内核素材库,不是直接搬运整个旧仓。
 6. 每个里程碑都必须能被测试或脚本演示验证,不能只停在文档声明。
+7. harness 能力矩阵先于调度实现:`ready` 只表示某个 runtime surface + isolation profile 可调度,不表示 agent 整体可用。未知或不支持必须显式返回 `unknown` / `unsupported` / `rejected`,不能留空。
 
 ## M0:协议冻结前清理
 
@@ -174,6 +177,7 @@
 交付物:
 
 - events-decisions-registry 数据骨架。
+- harness registry 数据骨架,必须承载 `harness_id`、`runtime_surface`、`runtime_kind`、`direct_channel`、`isolation_profile`、`isolation_status`、`state_declaration_ref`、`global_mutation_required`。
 - decision record 写入路径,至少覆盖 `decision_made`。
 - triage/gate/review-consensus 的纯逻辑模块。
 - consensus aggregator,对齐 loopwright `aggregateVerdict`/`aggregateConsensus` 的保守聚合精神,但输出 HOLP wire。
@@ -182,6 +186,7 @@
 验收标准:
 
 - fake backend run 能记录事件和 decision。
+- registry/run metadata 能表达同一 harness 在不同 runtime surface / isolation profile 下的 ready/degraded/rejected。
 - consensus step 能排除 author,计算 eligible/quorum,并输出 `consensus_verdict`。
 - gate/approval 交互不会绕过 §7 单通道状态机。
 
@@ -201,6 +206,7 @@
 - 至少两个 reviewer backend。可以是 real+fake 或 fake+fake,但 wire 必须真实走 HOLP。
 - 一个 producer artifact,带 `produced_by_agent_id`。
 - 一个 consensus panel,执行时排除 producer。
+- demo fixture 必须声明 reviewer/producer 的 runtime surface 和 isolation profile readiness,不得只靠 transport/role/status 调度。
 - findings 默认通过 artifact envelope 引用;当 consumer 不支持 `artifact_refs` 时,通过内联降级对象承载。
 
 验收标准:
@@ -223,6 +229,7 @@
 
 - CLI consumer:开发者本地最小入口。
 - cmux adapter 示例:展示已有终端/工具如何接入 HOLP。
+- direct user session 示例:至少覆盖 product session 与 terminal session 词表;Warp/cmux/tmux 这类 terminal session 必须声明 attach/inject/interrupt/cancel 能力和 route 隔离边界。
 - consumer capability negotiation 示例。
 - consumer 侧 event rendering 最小格式。
 

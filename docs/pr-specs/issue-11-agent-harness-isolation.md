@@ -4,13 +4,13 @@
 
 为真实 provider run 定义一套跨 agent / harness 的隔离模型,避免 PR5/M3 的 Codex app-server smoke 经验固化成 Codex 专用方案。
 
-本 SPEC 先冻结设计词表和验收边界,不要求一次性实现 12 个真实 adapter。后续 PR6/M4a 的 state / decision skeleton 必须能承载这里定义的 harness identity、state declaration、isolation profile 和 fail-closed 语义。
+本 SPEC 先冻结设计词表和验收边界,不要求一次性实现 12 个真实 adapter。它已经被提升为 HOLP v0.1.5 draft 的协议基准修订来源;后续 PR6/M4a 的 state / decision skeleton 必须能承载这里定义的 harness identity、state declaration、isolation profile 和 fail-closed 语义。
 
 ## 协议基准目标
 
 HOLP 的协议基准目标不是"今天就完整支持 12 个 agent 的所有运行形态",而是:
 
-- 协议必须能把多 agent / 多 harness 的能力表达成明确矩阵,覆盖 `headless`、`acp`、`direct_user_session` 三类运行面。
+- 协议必须能把多 agent / 多 harness 的能力表达成明确矩阵,覆盖 `headless`、`acp`、`direct_user_session` 三类运行面。该矩阵是 flock/governance 的必备语义,不是可选扩展字段。
 - 协议必须能区分"可运行"、"可观察"、"可中途注入"、"可取消"、"可 approval resume"、"可隔离"这些不同能力,不能用一个 `ready` 把它们糊在一起。
 - 协议必须允许同一个 harness 在不同运行面和 isolation profile 下得到不同结果。例如 Codex app-server 可支持真实 approval,但 Codex MCP path 可能不支持 rollback;某 agent 可 headless 运行,但不能 direct user session。
 - 协议必须把不支持显式化:`unsupported` / `degraded` / `rejected` 都是合法的协议结果。缺 capability 不能被隐藏成 stub ready,也不能靠默认用户全局状态偷跑。
