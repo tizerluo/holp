@@ -6,6 +6,27 @@
 
 本 SPEC 先冻结设计词表和验收边界,不要求一次性实现 12 个真实 adapter。后续 PR6/M4a 的 state / decision skeleton 必须能承载这里定义的 harness identity、state declaration、isolation profile 和 fail-closed 语义。
 
+## 协议基准目标
+
+HOLP 的协议基准目标不是"今天就完整支持 12 个 agent 的所有运行形态",而是:
+
+- 协议必须能把多 agent / 多 harness 的能力表达成明确矩阵,覆盖 `headless`、`acp`、`direct_user_session` 三类运行面。
+- 协议必须能区分"可运行"、"可观察"、"可中途注入"、"可取消"、"可 approval resume"、"可隔离"这些不同能力,不能用一个 `ready` 把它们糊在一起。
+- 协议必须允许同一个 harness 在不同运行面和 isolation profile 下得到不同结果。例如 Codex app-server 可支持真实 approval,但 Codex MCP path 可能不支持 rollback;某 agent 可 headless 运行,但不能 direct user session。
+- 协议必须把不支持显式化:`unsupported` / `degraded` / `rejected` 都是合法的协议结果。缺 capability 不能被隐藏成 stub ready,也不能靠默认用户全局状态偷跑。
+- 协议必须给未来 12+ agent 留扩展空间:新增 agent 应主要是新增 declaration / registry data / adapter wiring,而不是修改协议枚举和核心状态机。
+- 协议的安全基线是 fail-closed。任一 harness 的 route、session、approval、model label、state override 或 hook 归属不可验证时,默认不批准副作用、不写无关 run 状态、不声称隔离已满足。
+
+因此,本 SPEC 的 12-agent 覆盖要求是 **declaration coverage**:每个 agent 至少要能声明哪些运行面支持、哪些未知、哪些不支持、哪些 isolation profile 可达。它不是 **implementation coverage**:不要求本 PR 或 PR6 一次实现所有 adapter。
+
+### 运行面词表
+
+- `headless`:通过 CLI/API 一次性或可续跑命令执行,适合 Commander 派工、review、test、execution run。典型例子:`claude -p`、`kimi -p`、`opencode run`。
+- `acp`:通过 Agent Client Protocol 或 bridge 进行会话控制,适合结构化 session/update、permission、mode/model 控制。并非所有 agent 都有原生 ACP。
+- `direct_user_session`:用户可直接对话的产品会话层,类似 Happy/Happier 的本地/远程 UI 会话。它需要 session service、message queue、metadata、permission UI、ready/keepalive、resume/handoff 等产品能力,不是单个 backend adapter 自动具备。
+
+协议必须能表达三种运行面,但每个 harness 对三种运行面的支持可以分别是 `supported`、`experimental`、`unsupported` 或 `unknown`。
+
 ## 当前代码事实
 
 - PR5/M3 已把 `"mcp-codex"` 接到 Codex app-server over stdio;`native-claude` 和 `acp` 仍是 honest stubs。
@@ -13,6 +34,7 @@
 - 真实 Codex smoke 通过临时 workspace、临时 `CODEX_HOME`、复制 auth seed、写入 `notify = []` 来隔离 Codex state 和 workspace 文件副作用。
 - 该 smoke 不等于完整 OS sandbox:进程仍可能继承普通环境变量,网络、Keychain、provider quota、进程树和本机 auth 可见性不由 HOLP 完全隔离。
 - `flock.declare/discover` 当前能报告 binary/auth/probe readiness,但还不能说明某个 harness 在指定 isolation profile 下是 `ready`、`degraded` 还是 `rejected`。
+- 当前 HOLP 还没有 Happy/Happier 式 `direct_user_session` 产品层。后续若要支持,必须作为显式运行面接入,不能假设 headless/ACP adapter 天然等同于用户可直接对话的会话体验。
 
 ## 调研依据
 
@@ -34,6 +56,8 @@
 - `vendor`:provider 或 CLI 归属,例如 OpenAI、Anthropic、Cursor。
 - `transport_class`:HOLP 协议/治理层分类,例如 `mcp-codex`、`native-claude`、`acp`、`headless-cli`、`hook-feed`。
 - `runtime_kind`:具体启动面,例如 app-server、ACP、headless print、MCP bridge、hook router。
+- `runtime_surface`:协议运行面,取 `headless`、`acp`、`direct_user_session` 之一。
+- `runtime_surface_support`:该运行面的支持级别,取 `supported`、`experimental`、`unsupported`、`unknown`。
 - `role_fit`:可作为 Architect、Coder、Tester、Reviewer 的默认能力声明。
 
 同一个 agent 可以有多个 runtime kind。Codex 例子:app-server、ACP、headless exec、MCP path 都不能在治理层混成一个不可区分的能力。
@@ -191,6 +215,7 @@ PR5/M3 的 Codex smoke 是此 profile 的第一例。
 - 保持 `AgentBackend` 兼容;新增字段必须是可选能力,不能破坏 PR5/M3 fake 和 real Codex path。
 - `AgentProbeInput` 后续可增加 `isolationProfile`、`runIntent`、`workspaceId`、`sessionRouteKey` 等可选输入。
 - `AgentProbeResult` 后续可增加 `isolation_status`、`isolation_warnings`、`state_declaration_ref`、`global_mutation_required`。
+- harness declaration 后续应增加 runtime surface support 矩阵,至少覆盖 `headless`、`acp`、`direct_user_session` 三列。
 - registry wiring 只负责选择 backend factory;harness declaration 应由独立 registry 管理,避免 runtime factory 内硬编码治理规则。
 - `flock.declare/discover` 应能表达同一 harness 在不同 profile 下 readiness 不同。例如 Codex 在 `real_provider_smoke` 下可 ready,在 `high_isolation` 下可能 degraded。
 - PR6/M4a data/state skeleton 应把 harness identity 和 isolation profile 作为 run metadata,不要只存 transport string。
@@ -221,6 +246,7 @@ PR5/M3 的 Codex smoke 是此 profile 的第一例。
 - 新增本 SPEC。
 - `docs/pr-specs/README.md` 链接本 SPEC。
 - PR6 SPEC 明确在设计 state/decision skeleton 前读取本 SPEC。
+- SPEC 明确协议基准目标:HOLP 必须能表达 12+ harness 在 `headless` / `acp` / `direct_user_session` 三类运行面下的 capability 和 isolation readiness,即使当前实现只接通其中一小部分。
 - 不修改 runtime,不安装 hook,不写用户全局 provider config。
 - `git diff --check` 通过。
 - `npx gitnexus detect-changes --repo holp` 或本仓支持的等价命令通过。
@@ -236,6 +262,7 @@ PR5/M3 的 Codex smoke 是此 profile 的第一例。
 ## 非目标
 
 - 不在本 issue 中实现 12 个 adapter。
+- 不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session` 三种运行面。
 - 不在本 issue 中安装或修改任何用户全局 hook。
 - 不把 `happier`、`loopwright`、`warp`、`cmux` 变成 HOLP runtime 依赖。
 - 不承诺完整 OS sandbox 或 provider quota 隔离。
