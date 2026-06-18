@@ -4,9 +4,9 @@
  * Pull: orchestrator probes local agents by transport. For each requested
  * transport, discover what's available.
  *
- * "fake" transport with probe:true → returns a ready/degraded fake agent
- * so the discover path is exercised (demo/test only).
- * Real transports → no agents discovered (stubs have no real backend to probe).
+ * Known transports return one discovered candidate each. With probe:true the
+ * adapter registry performs the lightweight availability check; without probe
+ * the candidate is reported degraded/not_probed.
  *
  * Same part-success semantics as flock.declare: never throws for semantic
  * failures; only malformed request → -32600.
@@ -23,11 +23,11 @@ import type { FlockAgent } from "../core/stores.js";
 import { serializeFlockAgent } from "./flock_declare.js";
 import type { AdapterRegistry } from "../../adapters/registry.js";
 
-export function handleFlockDiscover(
+export async function handleFlockDiscover(
   req: JsonRpcRequest,
   ctx: ConnectionContext,
   registry: AdapterRegistry,
-): unknown {
+): Promise<unknown> {
   const params = isObject(req.params) ? req.params : {};
 
   // transports must be an array of strings.
@@ -56,34 +56,56 @@ export function handleFlockDiscover(
       continue;
     }
 
-    if (transport === "fake") {
-      // DEMO ONLY: fake transport discovers a "fake-agent" with full roles.
-      // probe:true → status:"ready"; probe:false → status:"degraded" (not probed).
-      const agent: FlockAgent = probe
-        ? {
-            id: "fake-agent",
-            transport: "fake",
-            status: "ready",
-            version: "0.0.1-fake",
-            logged_in: true,
-            resolved_roles: ["coder", "reviewer", "tester"],
-          }
-        : {
-            id: "fake-agent",
-            transport: "fake",
-            status: "degraded",
-            resolved_roles: ["coder", "reviewer", "tester"],
-            missing: [],
-          };
+    const id = discoveredAgentId(transport);
+    const roles = ["coder", "reviewer", "tester"];
+    const agent: FlockAgent = probe
+      ? toFlockAgent(id, transport, await registry.probe({ id, transport, roles, cwd: process.cwd() }))
+      : {
+          id,
+          transport,
+          status: "degraded",
+          resolved_roles: roles,
+          reason: "not_probed",
+          missing: [],
+        };
 
-      ctx.flock.set(agent.id, agent);
-      discovered.push(agent);
-    }
-    // Real transports: no agents discovered (stubs have no probe logic).
-    // Silently skip — consistent with "no agent found" for that transport.
+    ctx.flock.set(agent.id, agent);
+    discovered.push(agent);
   }
 
   return {
     agents: discovered.map(serializeFlockAgent),
+  };
+}
+
+function discoveredAgentId(transport: string): string {
+  switch (transport) {
+    case "fake":
+      return "fake-agent";
+    case "mcp-codex":
+      return "codex-agent";
+    case "native-claude":
+      return "claude-agent";
+    case "acp":
+      return "acp-agent";
+    default:
+      return `${transport}-agent`;
+  }
+}
+
+function toFlockAgent(
+  id: string,
+  transport: string,
+  probeResult: Awaited<ReturnType<AdapterRegistry["probe"]>>,
+): FlockAgent {
+  return {
+    id,
+    transport,
+    status: probeResult.status,
+    version: probeResult.version,
+    logged_in: probeResult.logged_in,
+    resolved_roles: probeResult.resolved_roles ?? [],
+    missing: probeResult.missing,
+    reason: probeResult.reason,
   };
 }

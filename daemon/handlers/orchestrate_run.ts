@@ -10,7 +10,7 @@
  *   6. -32600 invalid_request for malformed params.
  *
  * On success: create run record, return { run_id, accepted:true } immediately,
- * and kick off the fake backend session asynchronously.
+ * and kick off the selected backend session asynchronously.
  */
 
 import { holpError, invalidRequest } from "../core/errors.js";
@@ -197,7 +197,7 @@ export function handleOrchestrateRun(
   }
 
   // --- Validation step 6: approval_required_but_unsupported ---
-  // M1b's fake scenario always triggers a merge_approval; per §7 the daemon must
+  // Current run path may trigger provider permission requests; per §7 the daemon must
   // reject at accept-time if the client did not negotiate approval support.
   // Generic gate/policy-driven approval detection is M4.
   // This check is LAST in accept-time order (after agent_not_found, role_unsupported,
@@ -212,13 +212,13 @@ export function handleOrchestrateRun(
     );
   }
 
-  // --- Determine coder agent (required for demo run) ---
+  // --- Determine coder agent (required for the current single-backend run) ---
   let coderAgentId: string | undefined;
   if (isObject(roles.coder) && typeof (roles.coder as Record<string, unknown>).agent === "string") {
     coderAgentId = (roles.coder as Record<string, unknown>).agent as string;
   }
 
-  // We need a coder agent for the run engine (the fake backend drives coder).
+  // We need a coder agent for the run engine.
   // If none specified, pick the first non-reviewer role agent, or any ready agent.
   if (!coderAgentId) {
     // Fallback: find any ready agent in the flock.
@@ -234,7 +234,7 @@ export function handleOrchestrateRun(
     throw new HolpRpcError(
       holpError(
         "unsupported_transport",
-        "no ready coder agent available; declare a 'fake' transport agent first",
+        "no ready coder agent available; declare a ready coder transport agent first",
       ),
     );
   }
@@ -267,7 +267,7 @@ export function handleOrchestrateRun(
     cwd: process.cwd(),
     permissionHandler: async (toolName: string, input: unknown) => {
       // The permissionHandler creates an approval record, emits approval_requested,
-      // and returns a PENDING Promise. The fake awaits it (genuinely paused).
+      // and returns a PENDING Promise. The backend awaits it (genuinely paused).
       // Resolved by approval.resolve calling resumeBackend(decision).
       return new Promise((resolveVerdict) => {
         run.approvalSeq += 1;
@@ -308,14 +308,14 @@ export function handleOrchestrateRun(
             truncated: false,
           },
         });
-        // Promise is NOT resolved here — the fake awaits until approval.resolve is called.
+        // Promise is NOT resolved here — the backend awaits until approval.resolve is called.
       });
     },
   });
   run.backend = backend;
 
   // --- Kick off the run asynchronously ---
-  // M1b: fire-and-forget; in-memory fake holds no OS resources. Tracking active runs for graceful drain on stdin-end is deferred (matters once real adapters spawn processes).
+  // Fire-and-forget; backend.dispose in driveRun handles spawned adapter processes when the turn ends.
   void driveRun(run, backend, ctx, clock);
 
   return { run_id: runId, accepted: true };

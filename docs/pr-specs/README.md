@@ -1,12 +1,12 @@
 # HOLP 8 PR SPEC
 
-这些 SPEC 把 M0-M5 roadmap 拆成 8 个可 review 的 PR。拆法严格按当前仓库事实写,不假装已有实现已经存在。
+这些 SPEC 把 M0-M5 roadmap 拆成 8 个可 review 的 PR。早期 PR 文件保留对应阶段的冻结上下文;下面的当前代码事实随实现进度更新,避免误读为“尚无 daemon/真实 adapter”。
 
 当前代码事实:
 
-- 已存在:`protocol/spec.md`、`protocol/version.md`、`docs/positioning.md`、`docs/roadmap.md`、`adapters/agent-backend.ts`、`adapters/registry.ts`。
-- 不存在:`daemon/`、`consumers/`、`tests/`、`package.json`、runtime server、contract test harness、真实 provider adapter。
-- 当前 `adapters/` 只有 contract + stub;`createDefaultAdapterRegistry()` 把 `native-claude`、`mcp-codex`、`acp` 都接到 stub factory。
+- 已存在:`protocol/spec.md`、`protocol/version.md`、`docs/positioning.md`、`docs/roadmap.md`、`adapters/`、`daemon/`、`consumers/`、contract tests、`package.json`。
+- 当前 `adapters/` 包含 contract、demo/test fake backend、Codex app-server real adapter;`createDefaultAdapterRegistry()` 把 `"mcp-codex"` 接到 Codex app-server,`native-claude`/`acp` 仍是 stub。
+- `createFakeRegistry()` 保留 M1/M2 demo/test fake path;CLI demo 显式用 fake registry。
 
 ## PR 顺序
 

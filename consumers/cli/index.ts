@@ -144,6 +144,7 @@ async function main(): Promise<void> {
   const proc = spawn("tsx", [serverEntry], {
     stdio: ["pipe", "pipe", "inherit"],
     cwd: repoRoot,
+    env: { ...process.env, HOLP_REGISTRY: "fake" },
   });
 
   proc.on("error", (err) => {

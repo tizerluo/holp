@@ -16,7 +16,7 @@ Warp 的 Oz 证明了 multi-harness agent 编排是真需求,但闭源 + 付费 
 holp/
   protocol/     协议本身(spec / 消息定义 / 版本 / 样例)—— 独立身份,成熟后可独立成仓
   daemon/       参考实现(治理内核 + events-decisions-registry 数据骨架 + 共识 + 状态机,从 loopwright 旧仓挑拷)
-  adapters/     朝下 agent 适配(先桩接口;后续 wrapper/抽取包复用 happier backend 模块)
+  adapters/     朝下 agent 适配(Codex app-server 已接入;mcp-codex 以外仍是桩)
   consumers/    朝上 consumer 参考(CLI 先;cmux 适配示例后做)
   tests/        e2e + 协议契约测试
   docs/         定位 / roadmap / PR specs / non-goals
@@ -30,15 +30,15 @@ holp/
 - [x] 整体规划(`docs/roadmap.md`)
 - [x] 8 PR 拆解 SPEC(`docs/pr-specs/`)
 - [x] 协议 spec v0.1.4(`protocol/spec.md`)— 经 v0.1→v0.1.1→v0.1.2→v0.1.3→v0.1.4 迭代(末轮为跨仓来源核查 + 互操作缺口修补)
-- [x] 朝下 adapter 契约 + 桩(`adapters/`)— **未接真 agent,不声称已接**
+- [x] 朝下 adapter 契约 + 首个真实 adapter(`adapters/`)— **mcp-codex 接 Codex app-server;native-claude/acp 仍是桩**
 - [x] 参考 daemon 协议骨架(`daemon/`)— stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)
 - [x] 参考 consumer CLI(`consumers/cli/`)— 跑通 M1 闭环 demo,**仅用 fake backend**
 - [x] M1 e2e 闭环(`initialize→flock.declare→orchestrate.run→events.subscribe→approval.resolve→artifact.get`)— **fake backend,非真实 provider**
 - [x] M2 契约回归网(`daemon/handlers/m2_contract.test.ts`)— **契约层已锁定;consensus 执行/approval 超时/heartbeat 转交 M3/M4/M5(§F 负向锁定)**
 - [ ] 治理内核/events-decisions-registry 数据骨架/共识/状态机从 loopwright 搬入(M4)
-- [ ] 真实 adapter 接线(M3)
+- [x] 真实 adapter 接线(M3)— **Codex app-server over stdio 注册为 `mcp-codex`;自动覆盖 fake/app-server harness,真实 smoke 依赖本机 Codex auth**
 
-> **当前只声称**:protocol draft + adapter contract stub + **fake backend 跑通的 M1 协议闭环**(daemon + CLI demo)。**不声称**已接 native-claude/mcp-codex/acp 真 agent——CLI demo 用的是 `fake` transport,真实 transport 仍是会抛「not wired」的桩。
+> **当前只声称**:protocol draft + **fake backend 跑通的 M1 协议闭环**(daemon + CLI demo)+ M2 契约层 + **Codex app-server 作为首个真实 adapter**。CLI demo 仍显式使用 `fake` transport;`native-claude`/`acp` 仍是桩,不声称已接。
 
 ## 协议速览(v0.1.4)
 

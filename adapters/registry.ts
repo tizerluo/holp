@@ -1,17 +1,22 @@
 /**
- * 朝下 adapter 注册表 + v0.1.x 桩
+ * 朝下 adapter 注册表。
  *
  * daemon 按 flock.declare 声明的 transport 选 factory。
- * v0.1.x:native-claude + mcp-codex + acp 全用桩(返回"未接线"错误);真实接线后续做。
- * 规划:acp / native-claude / mcp-codex 的真实实现,通过 wrapper 或抽取包复用 happier backend 模块。
- * happier 的 executionRunBackendFactory 可作为接入素材,但不是可直接塞进本接口的 adapter。
+ * M3: "mcp-codex" 接 Codex app-server over stdio。
+ * native-claude / acp 仍为 honest stubs,不伪装 ready。
  *
- * ⚠️ 这是桩接口占位,不是真接 agent。真接之前的纪律(守第 5 条):
- *   - 不用桩的绿冒充"接通了";
- *   - 桩只让协议 daemon 的骨架能编译+跑协议握手,不假装真能 spawn claude/codex。
+ * fake registry 只用于 demo/test,不在默认 live daemon registry 中启用。
  */
 
-import type { AgentBackend, AgentBackendFactory, TransportClass } from "./agent-backend.js";
+import type {
+  AgentBackend,
+  AgentBackendFactory,
+  AgentBackendProbe,
+  AgentProbeInput,
+  AgentProbeResult,
+  TransportClass,
+} from "./agent-backend.js";
+import { createCodexAppServerBackendFactory, probeCodexAppServer } from "./codex-app-server.js";
 import { createFakeBackendFactory } from "./fake-backend.js";
 
 /** 桩 factory:任何 transport 都返回未接线错误。 */
@@ -36,47 +41,91 @@ function createStubBackend(transport: TransportClass): AgentBackend {
   };
 }
 
-/**
- * transport → factory 映射。daemon 启动时注入。
- * v0.1.x:全是桩。真实实现替换进来时,这里换成 happier backend wrapper/extraction 的适配。
- */
+/** transport → factory/probe 映射。daemon 启动时注入。 */
 export interface AdapterRegistry {
   resolve(transport: TransportClass): AgentBackendFactory | undefined;
+  probe(input: AgentProbeInput): AgentProbeResult | Promise<AgentProbeResult>;
 }
 
 export function createAdapterRegistry(
   factories: Partial<Record<TransportClass, AgentBackendFactory>>,
+  probes: Partial<Record<TransportClass, AgentBackendProbe>> = {},
 ): AdapterRegistry {
   return {
     resolve(transport) {
       return factories[transport];
     },
+    async probe(input) {
+      const probe = probes[input.transport];
+      if (probe) return probe(input);
+      if (!factories[input.transport]) {
+        return {
+          status: "rejected",
+          resolved_roles: [],
+          reason: "unsupported_transport",
+          missing: input.roles.map((role) => `role:${role}`),
+        };
+      }
+      return {
+        status: "rejected",
+        resolved_roles: [],
+        reason: "unsupported_transport",
+        missing: input.roles.map((role) => `role:${role}`),
+      };
+    },
   };
 }
 
-/** v0.1.x 默认 registry:三 transport 全桩。 */
+/** 默认 live registry:Codex app-server real adapter + remaining honest stubs. */
 export function createDefaultAdapterRegistry(): AdapterRegistry {
-  return createAdapterRegistry({
-    "native-claude": createStubFactory("native-claude"),
-    "mcp-codex": createStubFactory("mcp-codex"),
-    acp: createStubFactory("acp"),
-  });
+  return createAdapterRegistry(
+    {
+      "native-claude": createStubFactory("native-claude"),
+      "mcp-codex": createCodexAppServerBackendFactory(),
+      acp: createStubFactory("acp"),
+    },
+    {
+      "native-claude": (input) => ({
+        status: "rejected",
+        resolved_roles: [],
+        reason: "unsupported_transport",
+        missing: input.roles.map((role) => `role:${role}`),
+      }),
+      "mcp-codex": probeCodexAppServer,
+      acp: (input) => ({
+        status: "rejected",
+        resolved_roles: [],
+        reason: "unsupported_transport",
+        missing: input.roles.map((role) => `role:${role}`),
+      }),
+    },
+  );
 }
 
 /**
  * Registry with fake backend for DEMO / TEST.
  * "fake" transport resolves to the deterministic fake backend.
- * Real transports (native-claude/mcp-codex/acp) remain stubs.
+ * The real mcp-codex adapter is intentionally not used here so M1/M2 demos
+ * stay deterministic; native-claude/mcp-codex/acp entries resolve to stubs.
  *
  * ⚠️ DEMO/TEST ONLY — "fake" is not a real HOLP transport.
  * The fake backend replaces the provider, not the protocol path.
- * Real agent wiring is planned for a future milestone.
  */
 export function createFakeRegistry(): AdapterRegistry {
-  return createAdapterRegistry({
-    "native-claude": createStubFactory("native-claude"),
-    "mcp-codex": createStubFactory("mcp-codex"),
-    acp: createStubFactory("acp"),
-    fake: createFakeBackendFactory(),
-  });
+  return createAdapterRegistry(
+    {
+      "native-claude": createStubFactory("native-claude"),
+      "mcp-codex": createStubFactory("mcp-codex"),
+      acp: createStubFactory("acp"),
+      fake: createFakeBackendFactory(),
+    },
+    {
+      fake: (input) => ({
+        status: "ready",
+        version: "0.0.1-fake",
+        logged_in: true,
+        resolved_roles: input.roles.length > 0 ? input.roles : ["coder", "reviewer", "tester"],
+      }),
+    },
+  );
 }
