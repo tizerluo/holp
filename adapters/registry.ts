@@ -40,6 +40,9 @@ function stubRuntimeSurfaces(reason = "unsupported_transport"): readonly Runtime
 
 function fakeRuntimeSurfaces(): readonly RuntimeSurfaceDeclaration[] {
   const base = rejectedProfiles("unsupported_isolation_profile");
+  // Isolation readiness has no "unsupported" value; when an entire runtime
+  // surface is unsupported/unknown, rejected profiles mean "not schedulable
+  // through this surface", not that profile-specific enforcement was probed.
   return [
     {
       runtime_surface: "headless",

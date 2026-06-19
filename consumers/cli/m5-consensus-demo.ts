@@ -140,6 +140,7 @@ async function runScenario(name: string, artifactRefs: boolean): Promise<boolean
   const proc = spawn("tsx", [serverEntry], {
     stdio: ["pipe", "pipe", "inherit"],
     cwd: repoRoot,
+    detached: true,
     env: { ...process.env, HOLP_REGISTRY: "fake" },
   });
   proc.on("error", (err) => {
@@ -242,8 +243,45 @@ async function runScenario(name: string, artifactRefs: boolean): Promise<boolean
     console.log(`  result=${pass ? "PASS" : "FAIL"}`);
     return pass;
   } finally {
-    proc.kill();
+    await stopDaemon(proc);
   }
+}
+
+async function stopDaemon(proc: ChildProcess): Promise<void> {
+  if (proc.exitCode !== null || proc.signalCode !== null) return;
+
+  sendSignal(proc, "SIGTERM");
+  const exited = new Promise<"exited">((resolve) => {
+    proc.once("exit", () => resolve("exited"));
+  });
+  const first = await Promise.race([exited, sleep(750).then(() => "timeout" as const)]);
+  if (first === "exited") return;
+
+  sendSignal(proc, "SIGKILL");
+  await Promise.race([exited, sleep(750)]);
+}
+
+function sendSignal(proc: ChildProcess, signal: NodeJS.Signals): void {
+  const target = proc.pid ? -proc.pid : undefined;
+  try {
+    if (target !== undefined) {
+      process.kill(target, signal);
+    } else {
+      proc.kill(signal);
+    }
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "ESRCH") return;
+    try {
+      proc.kill(signal);
+    } catch {
+      // Ignore cleanup races: the demo process is already exiting.
+    }
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function verifyFakeRegistryDeclarations(

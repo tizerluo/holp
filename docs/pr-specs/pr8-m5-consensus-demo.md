@@ -14,6 +14,7 @@
 - `protocol/spec.md` 默认 findings 用 artifact envelope,`artifact_refs:false` 时走 inline fallback。
 - M5 必须独立于 M4,因为 demo 成功不能替代内核测试。
 - 当前 PR8 采用 fake+fake deterministic unanimous-approve reviewer path:producer/reviewer 声明仍走真实 flock/orchestrate/event/artifact wire,但 reviewer votes 由 fake consensus path 合成,不表示真实 reviewer provider sessions 或 dissent/timeout demo 已执行。
+- fake fixture 的 `acp` / `direct_user_session` 只用于展示非 headless surface 的显式声明。因 isolation readiness 枚举只有 `ready | degraded | rejected`,unsupported/unknown surface 下的 profiles 使用 `rejected` 表达"该 surface 不可调度",不表示做过 profile 级真实隔离探测。
 
 ## 范围
 
