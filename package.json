@@ -11,6 +11,7 @@
     "start": "tsx daemon/runtime/server.ts",
     "dev": "tsx daemon/runtime/server.ts",
     "demo": "tsx consumers/cli/index.ts",
+    "demo:m5": "tsx consumers/cli/m5-consensus-demo.ts",
     "smoke:codex": "tsx scripts/smoke/codex-approval-patch.e2e.ts",
     "smoke:codex:adapter": "tsx scripts/smoke/codex-approval-patch.adapter.ts"
   },

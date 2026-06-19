@@ -22,6 +22,7 @@ import type { JsonRpcRequest } from "../runtime/jsonrpc.js";
 import type { ConnectionContext } from "../core/context.js";
 import type { ApprovalRecord, FlockAgent, RunRecord } from "../core/stores.js";
 import { EventBus } from "../core/eventBus.js";
+import { evidencePayload } from "../core/evidence.js";
 import type { AdapterRegistry } from "../../adapters/registry.js";
 import type { Clock } from "../core/clock.js";
 import type { Scheduler } from "../core/scheduler.js";
@@ -173,6 +174,13 @@ export function handleOrchestrateRun(
 
   // (c) Quorum shape checks (after role checks, per §6.2 ordering).
   if (reviewerPanel.length > 0) {
+    if (new Set(reviewerPanel).size !== reviewerPanel.length) {
+      throw new HolpRpcError(
+        holpError("invalid_quorum", "reviewer panel contains duplicate agent ids", {
+          panel: reviewerPanel,
+        }),
+      );
+    }
     if (quorum <= 0) {
       throw new HolpRpcError(holpError("invalid_quorum", "quorum must be > 0"));
     }
@@ -434,14 +442,14 @@ export function handleOrchestrateRun(
           reason: `${toolName} requires human approval`,
           expires_at: expiresAt,
           provenance: { step_id: "step_coder", artifact_id: null },
-          // M1b: inline details form (clients negotiate artifact_refs:false). Envelope form for artifact_refs:true deferred to M2/M5 conformance.
-          details: {
-            inline: true,
+          details: evidencePayload({
+            ctx,
+            clock,
+            artifactId: `art_approval_${approvalId}_details`,
             type: "approval_details",
-            mime: "application/json",
             content: JSON.stringify({ tool: toolName, input }),
-            truncated: false,
-          },
+            createdBy: "holp-reference-daemon",
+          }),
         });
         // Promise is NOT resolved here — the backend awaits until approval.resolve is called.
       });

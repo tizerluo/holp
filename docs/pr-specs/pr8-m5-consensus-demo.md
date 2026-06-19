@@ -1,5 +1,7 @@
 # PR8 SPEC - M5 Multi-Agent Consensus Demo
 
+> 状态(PR8):deterministic unanimous-approve fake+fake demo 已落地。`npm run demo:m5` 通过真实 stdio JSON-RPC daemon wire 跑两条场景:`artifact_refs:true` findings artifact envelope 和 `artifact_refs:false` inline fallback。该 demo 不接真实 reviewer backend,不覆盖 dissent/timeout demo,不新增稳定 gate surface。
+
 ## 目的
 
 用可观察的多 agent consensus run 证明 HOLP 的协议级差异点不是纸面能力。
@@ -11,6 +13,8 @@
 - `docs/roadmap.md` M5 允许 real+fake 或 fake+fake reviewer backend。
 - `protocol/spec.md` 默认 findings 用 artifact envelope,`artifact_refs:false` 时走 inline fallback。
 - M5 必须独立于 M4,因为 demo 成功不能替代内核测试。
+- 当前 PR8 采用 fake+fake deterministic unanimous-approve reviewer path:producer/reviewer 声明仍走真实 flock/orchestrate/event/artifact wire,但 reviewer votes 由 fake consensus path 合成,不表示真实 reviewer provider sessions 或 dissent/timeout demo 已执行。
+- fake fixture 的 `acp` / `direct_user_session` 只用于展示非 headless surface 的显式声明。因 isolation readiness 枚举只有 `ready | degraded | rejected`,unsupported/unknown surface 下的 profiles 使用 `rejected` 表达"该 surface 不可调度",不表示做过 profile 级真实隔离探测。
 
 ## 范围
 

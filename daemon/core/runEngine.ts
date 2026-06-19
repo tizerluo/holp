@@ -18,9 +18,11 @@ import type { Scheduler } from "./scheduler.js";
 import type { AgentBackend } from "../../adapters/agent-backend.js";
 import { createHash } from "node:crypto";
 import { expireApproval } from "./approvalLifecycle.js";
+import { evidencePayload } from "./evidence.js";
 import {
   buildConsensusVerdict,
   inlineFindings,
+  type ConsensusFindingWire,
   type ConsensusDegradedOutcome,
   type ConsensusDegradedPayload,
   type ConsensusReviewerResult,
@@ -283,7 +285,8 @@ async function runConsensusGate(
   }
 
   const effectiveQuorum = eligible < consensus.quorum ? eligible : consensus.quorum;
-  const results = fakeReviewerResults(panel);
+  const votingAgents = panel.filter((agent) => !(excludeAuthor && agent === consensus.producer_agent_id));
+  const results = fakeReviewerResults(votingAgents, run, ctx, clock);
   const verdict = buildConsensusVerdict({
     target,
     panel,
@@ -314,14 +317,54 @@ async function runConsensusGate(
   return false;
 }
 
-function fakeReviewerResults(panel: readonly string[]): ConsensusReviewerResult[] {
+function fakeReviewerResults(
+  panel: readonly string[],
+  run: RunRecord,
+  ctx: ConnectionContext,
+  clock: Clock,
+): ConsensusReviewerResult[] {
   return panel.map((agent) => ({
     agent,
     status: "completed",
     verdict: "approve",
     max_severity: "NONE",
-    findings: inlineFindings(agent, "approve"),
+    findings: fakeFindings(agent, run, ctx, clock),
   }));
+}
+
+function fakeFindings(
+  agent: string,
+  run: RunRecord,
+  ctx: ConnectionContext,
+  clock: Clock,
+): ConsensusFindingWire {
+  if (ctx.initialized?.negotiated.artifact_refs.supported !== true) {
+    return inlineFindings(agent, "approve");
+  }
+
+  const content = JSON.stringify({
+    agent,
+    verdict: "approve",
+    findings: [],
+    generated_by: "holp-fake-consensus-kernel",
+  });
+  const artifactId = `art_findings_${run.run_id}_${safeArtifactPart(agent)}_${shortHash(agent)}`;
+  return evidencePayload({
+    ctx,
+    clock,
+    artifactId,
+    type: "findings",
+    content,
+    createdBy: "holp-fake-consensus-kernel",
+  }) as ConsensusFindingWire;
+}
+
+function safeArtifactPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]/g, "_");
+}
+
+function shortHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 8);
 }
 
 function consensusDegradedPayload(
@@ -467,13 +510,14 @@ async function requestSemanticDecisionApproval(
         step_id: "step_consensus",
         artifact_id: details.target.artifact_id,
       },
-      details: {
-        inline: true,
+      details: evidencePayload({
+        ctx,
+        clock,
+        artifactId: `art_approval_${approvalId}_details`,
         type: "approval_details",
-        mime: "application/json",
         content: JSON.stringify(details),
-        truncated: false,
-      },
+        createdBy: "holp-reference-daemon",
+      }),
     });
   });
 
