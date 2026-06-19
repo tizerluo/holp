@@ -16,7 +16,7 @@
 - `daemon/`:参考 daemon 协议骨架,支持 stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
 - `consumers/cli/`:参考 consumer CLI,可跑通 M1 fake backend 闭环。
 - M1 e2e 闭环:`initialize -> flock.declare -> orchestrate.run -> events.subscribe -> approval.resolve -> artifact.get`。**fake backend,非真实 provider**。
-- M2 契约回归网:`daemon/handlers/m2_contract.test.ts` 已锁定当前实现的关键 v0.1.4 语义；approval 超时已由 M4a skeleton 接入正向 contract,显式 reviewer panel 的 consensus kernel 已由 M4b 接入,M5 deterministic demo 已覆盖 findings envelope / inline fallback,heartbeat 仍转交 M3+。
+- M2 契约回归网:`daemon/handlers/m2_contract.test.ts` 已锁定当前实现的关键 v0.1.4 语义；approval 超时已由 M4a skeleton 接入正向 contract,显式 reviewer panel 的 consensus kernel 已由 M4b 接入,M5 deterministic demo 已覆盖 findings envelope / inline fallback,heartbeat 仍转交后续。
 - M5 deterministic unanimous-approve fake+fake multi-agent consensus demo:`npm run demo:m5` 通过 stdio daemon wire 跑通 producer artifact、author exclusion、quorum、`consensus_verdict`、findings artifact envelope 和 `artifact_refs:false` inline fallback。
 - 参考 daemon 代码常量仍按 v0.1.4 contract 运行;v0.1.5 是当前协议基准修订,PR6+ 必须承接 runtime surface / isolation readiness matrix。
 
@@ -102,7 +102,7 @@
 
 ## M2:Protocol Contract Tests
 
-> 状态(PR #9 + PR6/M4a + PR7/M4b):**契约层已锁定**——approval 超时已由 M4a 接入正向 contract;显式 reviewer panel 的 consensus kernel 已由 M4b 接入正向 contract;heartbeat 仍转交 M3+(由 `daemon/handlers/m2_contract.test.ts` §F 锁定边界)。**非**无保留的「全覆盖完成」。
+> 状态(PR #9 + PR6/M4a + PR7/M4b + PR8/M5):**契约层已锁定**——approval 超时已由 M4a 接入正向 contract;显式 reviewer panel 的 consensus kernel 已由 M4b 接入正向 contract;M5 demo 已正向覆盖 findings artifact envelope / inline fallback;heartbeat 仍转交后续(由 `daemon/handlers/m2_contract.test.ts` §F 锁定边界)。**非**无保留的「全覆盖完成」。
 
 目标:把 spec 关键语义变成测试,让后续 provider 接线不会破坏协议层。
 
@@ -126,13 +126,13 @@
 - `artifact_refs:false` 时 findings/details 内联降级,但 `target.artifact_id` / `provenance.artifact_id` 仍可作为身份字段出现。
 - `events.subscribe` 支持 seq replay 和多 subscription 归属。
 
-> **覆盖边界(M1/M2 实现 vs 转交后续)**:上面是按 v0.1.4 协议面的**理想全集**列举。其中 approval `approval_expired` 超时已由 M4a run state machine/timer 接入正向 contract。显式 reviewer panel 的 consensus 第 2 段 / `consensus_verdict` / `quorum.met` / `excluded[]` / `errors[]` 已由 M4b kernel 接入;无 reviewer panel 的单 coder run 仍不发 consensus。heartbeat 不受 category 过滤(转 M3+)和 consensus findings artifact envelope / M5 demo(转 M5)仍未实现,由 `daemon/handlers/m2_contract.test.ts` 的 §F 锁定当前边界。逐项拆分见 `docs/pr-specs/pr4-m2-contract-tests.md` 的 **Deferral ledger**。
+> **覆盖边界(M1/M2 实现 vs 转交后续)**:上面是按 v0.1.4 协议面的**理想全集**列举。其中 approval `approval_expired` 超时已由 M4a run state machine/timer 接入正向 contract。显式 reviewer panel 的 consensus 第 2 段 / `consensus_verdict` / `quorum.met` / `excluded[]` / `errors[]` 已由 M4b kernel 接入;无 reviewer panel 的单 coder run 仍不发 consensus。consensus findings artifact envelope / `artifact_refs:false` inline fallback 已由 M5 deterministic demo 正向覆盖。heartbeat 不受 category 过滤仍转交后续,由 `daemon/handlers/m2_contract.test.ts` 的 §F 锁定当前边界。逐项拆分见 `docs/pr-specs/pr4-m2-contract-tests.md` 的 **Deferral ledger**。
 
 验收标准:
 
 - 本地测试命令一次跑过。
 - 测试失败能定位到具体协议语义,不是只看 stdout 文案。
-- 「现在锁定」栏全过 + §F 负向锁定到位 → M2 可标「契约层已锁定(consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5)」,不得标无保留的「全覆盖完成」。
+- 「现在锁定」栏全过 + §F 负向锁定到位 → M2 可标「契约层已锁定(consensus 执行 / approval 超时 / M5 findings envelope/inline demo / heartbeat 转交后续)」,不得标无保留的「全覆盖完成」。
 
 非目标:
 
@@ -218,7 +218,7 @@
 
 - `consensus_verdict.payload.excluded[]` 明确排除 author。
 - `quorum.required`、`quorum.eligible`、`quorum.met` 与实际 panel 一致。
-- failed/timeout/abstain reviewer 进入 `errors[]`,不混进 completed vote。
+- failed/timeout/abstain reviewer 进入 `errors[]`,不混进 completed vote(由 M4b kernel tests 覆盖;M5 demo 本身只演示 deterministic unanimous-approve path,不声称已覆盖 dissent/timeout demo)。
 - consensus result 只作为 `events.event` 的 `category=consensus,name=consensus_verdict` 发送。
 
 非目标:
