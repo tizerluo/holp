@@ -28,7 +28,7 @@ holp/
 
 - [x] 定位(`docs/positioning.md`)
 - [x] 整体规划(`docs/roadmap.md`)
-- [x] 8 PR 拆解 SPEC(`docs/pr-specs/`)
+- [x] PR1-PR8 拆解 SPEC + PR9-PR12 下一阶段 planned SPEC(`docs/pr-specs/`)
 - [x] 协议 spec v0.1.5(`protocol/spec.md`)— 经 v0.1→v0.1.4 迭代后,在 v0.1.5 把 runtime surface / isolation readiness matrix 提升为协议基准
 - [x] 朝下 adapter 契约 + 首个真实 adapter(`adapters/`)— **mcp-codex 接 Codex app-server;native-claude/acp 仍是桩**
 - [x] 参考 daemon 协议骨架(`daemon/`)— stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)

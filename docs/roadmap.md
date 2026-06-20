@@ -2,7 +2,7 @@
 
 > 状态:规划文档,不表示对应实现已经存在。
 > 核查依据:`protocol/spec.md` v0.1.5、`protocol/version.md`、`docs/positioning.md`、`adapters/` 当前实现。
-> 8 PR 拆解:见 `docs/pr-specs/`。
+> PR 拆解:PR1-PR8 覆盖 M0-M5;PR9-PR12 规划下一阶段真实 reviewer、consumer、provider/runtime 扩展。见 `docs/pr-specs/`。
 
 ## 当前事实
 
@@ -11,7 +11,7 @@
 - `protocol/spec.md`:v0.1.5 draft,覆盖 stdio JSON-RPC、capability descriptor、flock runtime surface/isolation readiness matrix、orchestrate、events、consensus、approval、task.cancel、artifact、versioning、error model、unattended policy、implementation boundary。
 - `protocol/version.md`:版本规则和 v0.1.5 范围。
 - `docs/positioning.md`:定位、non-goals、设计来源边界。
-- `docs/pr-specs/`:M0-M5 拆解 SPEC。
+- `docs/pr-specs/`:PR1-PR8 已覆盖 M0-M5 拆解;PR9-PR12 已规划真实 reviewer、consumer 体验、第二 provider、runtime/session matrix。
 - `adapters/`:朝下 adapter contract + Codex app-server real adapter(`mcp-codex`) + native-claude/acp stub；`fake` transport 仅用于 demo/test。
 - `daemon/`:参考 daemon 协议骨架,支持 stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
 - `consumers/cli/`:参考 consumer CLI,可跑通 M1 fake backend 闭环。
@@ -229,6 +229,13 @@
 ## M6:Consumer Adapters
 
 目标:让协议能被真实 consumer 试用,但仍保持 vendor-neutral。
+
+建议拆成 4 个后续 PR:
+
+1. PR9/M5b:真实 reviewer execution pilot,让 reviewer panel 至少能启动一个真实 backend 产出 verdict/findings。
+2. PR10/M6a:consumer CLI experience,让开发者能发起 run、处理 approval、查看 artifact 和 consensus report。
+3. PR11/M6b:第二真实 provider adapter,优先补 `native-claude` headless reviewer path,证明 HOLP 不只是 Codex-only。
+4. PR12/M6c:runtime surface/session matrix,把 headless/acp/direct_user_session 的 readiness、direct channel 能力和隔离声明做成 consumer-visible 矩阵。
 
 交付物:
 
