@@ -13,6 +13,7 @@
 - PR9 预计提供真实 reviewer execution pilot。
 - PR10 预计提供 consumer-facing CLI,能展示 reviewer selection、approval、artifact、consensus report。
 - runtime surface / isolation readiness matrix 已是 v0.1.5 基准,新增 provider 不能退回 transport/status-only。
+- Claude Code headless 的可用入口是 `claude -p`;Claude Code 无官方 ACP,但有自有 stream-json / JSON output、OAuth/user settings、`--allowedTools`、`--permission-mode`、`--model` 等驱动面。
 
 ## 范围
 
@@ -25,15 +26,27 @@
   - `flock.declare` / `flock.discover` 返回 honest `ready | degraded | rejected`。
   - 支持 reviewer role 的 headless execution。
   - 映射 provider output 到 HOLP reviewer result。
+- Native Claude driver:
+  - 必须通过 HOLP `AgentBackend` contract 接入,即 registry resolve → backend `startSession` / `sendPrompt` / `onMessage` / `cancel`;直接运行 `claude -p` 的外部验证脚本不算 adapter 接通。
+  - headless 入口使用 `claude -p`。结构化输出可用 `--output-format json` 解析 `result`、`session_id`、`total_cost_usd`、`modelUsage`、`is_error`、`subtype`;若用 `stream-json`,必须同样归一化成 HOLP `AgentMessage` / reviewer result。
+  - 模型参数使用 `--model <full-or-alias>`;需要 Opus 4.8 时用完整 `claude-opus-4-8`,不使用不存在的 `-m` 短参。
+  - 禁止默认使用 `--bare`,因为它跳过 OAuth、hooks/LSP/plugin/auto-memory/CLAUDE.md 和 keychain;只有明确 API-key-only smoke 才可 opt-in。
+  - 必须显式选择 `--setting-sources`:默认优先 project-only 以减少全局 hook/settings 污染;若用户选择的供应商配置只能通过 user/local settings 生效,可以 opt-in user/local,但必须在 runtime declaration / smoke 输出中记录 global state dependency。
 - Runtime declaration:
   - `headless + read_only_review` 是首要目标。
+  - `read_only_review` 只有在 reviewer session 使用受限 tool 白名单且没有写工具时才可声明 ready。默认 reviewer tools 应限于 Read/Grep/Glob/LS/WebFetch/WebSearch 及只读 git diff/status/log 等;不得包含 Edit/Write/NotebookEdit 或写入型 Bash。
+  - `read_only_review` 不得使用 `--permission-mode bypassPermissions` / `acceptEdits` 搭配写工具。若必须保留写工具或绕过权限,该 profile 必须 degraded/rejected,不得进入 PR9 的 real completed vote。
+  - read-only/tool constraints 通过 native-claude adapter 私有 options 传入,类比 `CodexAppServerBackendOptions`;不扩通用 `AgentBackendOptions`,因此不改变 adapter contract。
   - `coder_worktree` 只有在真实可安全执行时才声明 ready;否则 degraded/rejected。
-  - `acp` / `direct_user_session` 未实现时必须显式 unknown/unsupported/rejected。
+  - `acp` surface 对 native-claude 必须声明 `surface_support:"unsupported"` 并 rejected profiles,因为 Claude Code 无官方 ACP。`direct_user_session` 未实现时可声明 unknown/rejected。
   - `global_mutation_required` 必须按 provider 真实需求声明。
+  - `session_id`、`total_cost_usd`、`modelUsage` 等 provider metadata 如需保存,只进内部 decision/governance data,不进 public wire event payload。
 - Smoke:
   - fake/app-server tests 默认跑。
   - real provider smoke 用 env flag opt-in。
-  - 缺 binary/auth/quota 时返回 skipped/rejected,不失败成假阴性。
+  - availability probe 不得只看 `claude --version`,也不得因 `ANTHROPIC_API_KEY` 缺失就判 rejected(OAuth/user supplier 可能可用)。必须至少跑一次受限 headless probe,按 CLI 外层 `is_error` / `subtype` / result 判定 binary/auth/quota。
+  - 缺 binary/auth/quota、provider unavailable、outer CLI output 非 JSON/空、`is_error:true`、`subtype!="success"` 时返回 skipped/rejected/degraded,不失败成假阴性,也不假 ready。
+  - smoke 需要声明 state 隔离边界:可用 `CLAUDE_CONFIG_DIR` 和 explicit `--setting-sources` 降低 settings 污染,但 HOME/OAuth/keychain/供应商订阅 quota 通常不完全隔离;不得声称完全隔离。
 - Docs:
   - README / roadmap / version 只声明第二 provider headless reviewer partial。
   - 不声称 Claude/Kimi/Gemini/Cursor 全部完成。
@@ -47,6 +60,7 @@
 - 不让第二 provider 当默认 coder。
 - 不改变 adapter contract。
 - 不把外部验证 CLI 当作 HOLP adapter,除非它通过 adapter contract 接入。
+- 不把 provider-specific cost/session/modelUsage 字段加入 stable HOLP wire。
 
 ## 验收
 
@@ -55,8 +69,12 @@
 - reviewer result 必须通过 PR9 的严格结构化校验。
 - author exclusion、quorum、findings artifact/inline fallback 与单 provider path 一致。
 - 缺 provider binary/auth 时不假装 ready。
+- native-claude probe 覆盖 binary missing、auth/quota unavailable、outer CLI malformed/error output,并 honest rejected/degraded。
 - runtime matrix 包含 headless/acp/direct_user_session 三类 surface 的显式声明。
-- tests 覆盖 availability probe、role support、runtime matrix、provider output parse failure。
+- `headless + read_only_review` ready 只在受限 tool 白名单 + 非 bypass/非写入权限成立时出现;否则 degraded/rejected。
+- `acp` 明确 unsupported;direct_user_session 未接时 unknown/rejected。
+- native-claude reviewer output 有两层 fail-closed:外层 Claude CLI JSON/stream result 失败即 `status:error`;内层 verdict/finding 复用 PR9 严格结构化校验。两层都不得默认 approve/NONE。
+- tests 覆盖 availability probe、role support、runtime matrix、outer CLI parse failure、inner reviewer output parse failure。
 
 ## Review 重点
 
@@ -65,5 +83,8 @@
 - 第二 provider 是否真的通过 HOLP adapter contract,而不是测试脚本旁路。
 - runtime/isolation 声明是否 honest。
 - provider output parse failure 是否 fail-closed。
+- Claude CLI 外层输出 parse failure 是否 fail-closed,且不绕过 PR9 的 inner parser。
+- read-only reviewer 是否真的靠 tool whitelist/permission mode 强制,而不是口头声明。
+- user/local settings 供应商依赖是否被记录为 global state dependency。
 - opt-in smoke 是否不污染默认 CI。
 - 是否把 provider-specific 字段泄漏进 HOLP stable wire。

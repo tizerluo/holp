@@ -28,11 +28,13 @@
   - 能设置 quorum 和 artifact_refs capability。
   - 能输出 run_id、subscription_id、selected runtime/isolation metadata。
 - Event rendering:
-  - run lifecycle、agent output、approval、consensus、artifact refs 有稳定可读格式。
+  - run lifecycle、agent output、approval、consensus、artifact refs 有一致、人类可读的格式;该格式不是机器可解析稳定 API。
   - 单 coder run 和 reviewer panel run 的输出区别清楚。
   - 不把 raw JSON 作为唯一体验,但保留 raw/debug 开关。
+  - renderer 必须处理 replay + live event 去重、seq 连续性、终态后 unsubscribe。
 - Approval interaction:
   - CLI 可以在 approval_requested 时提示用户 approve/deny。
+  - CLI 必须同时提供非交互 decision 通道(例如 `--decision approved|rejected` 或等价 flag),用于 demo/CI 不阻塞 stdin。
   - 超时、取消、late resolve 结果可见。
   - 仍只走 `approval.resolve`,不新增 approval channel。
 - Consensus report:
@@ -41,10 +43,11 @@
   - `artifact_refs:false` inline fallback 能正常展示。
 - Demo commands:
   - 一个 fake deterministic path。
+  - 一个 deterministic dissent/error fixture,用于证明 request_changes/reject 或非空 `errors[]` 的 report 渲染真的走到。
   - 一个 real reviewer pilot path,可 opt-in。
 - Consumer docs:
   - README 给出最小命令。
-  - roadmap 标注 M6a consumer CLI partial landed 后才能声称。
+  - roadmap/README 只有在 fake + real opt-in 状态分别清楚时才能声称:M6a fake consumer CLI partial、real reviewer consumer path opt-in/available/unavailable。
 
 ## 非目标
 
@@ -54,17 +57,24 @@
 - 不新增 daemon wire 方法。
 - 不改变 JSON-RPC envelope。
 - 不把 CLI 输出格式承诺为稳定 API。
+- 不把 fake unanimous-approve demo 的通过解释成 errors/dissent/timeout 渲染已覆盖。
 
 ## 验收
 
 - CLI 能跑通 M1 fake single-coder path。
 - CLI 能跑通 M5 fake consensus path。
 - 若 PR9 real reviewer pilot 可用,CLI 能跑 opt-in real reviewer path;不可用时给出 honest skip/rejected reason。
-- approval_requested 时 CLI 能 resolve approve/deny,并展示最终 run_merged/run_blocked。
-- consensus report 展示 author exclusion、quorum 和 findings。
+- approval_requested 时 CLI 的交互模式能提示用户 approve/deny;非交互模式能用预设 decision 自动 resolve approve/deny,并展示最终 run_merged/run_blocked。
+- late `approval.resolve` 返回 `approval_already_resolved` 时,CLI 显示为 server 已终态接管,不当作崩溃;`approval_expired` / `approval_cancelled` 事件在事件流可见。
+- consensus report 展示 author exclusion、eligible reviewers、quorum、outcome、max_severity、findings 和 `errors[]`。
+- 至少一个 deterministic dissent/error fixture 让 CLI 渲染非 approve outcome 或非空 `errors[]`,避免只靠 unanimous-approve fake path。
 - `artifact_refs:true` findings 能自动取 artifact;`artifact_refs:false` inline findings 能展示。
-- `task.cancel` 可从 CLI 触发,且终态事件清楚。
-- tests 覆盖 renderer、approval prompt flow、artifact report flow;不要求真实 provider 默认跑。
+- `artifact.get` 返回 `truncated:true` 时,CLI 明确显示截断状态。
+- `task.cancel` 可从 CLI 触发,并展示 `approval_cancelled` 与 run 终态。
+- CLI 在 run 终态后调用 `events.unsubscribe`;renderer 对 replay + live 的同一事件不重复渲染,并断言 seq 从 1 连续。
+- raw/debug 模式输出未删减 JSON-RPC 帧(含 seq/category/payload),默认模式提供人类可读 report,不只打印 raw JSON。
+- CLI 数据来源只能是 stdio JSON-RPC response/notification 帧;不得 import daemon internal store。renderer tests 至少有一条经过 JSON round-trip 的 wire-frame fixture。
+- tests 覆盖 renderer、interactive approval prompt、non-interactive approval decision、artifact report、raw/debug、dissent/error report;不要求真实 provider 默认跑。
 
 ## Review 重点
 
@@ -73,5 +83,6 @@
 - CLI 有没有绕过 protocol 直接读内部 store。
 - approval 是否仍只走 §7 单通道。
 - consensus report 是否会把 degraded/rejected runtime 说成 ready。
+- consensus_degraded 是否作为 consensus category 正常渲染,而不是被当成无 verdict。
 - raw/debug 输出是否足够定位问题。
 - fake demo 是否被描述成真实 provider consensus。
