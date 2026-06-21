@@ -29,13 +29,14 @@
   - 能输出 run_id、subscription_id、selected runtime/isolation metadata。
 - Event rendering:
   - run lifecycle、agent output、approval、consensus、artifact refs 有一致、人类可读的格式;该格式不是机器可解析稳定 API。
+  - CLI 输出必须明确区分 wire truth 与 rendered view:raw/debug 展示原始 frame,默认人类视图只能投影 wire 字段,不得重新计算 consensus/eligibility。
   - 单 coder run 和 reviewer panel run 的输出区别清楚。
   - 不把 raw JSON 作为唯一体验,但保留 raw/debug 开关。
-  - renderer 必须处理 replay + live event 去重、seq 连续性、终态后 unsubscribe。
+  - renderer 必须处理 replay + live event 去重、seq 连续性、终态后 unsubscribe。事件 identity 使用 `(run_id, seq)`,因为 EventBus seq 在 run 内单调唯一;category/name 只用于展示和断言。
 - Approval interaction:
   - CLI 可以在 approval_requested 时提示用户 approve/deny。
   - CLI 必须同时提供非交互 decision 通道(例如 `--decision approved|rejected` 或等价 flag),用于 demo/CI 不阻塞 stdin。
-  - 超时、取消、late resolve 结果可见。
+  - 超时、取消、late resolve 结果可见。若 `approval.resolve` response 与终态事件竞态,CLI 以 `run_merged` / `run_blocked` / `run_cancelled` 等 terminal event 为最终事实。
   - 仍只走 `approval.resolve`,不新增 approval channel。
 - Consensus report:
   - 展示 excluded authors、eligible reviewers、quorum、outcome、max_severity、errors。
@@ -66,12 +67,13 @@
 - 若 PR9 real reviewer pilot 可用,CLI 能跑 opt-in real reviewer path;不可用时给出 honest skip/rejected reason。
 - approval_requested 时 CLI 的交互模式能提示用户 approve/deny;非交互模式能用预设 decision 自动 resolve approve/deny,并展示最终 run_merged/run_blocked。
 - late `approval.resolve` 返回 `approval_already_resolved` 时,CLI 显示为 server 已终态接管,不当作崩溃;`approval_expired` / `approval_cancelled` 事件在事件流可见。
+- approval resolve 与 terminal event 乱序时,最终 summary 只取 terminal event;resolve response 作为过程日志展示。
 - consensus report 展示 author exclusion、eligible reviewers、quorum、outcome、max_severity、findings 和 `errors[]`。
 - 至少一个 deterministic dissent/error fixture 让 CLI 渲染非 approve outcome 或非空 `errors[]`,避免只靠 unanimous-approve fake path。
 - `artifact_refs:true` findings 能自动取 artifact;`artifact_refs:false` inline findings 能展示。
-- `artifact.get` 返回 `truncated:true` 时,CLI 明确显示截断状态。
+- `artifact.get` 返回 `truncated:true` 时,CLI 明确显示 `TRUNCATED` 状态和可复现的 artifact id / fetch hint。
 - `task.cancel` 可从 CLI 触发,并展示 `approval_cancelled` 与 run 终态。
-- CLI 在 run 终态后调用 `events.unsubscribe`;renderer 对 replay + live 的同一事件不重复渲染,并断言 seq 从 1 连续。
+- CLI 在 run 终态后调用 `events.unsubscribe`;renderer 对 replay + live 的同一事件不重复渲染,并断言同一 run 的 seq 从 1 连续。
 - raw/debug 模式输出未删减 JSON-RPC 帧(含 seq/category/payload),默认模式提供人类可读 report,不只打印 raw JSON。
 - CLI 数据来源只能是 stdio JSON-RPC response/notification 帧;不得 import daemon internal store。renderer tests 至少有一条经过 JSON round-trip 的 wire-frame fixture。
 - tests 覆盖 renderer、interactive approval prompt、non-interactive approval decision、artifact report、raw/debug、dissent/error report;不要求真实 provider 默认跑。
