@@ -32,6 +32,8 @@ frame on demand.
 |--------|-----|--------|
 | `codex-approval-patch.adapter.ts` | `npm run smoke:codex:adapter` | **Layer 1, adapter-direct PATCH.** Real provider emits an `fs-edit` with a non-empty diff and applies the patch on disk; turn ends clean. Lowest flake. |
 | `codex-approval-patch.e2e.ts` | `npm run smoke:codex` | **Layer 2, end-to-end daemon.** Live `initialize → flock.declare → orchestrate.run → events.subscribe → [approval.resolve] → [artifact.get]`. Three scenarios: **patch** (edit → `run_merged` + file changed); **approval approve** (network cmd → `run_merged`); **approval reject** (network cmd → `run_blocked`). Approval sub-runs report **INCONCLUSIVE** (not FAIL) if the provider declines to request approval that run. |
+| `codex-reviewer.adapter.ts` | `npm run smoke:reviewer:codex` | **PR9 reviewer pilot.** fake producer + real `mcp-codex` reviewer through the HOLP reviewer executor. Default SKIP; opt-in reports INCONCLUSIVE unless strict JSON output and read-only attestation both pass. |
+| `claude-reviewer.adapter.ts` | `npm run smoke:reviewer:claude` | **PR11 second-provider reviewer pilot.** fake producer + real `native-claude` reviewer through Claude Code `-p --output-format json`. Default SKIP; opt-in reports INCONCLUSIVE unless the capability probe and deny-write evidence probe make `headless + read_only_review` ready. |
 
 ### Exit codes (e2e)
 
@@ -63,12 +65,19 @@ approved outside the sandbox.
 ```bash
 HOLP_REAL_CODEX_SMOKE=1 npm run smoke:codex:adapter   # Layer 1
 HOLP_REAL_CODEX_SMOKE=1 npm run smoke:codex           # Layer 2 (2 scenarios)
+HOLP_REAL_CODEX_REVIEWER_SMOKE=1 npm run smoke:reviewer:codex
+HOLP_REAL_CLAUDE_REVIEWER_SMOKE=1 npm run smoke:reviewer:claude
 ```
 
 Without `HOLP_REAL_CODEX_SMOKE=1` both no-op-exit-0 (so an accidental invocation is never
 a failure). Each scenario makes **one real networked Codex turn and consumes ChatGPT
 subscription quota** — Layer 1 is 1 turn, Layer 2 is up to 3 turns (patch + approve +
 reject).
+
+The reviewer smokes also no-op-exit-0 unless their provider-specific env flag is set.
+They only print PASS when a real completed reviewer vote reaches `consensus_verdict`.
+Provider unavailable, auth/quota issues, malformed outer CLI JSON, malformed inner
+reviewer JSON, or unproven read-only enforcement are **INCONCLUSIVE**, not fake PASS.
 
 ## Isolation — why it's rollback-safe
 

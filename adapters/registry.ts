@@ -3,7 +3,8 @@
  *
  * daemon 按 flock.declare 声明的 transport 选 factory。
  * M3: "mcp-codex" 接 Codex app-server over stdio。
- * native-claude / acp 仍为 honest stubs,不伪装 ready。
+ * M6b: "native-claude" 接 Claude Code headless reviewer path。
+ * acp 仍为 honest stub,不伪装 ready。
  *
  * fake registry 只用于 demo/test,不在默认 live daemon registry 中启用。
  */
@@ -16,6 +17,7 @@ import type {
   AgentProbeResult,
   TransportClass,
 } from "./agent-backend.js";
+import { createClaudeCodeBackendFactory, probeClaudeCode } from "./claude-code.js";
 import { createCodexAppServerBackendFactory, probeCodexAppServer } from "./codex-app-server.js";
 import { createFakeBackendFactory } from "./fake-backend.js";
 import {
@@ -149,25 +151,16 @@ export function createAdapterRegistry(
   };
 }
 
-/** 默认 live registry:Codex app-server real adapter + remaining honest stubs. */
+/** 默认 live registry:Codex app-server + Claude Code real adapters, with ACP as honest stub. */
 export function createDefaultAdapterRegistry(): AdapterRegistry {
   return createAdapterRegistry(
     {
-      "native-claude": createStubFactory("native-claude"),
+      "native-claude": createClaudeCodeBackendFactory(),
       "mcp-codex": createCodexAppServerBackendFactory(),
       acp: createStubFactory("acp"),
     },
     {
-      "native-claude": (input) => ({
-        status: "rejected",
-        harness_id: "claude-code",
-        vendor: "Anthropic",
-        transport_class: input.transport,
-        runtime_surfaces: stubRuntimeSurfaces("unsupported_transport"),
-        resolved_roles: [],
-        reason: "unsupported_transport",
-        missing: input.roles.map((role) => `role:${role}`),
-      }),
+      "native-claude": probeClaudeCode,
       "mcp-codex": probeCodexAppServer,
       acp: (input) => ({
         status: "rejected",

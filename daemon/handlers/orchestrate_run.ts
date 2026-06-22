@@ -24,6 +24,7 @@ import type { ApprovalRecord, FlockAgent, RunRecord } from "../core/stores.js";
 import { EventBus } from "../core/eventBus.js";
 import { evidencePayload } from "../core/evidence.js";
 import type { AdapterRegistry } from "../../adapters/registry.js";
+import { createClaudeCodeBackendFactory } from "../../adapters/claude-code.js";
 import { createCodexAppServerBackendFactory } from "../../adapters/codex-app-server.js";
 import type { Clock } from "../core/clock.js";
 import type { Scheduler } from "../core/scheduler.js";
@@ -494,6 +495,17 @@ function reviewerExecutionConfig(
       mode: "backend",
       runtime,
       backendFactory: createCodexAppServerBackendFactory({ sandbox: "read-only" }),
+      sandbox: "read-only",
+    };
+  }
+
+  if (agent.transport === "native-claude") {
+    return {
+      agent_id: agent.id,
+      transport: agent.transport,
+      mode: "backend",
+      runtime,
+      backendFactory: createClaudeCodeBackendFactory(),
       sandbox: "read-only",
     };
   }

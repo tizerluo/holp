@@ -29,8 +29,8 @@ import type { Clock } from "../core/clock.js";
  *
  * Honest contract:
  *   - registry probes decide per-transport status and capabilities.
- *   - fake remains ready in createFakeRegistry(); mcp-codex can be ready/degraded/rejected
- *     in the default registry; native-claude/acp remain honest rejected stubs.
+ *   - fake remains ready in createFakeRegistry(); mcp-codex/native-claude can be
+ *     ready/degraded/rejected in the default registry; acp remains an honest rejected stub.
  */
 async function probeAgent(
   declared: { id: string; transport: string; roles?: string[] },

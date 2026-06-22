@@ -77,7 +77,7 @@
 - docs 解释 unsupported/unknown surface 下 profile readiness 用 rejected 的含义。
 - report 对 rejected 必须显示 reason,并区分 surface-level unsupported/unknown 与 profile-level probe/enforcement failure。
 - `state_declaration_ref` 如仍是占位字符串,docs 必须说明本 PR 不保证可解引用。
-- 如果 PR11 native-claude 仍是 stub/rejected,PR12 只能声称 second-provider stub-shape matrix 一致,不能声称第二 provider runtime matrix ready。
+- 如果 PR11 native-claude 在本机 probe 为 degraded/rejected,PR12 只能展示 honest second-provider degraded/rejected matrix,不能声称第二 provider runtime matrix ready。
 - README / roadmap 只声称 runtime/session matrix foundation,不声称完整 adapter matrix。
 
 ## Review 重点

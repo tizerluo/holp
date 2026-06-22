@@ -18,7 +18,8 @@
     "demo:m5": "tsx consumers/cli/m5-consensus-demo.ts",
     "smoke:codex": "tsx scripts/smoke/codex-approval-patch.e2e.ts",
     "smoke:codex:adapter": "tsx scripts/smoke/codex-approval-patch.adapter.ts",
-    "smoke:reviewer:codex": "tsx scripts/smoke/codex-reviewer.adapter.ts"
+    "smoke:reviewer:codex": "tsx scripts/smoke/codex-reviewer.adapter.ts",
+    "smoke:reviewer:claude": "tsx scripts/smoke/claude-reviewer.adapter.ts"
   },
   "devDependencies": {
     "@types/node": "^22",
