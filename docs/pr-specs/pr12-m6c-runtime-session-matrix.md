@@ -26,6 +26,7 @@
 
 - Matrix report:
   - CLI 能打印每个 agent 的 runtime surface、runtime kind、direct channel capabilities、isolation profiles、readiness、global mutation risk。
+  - matrix report 是 descriptive projection,不是 scheduling authority;调度仍由 orchestrate.run 的 eligibility resolver / isolation gating 决定。
   - 能解释 unsupported/unknown/rejected 的原因,并区分 surface-level unsupported/unknown 派生的 rejected 与 profile-level probe/enforcement failure。
   - 能显示 declared_not_enforced / state_declaration_ref。
   - 数据源只使用 `flock.declare` / `flock.discover` public wire response 中的 `runtime_surfaces` 等字段;不得读取 governance internal store。
@@ -33,6 +34,7 @@
   - fake、mcp-codex、第二 provider adapter 的 matrix 字段保持一致。
   - stub adapters 不能留空 matrix。
   - direct_user_session 的 direct channel 词表需要加入 `observe` 或 `read` 能力,用于表达 output stream / transcript 是否可见。
+  - direct channel report 必须分成 observation surface 与 control surface:attach/observe/read 只证明可看见或连接,inject/interrupt/cancel 才是控制能力;两者不得合并成一个 ready 标记。
   - direct_user_session 必须区分 observe-only 与 injectable/controllable session:attach+observe 可声明只读观察能力;inject/interrupt/cancel/owner_scope 不可信时不得声明可注入调度 ready。
 - Consumer/session examples:
   - cmux adapter 示例文档或 fixture,说明 `events.subscribe` 与 cmux event model 的映射差异;映射字段必须标注来源(公开文档、具体版本、或引用 commit)。无可信来源的 cmux 字段不得编造。
@@ -43,7 +45,9 @@
   - `permission_surface` / `observability_surface` 本 PR 不展示到 CLI report,保持 internal reserved unknown;后续若要展示,必须先有单独 governance/wire SPEC。
 - Tests:
   - matrix report 不把 missing declaration 当 ready。
+  - matrix `ready` 显示不绕过 orchestrate.run eligibility gating;renderer test 不得把 report 行直接当调度许可。
   - unsupported surface 的 profiles 不可被调度。
+  - `unknown` 与 `unsupported` 都不可调度;只有 readiness `ready` 且 eligibility resolver 通过时才可执行。
   - surface-level unsupported/unknown 派生 rejected 不得被渲染成 profile probe failure。
   - direct session 缺 attach/observe/owner_scope 时整条 fail-closed;缺 inject/interrupt/cancel 时不得进入可注入调度 readiness,但可保留 observe-only readiness。
   - `global_mutation_required:true` 的 agent 不得满足 `read_only_review`,与现有 `orchestrate.run` isolation fail-closed 语义一致。
@@ -56,6 +60,7 @@
 - 不做 Remote execution。
 - 不声称 12 个 agent 都 ready。
 - 不把 declared readiness 当作 OS/provider 隔离强制执行证明。
+- 不把 matrix report 当作 public scheduling API 或可执行许可。
 - 不展示 governance internal-only 的 `permission_surface` / `observability_surface` 为 public CLI matrix 字段。
 - 不声称 cmux/Warp/tmux 真实 UI 已接;没有可信 event model 来源时只保留词表/fixture 边界说明。
 
@@ -67,6 +72,7 @@
 - direct_user_session 缺 attach/observe/owner_scope 时 fail-closed;缺 inject/interrupt/cancel 时不得进入可注入调度 readiness,但可声明 observe-only readiness。
 - matrix report 能显示 global mutation risk、declared_not_enforced、state_declaration_ref 和 direct channel owner_scope。
 - `global_mutation_required:true` 的 agent 在 `read_only_review` 下 fail-closed,并显示 reason。
+- `global_mutation_required:true` 必须继续传播到 orchestrate.run isolation/eligibility gate;CLI report 只能展示原因,不能替 gate 做决定。
 - matrix report 仅从 flock wire response 构造;renderer tests 至少包含一条 JSON round-trip 的 `runtime_surfaces` fixture,不得 import governance internal store。
 - docs 解释 unsupported/unknown surface 下 profile readiness 用 rejected 的含义。
 - report 对 rejected 必须显示 reason,并区分 surface-level unsupported/unknown 与 profile-level probe/enforcement failure。
@@ -84,5 +90,6 @@
 - consumer report 是否暴露了选择原因。
 - consumer report 是否偷读 governance internal store。
 - observe/read 与 inject/interrupt/cancel 是否被混为一种 ready。
+- matrix descriptive view 是否被误用成 scheduling authority。
 - owner_scope、global_mutation_required、declared_not_enforced 是否足够醒目。
 - 文档是否继续明确 "声明不等于强制隔离"。

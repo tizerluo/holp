@@ -22,7 +22,7 @@
 预期产出:
 
 - Adapter factory:
-  - provider availability probe。
+  - provider availability probe,分成 capability probe 与 enforced-tool probe 两段;只有两段都通过时才可把 `headless + read_only_review` 声明为 ready。
   - `flock.declare` / `flock.discover` 返回 honest `ready | degraded | rejected`。
   - 支持 reviewer role 的 headless execution。
   - 映射 provider output 到 HOLP reviewer result。
@@ -36,15 +36,16 @@
   - `headless + read_only_review` 是首要目标。
   - `read_only_review` 只有在 reviewer session 使用受限 tool 白名单且没有写工具时才可声明 ready。默认 reviewer tools 应限于 Read/Grep/Glob/LS/WebFetch/WebSearch 及只读 git diff/status/log 等;不得包含 Edit/Write/NotebookEdit 或写入型 Bash。
   - `read_only_review` 不得使用 `--permission-mode bypassPermissions` / `acceptEdits` 搭配写工具。若必须保留写工具或绕过权限,该 profile 必须 degraded/rejected,不得进入 PR9 的 real completed vote。
+  - ready 需要本次 probe 的 enforcement evidence:可接受形式包括工具白名单生效的执行 trace、写工具被拒绝的 probe 结果、或 provider 明确返回的 deny-write capability signal。只有配置声明而无 evidence 时最多 degraded。
   - read-only/tool constraints 通过 native-claude adapter 私有 options 传入,类比 `CodexAppServerBackendOptions`;不扩通用 `AgentBackendOptions`,因此不改变 adapter contract。
   - `coder_worktree` 只有在真实可安全执行时才声明 ready;否则 degraded/rejected。
   - `acp` surface 对 native-claude 必须声明 `surface_support:"unsupported"` 并 rejected profiles,因为 Claude Code 无官方 ACP。`direct_user_session` 未实现时可声明 unknown/rejected。
   - `global_mutation_required` 必须按 provider 真实需求声明。
-  - `session_id`、`total_cost_usd`、`modelUsage` 等 provider metadata 如需保存,只进内部 decision/governance data,不进 public wire event payload。
+  - `session_id`、`total_cost_usd`、`modelUsage` 等 provider metadata 如需保存,只进标记为 `internal_only:true` 的 decision/governance data,不进 public wire event payload。
 - Smoke:
   - fake/app-server tests 默认跑。
   - real provider smoke 用 env flag opt-in。
-  - availability probe 不得只看 `claude --version`,也不得因 `ANTHROPIC_API_KEY` 缺失就判 rejected(OAuth/user supplier 可能可用)。必须至少跑一次受限 headless probe,按 CLI 外层 `is_error` / `subtype` / result 判定 binary/auth/quota。
+  - availability probe 不得只看 `claude --version`,也不得因 `ANTHROPIC_API_KEY` 缺失就判 rejected(OAuth/user supplier 可能可用)。必须至少跑一次受限 headless capability probe,按 CLI 外层 `is_error` / `subtype` / result 判定 binary/auth/quota;随后再跑 enforced-tool probe 证明 read-only 约束生效。
   - 缺 binary/auth/quota、provider unavailable、outer CLI output 非 JSON/空、`is_error:true`、`subtype!="success"` 时返回 skipped/rejected/degraded,不失败成假阴性,也不假 ready。
   - smoke 需要声明 state 隔离边界:可用 `CLAUDE_CONFIG_DIR` 和 explicit `--setting-sources` 降低 settings 污染,但 HOME/OAuth/keychain/供应商订阅 quota 通常不完全隔离;不得声称完全隔离。
 - Docs:
@@ -72,8 +73,10 @@
 - native-claude probe 覆盖 binary missing、auth/quota unavailable、outer CLI malformed/error output,并 honest rejected/degraded。
 - runtime matrix 包含 headless/acp/direct_user_session 三类 surface 的显式声明。
 - `headless + read_only_review` ready 只在受限 tool 白名单 + 非 bypass/非写入权限成立时出现;否则 degraded/rejected。
+- `headless + read_only_review` ready 还必须有 probe evidence 证明 whitelist/deny-write 生效;只有声明配置无执行证据时不得 ready。
 - `acp` 明确 unsupported;direct_user_session 未接时 unknown/rejected。
 - native-claude reviewer output 有两层 fail-closed:外层 Claude CLI JSON/stream result 失败即 `status:error`;内层 verdict/finding 复用 PR9 严格结构化校验。两层都不得默认 approve/NONE。
+- 外层 Claude CLI parse 失败时不得调用 inner reviewer parser;只有外层 `subtype:"success"` / `is_error:false` 且 result 字段存在时,才进入 PR9 canonical parser。
 - tests 覆盖 availability probe、role support、runtime matrix、outer CLI parse failure、inner reviewer output parse failure。
 
 ## Review 重点
