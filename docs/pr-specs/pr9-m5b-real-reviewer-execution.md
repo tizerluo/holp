@@ -13,7 +13,7 @@
 - PR7 已提供纯 consensus kernel、author exclusion、二段式 quorum、`consensus_verdict` / `consensus_degraded` wire integration。
 - PR8 已提供 `npm run demo:m5`,但 reviewer votes 仍由 fake consensus path 合成。
 - `adapters/` 已有通用 `AgentBackendFactory` contract 和 Codex app-server real adapter(`mcp-codex`)。
-- 当前 `mcp-codex` app-server session 仍硬编码 `sandbox:"workspace-write"`;其 `read_only_review` declaration 为 degraded(`read_only_not_enforced`)。PR9 若复用 Codex 当 reviewer,必须先补只读启动路径或 fail-closed,不能把 degraded 写能力当成真实只读 reviewer。
+- 当前 `mcp-codex` app-server session 默认 `sandbox:"workspace-write"`;adapter 已有 sandbox option 可供后续选择 `read-only`,但其默认 `read_only_review` declaration 仍为 degraded(`read_only_not_enforced`)。PR9 若复用 Codex 当 reviewer,必须补本次执行的只读 enforcement attestation 或 fail-closed,不能把可配置启动参数当成真实只读证明。
 - `runEngine` 已能在 producer 完成后定位 reviewable artifact,并把 fake reviewer findings 写成 artifact envelope 或 inline fallback。
 - consensus kernel 已要求 completed vote 必须有明确 verdict/severity;缺字段不能默认为 approve。
 - 真实 reviewer backend 执行、dissent/timeout demo、稳定 gate protocol surface 仍未落地。

@@ -12,7 +12,7 @@
 - `protocol/version.md`:版本规则和 v0.1.5 范围。
 - `docs/positioning.md`:定位、non-goals、设计来源边界。
 - `docs/pr-specs/`:PR1-PR8 已覆盖 M0-M5 拆解;PR9-PR12 已规划真实 reviewer、consumer 体验、第二 provider、runtime/session matrix。
-- `adapters/`:朝下 adapter contract + Codex app-server real adapter(`mcp-codex`) + native-claude/acp stub；`fake` transport 仅用于 demo/test。
+- `adapters/`:朝下 adapter contract + Codex app-server real adapter(`mcp-codex`,含基础 stdio/turn recovery) + native-claude/acp stub；`fake` transport 仅用于 demo/test。
 - `daemon/`:参考 daemon 协议骨架,支持 stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
 - `consumers/cli/`:参考 consumer CLI,可跑通 M1 fake backend 闭环。
 - M1 e2e 闭环:`initialize -> flock.declare -> orchestrate.run -> events.subscribe -> approval.resolve -> artifact.get`。**fake backend,非真实 provider**。
@@ -155,6 +155,7 @@
 - [x] provider message 到 `AgentMessage` 的映射。
 - [x] permission request 到 `approval_requested` 的映射,复用现有 injected `permissionHandler` / `ApprovalRecord.resumeBackend` await-Promise path。
 - [x] provider availability probe,用于 `flock.declare`/`flock.discover` 返回 `ready/degraded/rejected`。
+- [x] Codex app-server 基础 runtime recovery:无 turn activity 的 transient stdio/app-server failure 或 usage-limit failure 会重启 app-server、退避并重放原 prompt;已有 activity 后 fail-closed,避免重复执行副作用。该层不做 happier connected-service 多账号切换。
 - [x] 本机已登录 Codex 的 safe prompt manual smoke:`flock.discover` ready + `model_output` + 无 artifact `run_merged`。
 - [x] 本机真实 Codex approval/patched-workspace smoke:隔离 temp `CODEX_HOME` + temp git workspace;real-Codex patch、approve -> `run_merged`、reject -> `run_blocked` 均已实跑 PASS。该 smoke 仍需 `HOLP_REAL_CODEX_SMOKE=1` 显式开启,取决于 local auth/quota。
 

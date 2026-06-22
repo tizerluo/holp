@@ -30,7 +30,7 @@ holp/
 - [x] 整体规划(`docs/roadmap.md`)
 - [x] PR1-PR8 拆解 SPEC + PR9-PR12 下一阶段 planned SPEC(`docs/pr-specs/`)
 - [x] 协议 spec v0.1.5(`protocol/spec.md`)— 经 v0.1→v0.1.4 迭代后,在 v0.1.5 把 runtime surface / isolation readiness matrix 提升为协议基准
-- [x] 朝下 adapter 契约 + 首个真实 adapter(`adapters/`)— **mcp-codex 接 Codex app-server;native-claude/acp 仍是桩**
+- [x] 朝下 adapter 契约 + 首个真实 adapter(`adapters/`)— **mcp-codex 接 Codex app-server,含基础 turn recovery;native-claude/acp 仍是桩**
 - [x] 参考 daemon 协议骨架(`daemon/`)— stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)
 - [x] 参考 consumer CLI(`consumers/cli/`)— 跑通 M1 闭环 demo,**仅用 fake backend**
 - [x] M1 e2e 闭环(`initialize→flock.declare→orchestrate.run→events.subscribe→approval.resolve→artifact.get`)— **fake backend,非真实 provider**
@@ -39,9 +39,9 @@ holp/
 - [x] M4b consensus gate triage kernel partial— 纯 consensus aggregation、author exclusion、二段式 quorum、显式 reviewer panel 的 `consensus_verdict`/`consensus_degraded`
 - [x] M5 deterministic unanimous-approve multi-agent consensus demo— fake+fake reviewer path 跑通 producer artifact、author exclusion、quorum、findings envelope/inline fallback
 - [ ] 真实 reviewer backend 执行 / 稳定 gate protocol surface
-- [x] 真实 adapter 接线(M3)— **Codex app-server over stdio 注册为 `mcp-codex`;自动覆盖 fake/app-server harness,真实 smoke 依赖本机 Codex auth**
+- [x] 真实 adapter 接线(M3)— **Codex app-server over stdio 注册为 `mcp-codex`;自动覆盖 fake/app-server harness,已补基础 stdio/turn recovery;真实 smoke 依赖本机 Codex auth**
 
-> **当前只声称**:protocol draft + **fake backend 跑通的 M1 协议闭环**(daemon + CLI demo)+ M2 契约层 + **Codex app-server 作为首个真实 adapter** + v0.1.5 runtime surface/isolation baseline + **M4a governance data/state/decision skeleton partial** + **M4b consensus gate triage kernel partial** + **M5 deterministic unanimous-approve fake+fake multi-agent consensus demo**。CLI demos 仍显式使用 `fake` transport;`native-claude`/`acp` 仍是桩,不声称已接,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实 reviewer backend 执行、dissent/timeout demo、或稳定 gate protocol surface 已完成。
+> **当前只声称**:protocol draft + **fake backend 跑通的 M1 协议闭环**(daemon + CLI demo)+ M2 契约层 + **Codex app-server 作为首个真实 adapter**(含基础 stdio/turn recovery,不含多账号 quota 切换)+ v0.1.5 runtime surface/isolation baseline + **M4a governance data/state/decision skeleton partial** + **M4b consensus gate triage kernel partial** + **M5 deterministic unanimous-approve fake+fake multi-agent consensus demo**。CLI demos 仍显式使用 `fake` transport;`native-claude`/`acp` 仍是桩,不声称已接,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实 reviewer backend 执行、dissent/timeout demo、或稳定 gate protocol surface 已完成。
 
 > 参考 daemon 已把 v0.1.5 runtime surface/isolation matrix 落进 declare/discover、run metadata 和内部 registry archive;这仍是声明/记录层,不表示真实 OS/provider 隔离已经强制执行。
 > M4a 内部 registry 已保留 `permission_surface` / `observability_surface` 列,但当前统一记录为 `unknown`;后续 adapter/governance PR 再接真实声明来源。
