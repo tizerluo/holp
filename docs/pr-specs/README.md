@@ -30,16 +30,15 @@
 11. [PR11 - M6b Second Real Provider Adapter](./pr11-m6b-second-real-provider.md)
 12. [PR12 - M6c Runtime Surface and Session Matrix](./pr12-m6c-runtime-session-matrix.md)
 
-## 后续路线
+## PR 顺序:Blueprint 派生后续 SPEC
 
-M7+ 的总路线以 [HOLP Blueprint](../holp-blueprint.md) 为准;具体 PR SPEC 后续从 Blueprint 派生:
+M7+ 的总路线以 [HOLP Blueprint](../holp-blueprint.md) 为准;以下 SPEC 是从 Blueprint 拆出的完整功能 PR,不是 skeleton:
 
-- M7 foundation loop: WorkPlanner / multiround / data export。
-- M8 real runtime surfaces: first ACP/direct path。
-- M9 consumer and stable gate surface。
-- M10 learned router safe lane。
-- M11 dynamic workflow。
-- M12 Remote and distributed HOLP。
+13. [PR13 - M7 Foundation Loop](./pr13-m7-foundation-loop.md)
+14. [PR14 - M8 Real Runtime Surface Harness Pilot](./pr14-m8-real-runtime-surface-harness-pilot.md)
+15. [PR15 - M9 Consumer Stable Gate Surface](./pr15-m9-consumer-stable-gate-surface.md)
+16. [PR16 - M10+M11 Learned Router and Dynamic Workflow](./pr16-m10-m11-learned-router-dynamic-workflow.md)
+17. [PR17 - M12 Remote and Distributed HOLP](./pr17-m12-remote-distributed-holp.md)
 
 ## Related issue SPEC
 
