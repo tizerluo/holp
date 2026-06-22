@@ -23,19 +23,52 @@ import { createFakeBackendFactory } from "./fake-backend.js";
 import {
   rejectedProfiles,
   withProfile,
+  type DirectChannelDeclaration,
   type RuntimeSurfaceDeclaration,
 } from "./harness-declaration.js";
 
+function unknownDirectChannel(channelType = "terminal_app"): DirectChannelDeclaration {
+  return {
+    channel_type: channelType,
+    attach: "unknown",
+    observe: "unknown",
+    read: "unknown",
+    inject: "unknown",
+    interrupt: "unknown",
+    cancel: "unknown",
+    owner_scope: "unknown",
+  };
+}
+
 function stubRuntimeSurfaces(reason = "unsupported_transport"): readonly RuntimeSurfaceDeclaration[] {
+  const profiles = rejectedProfiles(reason);
+  const common = {
+    isolation_profiles: profiles,
+    global_mutation_required: false,
+    declared_not_enforced: true,
+  } as const;
   return [
     {
       runtime_surface: "headless",
       runtime_kind: "stub",
       surface_support: "unsupported",
-      isolation_profiles: rejectedProfiles(reason),
       state_declaration_ref: "harness-state:stub",
-      global_mutation_required: false,
-      declared_not_enforced: true,
+      ...common,
+    },
+    {
+      runtime_surface: "acp",
+      runtime_kind: "stub-acp-unwired",
+      surface_support: "unsupported",
+      state_declaration_ref: "harness-state:stub:acp",
+      ...common,
+    },
+    {
+      runtime_surface: "direct_user_session",
+      runtime_kind: "stub-direct-session-unwired",
+      surface_support: "unknown",
+      direct_channel: unknownDirectChannel(),
+      state_declaration_ref: "harness-state:stub:direct_user_session",
+      ...common,
     },
   ];
 }
@@ -76,6 +109,8 @@ function fakeRuntimeSurfaces(): readonly RuntimeSurfaceDeclaration[] {
       direct_channel: {
         channel_type: "product_session",
         attach: "unknown",
+        observe: "unknown",
+        read: "unknown",
         inject: "unknown",
         interrupt: "unknown",
         cancel: "unknown",

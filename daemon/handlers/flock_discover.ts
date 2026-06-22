@@ -22,7 +22,12 @@ import type { ConnectionContext } from "../core/context.js";
 import type { FlockAgent } from "../core/stores.js";
 import { serializeFlockAgent } from "./flock_declare.js";
 import type { AdapterRegistry } from "../../adapters/registry.js";
-import { rejectedProfiles, type IsolationProfile } from "../../adapters/harness-declaration.js";
+import {
+  rejectedProfiles,
+  type DirectChannelDeclaration,
+  type IsolationProfile,
+  type RuntimeSurfaceDeclaration,
+} from "../../adapters/harness-declaration.js";
 import type { Clock } from "../core/clock.js";
 
 export async function handleFlockDiscover(
@@ -86,17 +91,7 @@ export async function handleFlockDiscover(
           resolved_roles: roles,
           reason: "not_probed",
           missing: [],
-          runtime_surfaces: [
-            {
-              runtime_surface: "headless",
-              runtime_kind: "not_probed",
-              surface_support: "unknown",
-              isolation_profiles: rejectedProfiles("not_probed"),
-              state_declaration_ref: `harness-state:${id}`,
-              global_mutation_required: false,
-              declared_not_enforced: true,
-            },
-          ],
+          runtime_surfaces: notProbedRuntimeSurfaces(id),
           state_declaration_ref: `harness-state:${id}`,
           global_mutation_required: false,
         };
@@ -128,6 +123,51 @@ function discoveredAgentId(transport: string): string {
     default:
       return `${transport}-agent`;
   }
+}
+
+function notProbedRuntimeSurfaces(id: string): readonly RuntimeSurfaceDeclaration[] {
+  const common = {
+    isolation_profiles: rejectedProfiles("not_probed"),
+    global_mutation_required: false,
+    declared_not_enforced: true,
+  } as const;
+  return [
+    {
+      runtime_surface: "headless",
+      runtime_kind: "not_probed",
+      surface_support: "unknown",
+      state_declaration_ref: `harness-state:${id}:headless`,
+      ...common,
+    },
+    {
+      runtime_surface: "acp",
+      runtime_kind: "not_probed_acp",
+      surface_support: "unknown",
+      state_declaration_ref: `harness-state:${id}:acp`,
+      ...common,
+    },
+    {
+      runtime_surface: "direct_user_session",
+      runtime_kind: "not_probed_direct_session",
+      surface_support: "unknown",
+      direct_channel: unknownDirectChannel(),
+      state_declaration_ref: `harness-state:${id}:direct_user_session`,
+      ...common,
+    },
+  ];
+}
+
+function unknownDirectChannel(): DirectChannelDeclaration {
+  return {
+    channel_type: "terminal_app",
+    attach: "unknown",
+    observe: "unknown",
+    read: "unknown",
+    inject: "unknown",
+    interrupt: "unknown",
+    cancel: "unknown",
+    owner_scope: "unknown",
+  };
 }
 
 function toFlockAgent(

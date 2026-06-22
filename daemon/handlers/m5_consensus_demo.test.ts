@@ -139,6 +139,8 @@ function assertFakeRuntimeMatrix(surfaces: readonly RuntimeSurfaceDeclaration[])
     surface_support: "unknown",
     direct_channel: {
       attach: "unknown",
+      observe: "unknown",
+      read: "unknown",
       inject: "unknown",
       interrupt: "unknown",
       cancel: "unknown",

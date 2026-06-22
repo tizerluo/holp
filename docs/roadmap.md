@@ -21,6 +21,7 @@
 - M5b real reviewer execution pilot:显式 reviewer panel 可把非作者 `mcp-codex` reviewer execution hook 接入 consensus gate。completed vote 必须经过严格 JSON parser/validator,且本次 runtime selection 必须证明 `read_only_review` ready/enforced;fake reviewer path 也走同一个 validator。当前 Codex declaration 仍 degraded/read_only_not_enforced,真实 Codex reviewer smoke 默认 SKIP,显式开启后若无法证明只读则 INCONCLUSIVE。
 - M6a fake consumer CLI partial:`npm run demo:cli` / `demo:cli:inline` / `demo:cli:degraded` 通过 stdio daemon wire 跑通 fake single/consensus/degraded paths,展示 runtime/isolation metadata、approval、terminal event、consensus report、artifact refs/inline fallback 和 raw/debug frames。real reviewer CLI 入口指向 PR9 opt-in smoke。
 - M6b second real provider adapter partial:`native-claude` 通过 Claude Code headless `-p --output-format json` 接入 reviewer path;outer Claude CLI JSON 与 inner reviewer JSON 双层 fail-closed,read-only reviewer ready 取决于 whitelist/deny-write evidence probe。
+- M6c runtime/session matrix foundation:consumer CLI 从 flock public wire response 渲染 runtime surface / session matrix,展示 `headless`/`acp`/`direct_user_session`、direct channel observation/control 能力、isolation readiness、global mutation risk、`declared_not_enforced` 和 `state_declaration_ref`。
 - 参考 daemon 代码常量仍按 v0.1.4 contract 运行;v0.1.5 是当前协议基准修订,PR6+ 必须承接 runtime surface / isolation readiness matrix。
 
 当前仓未落地,也不声称已落地:
@@ -30,6 +31,7 @@
 - 真实 provider dissent/timeout demo、稳定 gate protocol surface。
 - Web 传输。
 - Remote execution。
+- cmux/Warp/tmux/direct user session 真实 UI 控制与稳定 event model mapping。
 
 ## 规划原则
 
@@ -239,7 +241,7 @@
 1. PR9/M5b:真实 reviewer execution pilot 已落地为 `mcp-codex` reviewer execution hook + strict parser/attestation gate;只有 read-only attestation ready 时才会把真实 backend 输出计为 completed vote。
 2. PR10/M6a:consumer CLI experience 已落地 fake partial,让开发者能发起 fake run、处理 approval、查看 artifact 和 consensus report;real reviewer path 指向 PR9 opt-in smoke。
 3. PR11/M6b:第二真实 provider adapter 已补 `native-claude` headless reviewer partial,证明 HOLP 不只是 Codex-only。
-4. PR12/M6c:runtime surface/session matrix,把 headless/acp/direct_user_session 的 readiness、direct channel 能力和隔离声明做成 consumer-visible 矩阵。
+4. PR12/M6c:runtime surface/session matrix 已落地为 consumer-visible foundation,把 headless/acp/direct_user_session 的 readiness、direct channel observation/control 能力和隔离声明从 flock wire 渲染出来。
 
 执行顺序上,PR10 已先基于 fake/M5 consensus path 落地,PR9 随后补真实 reviewer abstraction / parser / enforcement attestation 和 opt-in Codex reviewer smoke。PR11 依赖 PR9 的真实 reviewer abstraction / parser / enforcement attestation,PR12 的完整展示价值依赖 PR10 的 CLI 容器和 PR11 的第二 provider matrix。
 
@@ -247,7 +249,7 @@
 
 - CLI consumer:开发者本地最小入口。
 - cmux adapter 示例:展示已有终端/工具如何接入 HOLP。
-- direct user session 示例:至少覆盖 product session 与 terminal session 词表;Warp/cmux/tmux 这类 terminal session 必须声明 attach/inject/interrupt/cancel 能力和 route 隔离边界。
+- direct user session 示例:已补 `docs/runtime-session-matrix.md`,覆盖 product session 与 terminal session 词表;Warp/cmux/tmux 这类 terminal session 必须声明 attach/observe/read 与 inject/interrupt/cancel 能力和 route/owner_scope 隔离边界。
 - consumer capability negotiation 示例。
 - consumer 侧 event rendering 最小格式。
 

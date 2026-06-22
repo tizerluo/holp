@@ -143,9 +143,16 @@ describe("flock probe statuses", () => {
 
     expect(result.agents).toHaveLength(1);
     const surfaces = result.agents[0].runtime_surfaces as Array<Record<string, unknown>>;
-    expect(surfaces).toHaveLength(1);
+    expect(surfaces).toHaveLength(3);
+    expect(surfaces.map((surface) => surface.runtime_surface)).toEqual([
+      "headless",
+      "acp",
+      "direct_user_session",
+    ]);
     expect(surfaces[0].runtime_kind).toBe("not_probed");
     expect(ctx.flock.get("fake-agent")?.runtime_surfaces?.[0].isolation_profiles.coder_worktree.reason).toBe("not_probed");
+    expect(ctx.flock.get("fake-agent")?.runtime_surfaces?.[2].isolation_profiles.read_only_review.readiness)
+      .toBe("rejected");
   });
 
   it("passes runtime and isolation routing hints into declare/discover probes", async () => {

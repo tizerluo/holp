@@ -32,20 +32,21 @@
 - M5b real reviewer execution pilot:显式 reviewer panel 可把非作者 `mcp-codex` reviewer execution hook 接入 consensus gate。completed vote 必须来自 strict JSON parser/validator,并且本次 runtime selection 必须证明 `read_only_review` ready/enforced;fake reviewer path 也复用同一 validator。当前 Codex declaration 仍 degraded/read_only_not_enforced,真实 Codex reviewer smoke 默认 SKIP,显式开启后若无法证明只读则 INCONCLUSIVE。
 - M6a fake consumer CLI partial:`npm run demo:cli` / `demo:cli:inline` / `demo:cli:degraded` 使用 fake path 真走 stdio JSON-RPC daemon wire,渲染 run/approval/terminal/consensus/artifact report 和 raw/debug frames。`real-reviewer` path 指向 PR9 opt-in smoke。
 - M6b second real provider adapter partial:`"native-claude"` 接 Claude Code headless `-p --output-format json` reviewer path。外层 Claude CLI JSON 失败即 fail-closed;内层 reviewer output 复用 PR9 strict parser/attestation gate。`headless + read_only_review` 只有在 read-only tool whitelist enforcement probe 给出证据时才 ready;否则 degraded/rejected。真实 Claude reviewer smoke 默认 SKIP,需 `HOLP_REAL_CLAUDE_REVIEWER_SMOKE=1`。
+- M6c runtime/session matrix foundation:consumer CLI 从 `flock.declare`/`flock.discover` public wire response 渲染 `runtime_surfaces` 矩阵,展示 headless/acp/direct_user_session、direct channel observation/control 能力、isolation readiness、global mutation risk、declared_not_enforced 和 state_declaration_ref。该 report 是 descriptive projection,不是 scheduling authority;真实调度仍由 `orchestrate.run` eligibility / isolation gate 决定。
 
 **参考 daemon 下一步 milestone**:
 - 真实 provider dissent/timeout demo、稳定 gate protocol surface。
 - **未做(不声称)**:acp 真接线、direct user session、12 个 agent 的三类运行面完整支持、Web 传输。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
 
-> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter(含基础 runtime recovery) + v0.1.5 runtime surface/isolation baseline + M4a governance data/state/decision skeleton partial + M4b consensus kernel partial + M5 deterministic unanimous-approve fake+fake demo + M5b real reviewer execution pilot + M6a fake consumer CLI partial + M6b native-claude headless reviewer partial」,不声称已接 acp 真 agent/direct user session,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实 provider dissent/timeout demo、或稳定 gate protocol surface 已完成。
+> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter(含基础 runtime recovery) + v0.1.5 runtime surface/isolation baseline + M4a governance data/state/decision skeleton partial + M4b consensus kernel partial + M5 deterministic unanimous-approve fake+fake demo + M5b real reviewer execution pilot + M6a fake consumer CLI partial + M6b native-claude headless reviewer partial + M6c runtime/session matrix foundation」,不声称已接 acp 真 agent/direct user session,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实 provider dissent/timeout demo、或稳定 gate protocol surface 已完成。
 
 ## 变更记录
 
 ### v0.1.5 (draft) — Issue #11 baseline amendment
 - P1:把 runtime surface / isolation readiness matrix 提升为协议基准,而非后续可选扩展。
-- P1:`flock.declare`/`flock.discover` 必须能表达 `headless` / `acp` / `direct_user_session` 三类运行面、runtime kind、direct channel、isolation profile readiness、state declaration ref、global mutation risk。
+- P1:`flock.declare`/`flock.discover` 必须能表达 `headless` / `acp` / `direct_user_session` 三类运行面、runtime kind、direct channel observation/control 能力、isolation profile readiness、state declaration ref、global mutation risk。
 - P1:澄清 `ready` 不是 agent 整体 ready,只是在某个 runtime surface + isolation profile 下 ready。
-- P2:当前实现允许返回 unknown/unsupported/rejected,但空白不是合格声明;PR6+ 必须承接该数据模型。
+- P2:当前实现允许返回 unknown/unsupported/rejected,但空白不是合格声明;PR6+ 必须承接该数据模型。M6c 补充 CLI matrix report,但该 report 只解释 wire 声明,不替代调度 gate。
 
 ### v0.1.4 (draft) — 跨仓 review 后补互操作缺口
 - P1:`artifact_refs` 不可用时 consensus findings / approval details 内联降级,并澄清 provenance 裸 `artifact_id` 不受该能力控制(§2/§6.1/§7/§8.1)。

@@ -3,6 +3,7 @@ import {
   RunRenderer,
   renderArtifact,
   renderConsensusDegraded,
+  renderRuntimeMatrix,
   renderReviewFinding,
 } from "../../../consumers/cli/renderer.js";
 import type { EventFrame } from "../../../consumers/cli/wire.js";
@@ -109,6 +110,63 @@ describe("consumer CLI renderer", () => {
     })).toEqual([
       "consensus degraded: outcome=reject reason=quorum_unsatisfiable_after_author_exclusion",
       "  quorum: required=2 eligible=1 met=false",
+    ]);
+  });
+
+  it("renders the runtime/session matrix from JSON-round-tripped flock wire data", () => {
+    const agent = JSON.parse(JSON.stringify({
+      id: "direct-observer",
+      status: "degraded",
+      runtime_surfaces: [
+        {
+          runtime_surface: "direct_user_session",
+          runtime_kind: "tmux",
+          surface_support: "experimental",
+          direct_channel: {
+            channel_type: "tmux",
+            attach: "supported",
+            observe: "supported",
+            read: "supported",
+            inject: "unknown",
+            interrupt: "unknown",
+            cancel: "unknown",
+            owner_scope: "supported",
+          },
+          isolation_profiles: {
+            coder_worktree: {
+              readiness: "rejected",
+              reason: "direct_control_not_declared",
+              missing: ["inject", "interrupt", "cancel"],
+            },
+            read_only_review: {
+              readiness: "degraded",
+              reason: "observe_only",
+              warnings: ["declared_not_enforced"],
+            },
+            real_provider_smoke: { readiness: "rejected", reason: "not_supported" },
+            multi_agent_concurrent: { readiness: "rejected", reason: "not_supported" },
+            user_global_install: { readiness: "rejected", reason: "not_supported" },
+            high_isolation: { readiness: "rejected", reason: "not_supported" },
+          },
+          state_declaration_ref: "harness-state:direct-observer",
+          global_mutation_required: true,
+          declared_not_enforced: true,
+        },
+      ],
+    }));
+
+    expect(renderRuntimeMatrix(agent)).toEqual([
+      "agent direct-observer: status=degraded",
+      "  runtime matrix: source=flock-wire descriptive_only=true",
+      "  surface direct_user_session: support=experimental kind=tmux mutation=true declared_not_enforced=true state=harness-state:direct-observer",
+      "    observation: channel=tmux attach=supported observe=supported read=supported owner_scope=supported",
+      "    control: inject=unknown interrupt=unknown cancel=unknown",
+      "    profile coder_worktree: rejected reason=direct_control_not_declared missing=inject,interrupt,cancel",
+      "    profile read_only_review: degraded reason=observe_only warnings=declared_not_enforced",
+      "    profile real_provider_smoke: rejected reason=not_supported",
+      "    profile multi_agent_concurrent: rejected reason=not_supported",
+      "    profile user_global_install: rejected reason=not_supported",
+      "    profile high_isolation: rejected reason=not_supported",
     ]);
   });
 

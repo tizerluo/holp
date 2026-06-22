@@ -28,7 +28,7 @@ holp/
 
 - [x] 定位(`docs/positioning.md`)
 - [x] 整体规划(`docs/roadmap.md`)
-- [x] PR1-PR8 拆解 SPEC + PR9-PR12 下一阶段 planned SPEC(`docs/pr-specs/`)
+- [x] PR1-PR8 拆解 SPEC + PR9-PR12 下一阶段 SPEC(`docs/pr-specs/`)
 - [x] 协议 spec v0.1.5(`protocol/spec.md`)— 经 v0.1→v0.1.4 迭代后,在 v0.1.5 把 runtime surface / isolation readiness matrix 提升为协议基准
 - [x] 朝下 adapter 契约 + 真实 adapter(`adapters/`)— **mcp-codex 接 Codex app-server,含基础 turn recovery;native-claude 接 Claude Code headless reviewer partial;acp 仍是桩**
 - [x] 参考 daemon 协议骨架(`daemon/`)— stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)
@@ -41,16 +41,18 @@ holp/
 - [x] M6a fake consumer CLI partial— `run` 命令可发起 fake single/consensus/degraded run、处理 approval、渲染 consensus/artifact report、raw/debug wire frames
 - [x] M5b real reviewer execution pilot— 显式 reviewer panel 已接入 `mcp-codex` reviewer execution hook;completed vote 仍需 runtime read-only attestation 为 ready,真实 smoke 需显式 opt-in
 - [x] M6b second real provider adapter partial— `native-claude` 通过 Claude Code `-p --output-format json` 接入 headless reviewer path;ready 取决于 read-only tool whitelist enforcement probe
+- [x] M6c runtime/session matrix foundation— CLI 从 flock wire 渲染 `headless`/`acp`/`direct_user_session` 矩阵、direct channel observation/control 能力、isolation readiness 和声明风险
 - [ ] 稳定 gate protocol surface / 真实 dissent-timeout 多 provider demo / ACP 或 direct session 真接线
 - [x] 真实 adapter 接线(M3)— **Codex app-server over stdio 注册为 `mcp-codex`;自动覆盖 fake/app-server harness,已补基础 stdio/turn recovery;真实 smoke 依赖本机 Codex auth**
 
-> **当前只声称**:protocol draft + **fake backend 跑通的 M1 协议闭环**(daemon + CLI demo)+ M2 契约层 + **Codex app-server 作为首个真实 adapter**(含基础 stdio/turn recovery,不含多账号 quota 切换)+ v0.1.5 runtime surface/isolation baseline + **M4a governance data/state/decision skeleton partial** + **M4b consensus gate triage kernel partial** + **M5 deterministic unanimous-approve fake+fake multi-agent consensus demo** + **M5b real reviewer execution pilot** + **M6a fake consumer CLI partial** + **M6b native-claude headless reviewer partial**。CLI demos 仍显式使用 `fake` transport;真实 Codex/Claude reviewer paths 通过 opt-in smoke 验证,且 read-only enforcement 不可证明时只会 INCONCLUSIVE/degraded;`acp` 仍是桩,不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实多 provider dissent/timeout reviewer demo、ACP/direct session 真接线、或稳定 gate protocol surface 已完成。
+> **当前只声称**:protocol draft + **fake backend 跑通的 M1 协议闭环**(daemon + CLI demo)+ M2 契约层 + **Codex app-server 作为首个真实 adapter**(含基础 stdio/turn recovery,不含多账号 quota 切换)+ v0.1.5 runtime surface/isolation baseline + **M4a governance data/state/decision skeleton partial** + **M4b consensus gate triage kernel partial** + **M5 deterministic unanimous-approve fake+fake multi-agent consensus demo** + **M5b real reviewer execution pilot** + **M6a fake consumer CLI partial** + **M6b native-claude headless reviewer partial** + **M6c runtime/session matrix foundation**。CLI demos 仍显式使用 `fake` transport;真实 Codex/Claude reviewer paths 通过 opt-in smoke 验证,且 read-only enforcement 不可证明时只会 INCONCLUSIVE/degraded;matrix report 只是 `flock.declare`/`flock.discover` wire 的 descriptive projection,不替代 `orchestrate.run` eligibility gate;`acp` 仍是桩,不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实多 provider dissent/timeout reviewer demo、ACP/direct session 真接线、或稳定 gate protocol surface 已完成。
 
 > 参考 daemon 已把 v0.1.5 runtime surface/isolation matrix 落进 declare/discover、run metadata 和内部 registry archive;这仍是声明/记录层,不表示真实 OS/provider 隔离已经强制执行。
 > M4a 内部 registry 已保留 `permission_surface` / `observability_surface` 列,但当前统一记录为 `unknown`;后续 adapter/governance PR 再接真实声明来源。
 > M5 demo 仍是 deterministic unanimous-approve fake+fake reviewer verification layer:它真走 HOLP wire、展示 findings artifact envelope / inline fallback,但 reviewer votes 来自 fake reviewer fixture 并经 PR9 canonical validator 校验,不表示真实 reviewer provider dissent/timeout demo 已接。
 > M5b real reviewer pilot 只接入 `mcp-codex` reviewer execution hook:completed vote 必须经过严格 JSON parser/validator,且本次 runtime selection 必须证明 `read_only_review` 已 ready/enforced。当前 Codex declaration 仍是 degraded/read_only_not_enforced,因此真实 smoke 会诚实给出 INCONCLUSIVE,不会被当成 approve。
 > M6b native-claude partial 只接 Claude Code headless `-p --output-format json` reviewer path;外层 Claude CLI JSON 先 fail-closed,内层 reviewer result 复用 PR9 parser/attestation gate。`acp` surface 仍明确 unsupported,`direct_user_session` 仍 unknown/rejected。
+> M6c matrix report 只从 flock public wire response 读取 `runtime_surfaces`;`state_declaration_ref` 仍是声明引用/占位字符串,本 PR 不保证可解引用。direct channel 的 attach/observe/read 是 observation surface,inject/interrupt/cancel 是 control surface,两者不能合并解读为可注入调度能力。词表示例见 `docs/runtime-session-matrix.md`。
 
 ## CLI 快速体验
 
