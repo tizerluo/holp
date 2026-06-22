@@ -1,6 +1,6 @@
 # PR10 SPEC - M6a Consumer CLI Experience
 
-> 状态:planned。目标是在 M5 deterministic demo 之后,先基于 fake reviewer path 把 HOLP 从 "daemon 可以跑" 推进到 "开发者可以通过 CLI 看得懂、插得上手、取得到证据";PR9 real reviewer pilot 可用后再展示 opt-in real reviewer path。该 PR 是 consumer experience,不是产品化 UI。
+> 状态:implemented as M6a fake consumer CLI partial。本 PR 基于 fake reviewer path 把 HOLP 从 "daemon 可以跑" 推进到 "开发者可以通过 CLI 看得懂、插得上手、取得到证据";PR9 real reviewer pilot 可用后再展示 opt-in real reviewer path。该 PR 是 consumer experience,不是产品化 UI。
 
 ## 目的
 
@@ -10,11 +10,12 @@
 
 ## 当前代码事实
 
-- `consumers/cli/` 已有 M1 闭环 demo,但仍偏脚本化和协议验证。
+- `consumers/cli/` 已有 `run` CLI:fake single-coder、fake consensus、fake consensus_degraded/degraded report、raw/debug wire frame、approval decision、artifact report。
 - `npm run demo:m5` 是 deterministic demo,输出用于证明 PR8 wire path,不是通用 consumer。
 - daemon 已支持 `initialize`、`flock.declare`、`orchestrate.run`、`events.subscribe`、`approval.resolve`、`task.cancel`、`artifact.get`。
 - approval 单通道、artifact envelope/inline fallback、consensus events 都已存在。
 - cmux/Warp/tmux 等 consumer 仍未接入;M6 roadmap 只要求先有 vendor-neutral 示例。
+- `real-reviewer` path 当前只显示 honest unavailable/skipped;真实 reviewer execution 留给 PR9。
 
 ## 范围
 

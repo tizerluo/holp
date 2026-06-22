@@ -14,17 +14,18 @@
 - `docs/pr-specs/`:PR1-PR8 已覆盖 M0-M5 拆解;PR9-PR12 已规划真实 reviewer、consumer 体验、第二 provider、runtime/session matrix。
 - `adapters/`:朝下 adapter contract + Codex app-server real adapter(`mcp-codex`,含基础 stdio/turn recovery) + native-claude/acp stub；`fake` transport 仅用于 demo/test。
 - `daemon/`:参考 daemon 协议骨架,支持 stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
-- `consumers/cli/`:参考 consumer CLI,可跑通 M1 fake backend 闭环。
+- `consumers/cli/`:参考 consumer CLI,可跑通 M1 fake backend 闭环,并提供 M6a fake consumer CLI partial:human-readable run/approval/consensus/artifact report + raw/debug wire view。
 - M1 e2e 闭环:`initialize -> flock.declare -> orchestrate.run -> events.subscribe -> approval.resolve -> artifact.get`。**fake backend,非真实 provider**。
 - M2 契约回归网:`daemon/handlers/m2_contract.test.ts` 已锁定当前实现的关键 v0.1.4 语义；approval 超时已由 M4a skeleton 接入正向 contract,显式 reviewer panel 的 consensus kernel 已由 M4b 接入,M5 deterministic demo 已覆盖 findings envelope / inline fallback,heartbeat 仍转交后续。
 - M5 deterministic unanimous-approve fake+fake multi-agent consensus demo:`npm run demo:m5` 通过 stdio daemon wire 跑通 producer artifact、author exclusion、quorum、`consensus_verdict`、findings artifact envelope 和 `artifact_refs:false` inline fallback。
+- M6a fake consumer CLI partial:`npm run demo:cli` / `demo:cli:inline` / `demo:cli:degraded` 通过 stdio daemon wire 跑通 fake single/consensus/degraded paths,展示 runtime/isolation metadata、approval、terminal event、consensus report、artifact refs/inline fallback 和 raw/debug frames。real reviewer path 目前只显示 honest unavailable/skipped。
 - 参考 daemon 代码常量仍按 v0.1.4 contract 运行;v0.1.5 是当前协议基准修订,PR6+ 必须承接 runtime surface / isolation readiness matrix。
 
 当前仓未落地,也不声称已落地:
 
 - native-claude/acp 真接线。
 - 12 个 agent 在 `headless` / `acp` / `direct_user_session` 三类运行面的完整 adapter 实现。
-- 真实 reviewer backend 执行、dissent/timeout demo、稳定 gate protocol surface。
+- 真实 reviewer backend 执行、真实 provider dissent/timeout demo、稳定 gate protocol surface。
 - Web 传输。
 - Remote execution。
 
@@ -234,11 +235,11 @@
 建议拆成 4 个后续 PR:
 
 1. PR9/M5b:真实 reviewer execution pilot,让 reviewer panel 至少能启动一个真实 backend 产出 verdict/findings。
-2. PR10/M6a:consumer CLI experience,让开发者能发起 run、处理 approval、查看 artifact 和 consensus report。
+2. PR10/M6a:consumer CLI experience 已落地 fake partial,让开发者能发起 fake run、处理 approval、查看 artifact 和 consensus report;real reviewer path 当前只显示 unavailable/skipped。
 3. PR11/M6b:第二真实 provider adapter,优先补 `native-claude` headless reviewer path,证明 HOLP 不只是 Codex-only。
 4. PR12/M6c:runtime surface/session matrix,把 headless/acp/direct_user_session 的 readiness、direct channel 能力和隔离声明做成 consumer-visible 矩阵。
 
-执行顺序上,PR10 可先基于 fake/M5 consensus path 落地,不必等待 PR9;PR9 完成后再把真实 reviewer opt-in path 接进同一 CLI 体验。PR11 依赖 PR9 的真实 reviewer abstraction / parser / enforcement attestation,PR12 的完整展示价值依赖 PR10 的 CLI 容器和 PR11 的第二 provider matrix。
+执行顺序上,PR10 已先基于 fake/M5 consensus path 落地,不必等待 PR9;PR9 完成后再把真实 reviewer opt-in path 接进同一 CLI 体验。PR11 依赖 PR9 的真实 reviewer abstraction / parser / enforcement attestation,PR12 的完整展示价值依赖 PR10 的 CLI 容器和 PR11 的第二 provider matrix。
 
 交付物:
 
@@ -250,7 +251,7 @@
 
 验收标准:
 
-- CLI 能完整演示 M1/M5 的 run。
+- CLI fake partial 能演示 M1 single-coder、M5 consensus、consensus_degraded/degraded report;真实 reviewer path 等 PR9。
 - cmux 示例不要求改 cmux 主线,但要清楚展示 `events.subscribe` 与 cmux 事件模型的差异。
 - consumer 不依赖 provider 私有细节。
 
