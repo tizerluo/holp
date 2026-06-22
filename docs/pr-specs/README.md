@@ -1,6 +1,6 @@
 # HOLP PR SPEC
 
-这些 SPEC 把 HOLP roadmap 拆成可 review 的 PR。PR1-PR9 覆盖 M0-M5b;PR10-PR12 是下一阶段的三个大块,用于把 consumer 体验、第二真实 provider、runtime/session matrix 补齐。
+这些 SPEC 把 HOLP roadmap 拆成可 review 的 PR。PR1-PR12 覆盖 M0-M6c,用于把 consumer 体验、第二真实 provider、runtime/session matrix foundation 补齐。
 
 早期 PR 文件保留对应阶段的冻结上下文;下面的当前代码事实随实现进度更新,避免误读为“尚无 daemon/真实 adapter”。
 
@@ -10,6 +10,7 @@
 - 当前 `adapters/` 包含 contract、demo/test fake backend、Codex app-server real adapter 和 native-claude headless reviewer partial;`createDefaultAdapterRegistry()` 把 `"mcp-codex"` 接到 Codex app-server、把 `"native-claude"` 接到 Claude Code `-p --output-format json`;`acp` 仍是 stub。
 - `createFakeRegistry()` 保留 M1/M2 demo/test fake path;CLI demo 显式用 fake registry。
 - 当前 `runEngine` 已有 PR9 reviewer executor hook:`fake` reviewer 与 `mcp-codex` reviewer execution hook 都必须通过 canonical parser/validator;真实 backend 还必须通过 runtime read-only attestation gate 后才会成为 completed vote。
+- 当前 consumer CLI 已能从 flock public wire response 渲染 runtime/session matrix;该报告是 descriptive projection,不是调度授权。
 
 ## PR 顺序:已落地基础
 
@@ -23,7 +24,7 @@
 8. [PR8 - M5 Multi-Agent Consensus Demo](./pr8-m5-consensus-demo.md)
 9. [PR9 - M5b Real Reviewer Execution Pilot](./pr9-m5b-real-reviewer-execution.md)
 
-## PR 顺序:下一阶段
+## PR 顺序:已落地下一阶段
 
 10. [PR10 - M6a Consumer CLI Experience](./pr10-m6a-consumer-cli-experience.md)
 11. [PR11 - M6b Second Real Provider Adapter](./pr11-m6b-second-real-provider.md)

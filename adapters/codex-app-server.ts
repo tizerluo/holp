@@ -13,6 +13,7 @@ import type {
 import {
   rejectedProfiles,
   withProfile,
+  type DirectChannelDeclaration,
   type IsolationProfileReadiness,
   type RuntimeSurfaceDeclaration,
 } from "./harness-declaration.js";
@@ -225,23 +226,38 @@ function codexRuntimeSurfaces(
       declared_not_enforced: true,
     },
     {
+      runtime_surface: "acp",
+      runtime_kind: "codex_acp_unwired",
+      surface_support: "unsupported",
+      isolation_profiles: rejectedProfiles("codex_acp_not_wired"),
+      state_declaration_ref: "harness-state:codex:acp",
+      global_mutation_required: false,
+      declared_not_enforced: true,
+    },
+    {
       runtime_surface: "direct_user_session",
       runtime_kind: "unknown",
       surface_support: "unknown",
       isolation_profiles: rejectedProfiles("direct_user_session_not_declared"),
-      direct_channel: {
-        channel_type: "terminal_app",
-        attach: "unknown",
-        inject: "unknown",
-        interrupt: "unknown",
-        cancel: "unknown",
-        owner_scope: "unknown",
-      },
+      direct_channel: unknownDirectChannel(),
       state_declaration_ref: "harness-state:codex",
       global_mutation_required: false,
       declared_not_enforced: true,
     },
   ];
+}
+
+function unknownDirectChannel(): DirectChannelDeclaration {
+  return {
+    channel_type: "terminal_app",
+    attach: "unknown",
+    observe: "unknown",
+    read: "unknown",
+    inject: "unknown",
+    interrupt: "unknown",
+    cancel: "unknown",
+    owner_scope: "unknown",
+  };
 }
 
 async function probeInitialize(

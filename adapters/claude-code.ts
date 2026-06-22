@@ -13,6 +13,7 @@ import type {
 import {
   rejectedProfiles,
   withProfile,
+  type DirectChannelDeclaration,
   type IsolationProfileReadiness,
   type RuntimeSurfaceDeclaration,
 } from "./harness-declaration.js";
@@ -293,19 +294,25 @@ function claudeRuntimeSurfaces(
       runtime_kind: "claude_code_direct_session_unwired",
       surface_support: "unknown",
       isolation_profiles: rejectedProfiles("direct_user_session_not_declared"),
-      direct_channel: {
-        channel_type: "terminal_app",
-        attach: "unknown",
-        inject: "unknown",
-        interrupt: "unknown",
-        cancel: "unknown",
-        owner_scope: "unknown",
-      },
+      direct_channel: unknownDirectChannel(),
       state_declaration_ref: "harness-state:claude-code:direct_user_session",
       global_mutation_required: false,
       declared_not_enforced: true,
     },
   ];
+}
+
+function unknownDirectChannel(): DirectChannelDeclaration {
+  return {
+    channel_type: "terminal_app",
+    attach: "unknown",
+    observe: "unknown",
+    read: "unknown",
+    inject: "unknown",
+    interrupt: "unknown",
+    cancel: "unknown",
+    owner_scope: "unknown",
+  };
 }
 
 function parseClaudeJsonOutput(stdout: string): ClaudeJsonParseResult {

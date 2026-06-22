@@ -1,6 +1,6 @@
 # PR12 SPEC - M6c Runtime Surface and Session Matrix
 
-> 状态:planned。目标是在已有真实 provider 和 consumer CLI 之后,把 HOLP 的 runtime surface / session vocabulary 做成可检查的矩阵,并给 cmux/direct session/ACP 后续接入留出诚实边界。该 PR 不是 12-agent 全实现。
+> 状态:partial landed。目标是在已有真实 provider 和 consumer CLI 之后,把 HOLP 的 runtime surface / session vocabulary 做成可检查的矩阵,并给 cmux/direct session/ACP 后续接入留出诚实边界。该 PR 不是 12-agent 全实现。
 
 ## 目的
 
@@ -15,8 +15,25 @@
 - M4a governance store 已能 archive harness registry snapshot。
 - `permission_surface` / `observability_surface` 目前只存在于 internal governance registry,并统一记录为 `unknown`;它们不在 `flock.declare` / `flock.discover` public wire response 中。
 - 当前 direct channel 字段有 attach/inject/interrupt/cancel/owner_scope,但还没有单独表达 observe/read output stream 的字段。PR12 需要补这个词表,否则无法表达 observe-only session。
+- PR12 已把 direct channel 词表补成 attach/observe/read 与 inject/interrupt/cancel 分离;consumer CLI report 已按 observation/control 两组展示。
 - M6 roadmap 提到 cmux adapter、direct user session 示例和 capability negotiation。
 - 真实 ACP/direct session 执行仍未落地。
+
+## 已落地范围
+
+- `DirectChannelDeclaration` 增加 `observe` / `read`,用于表达 output stream / transcript 是否可见。
+- fake、stub、mcp-codex、native-claude 的 declarations 均显式覆盖 `headless`、`acp`、`direct_user_session`;unsupported/unknown surface 下的 profiles 使用 rejected,表示不可调度,不表示做过 profile 级真实隔离探测。
+- `flock.discover probe:false` 返回三 surface 的 not_probed matrix,不再只返回 headless 占位。
+- consumer CLI 的 `renderRuntimeMatrix` 只从 flock public wire response 渲染 matrix,显示 runtime kind、surface support、direct channel observation/control、isolation profile readiness、reason/missing/warnings、global mutation、declared_not_enforced、state_declaration_ref,并明确 `descriptive_only=true`。
+- `docs/runtime-session-matrix.md` 记录 product session / terminal session direct channel 示例,并明确 cmux/Warp/tmux 真实 event model mapping 需要后续引用具体版本/commit。
+
+## 仍未落地
+
+- 真实 ACP runtime。
+- cmux/Warp/tmux/direct user session UI 控制或真实 event model mapping。
+- public governance query API。
+- 稳定 scheduling/gate protocol surface。
+- `state_declaration_ref` 可解引用能力;当前仍是声明引用/占位字符串。
 
 ## 范围
 

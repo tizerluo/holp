@@ -22,6 +22,8 @@ export interface IsolationProfileReadiness {
 export interface DirectChannelDeclaration {
   readonly channel_type: "product_session" | "pty" | "tmux" | "terminal_app" | (string & {});
   readonly attach: SurfaceSupport;
+  readonly observe: SurfaceSupport;
+  readonly read: SurfaceSupport;
   readonly inject: SurfaceSupport;
   readonly interrupt: SurfaceSupport;
   readonly cancel: SurfaceSupport;

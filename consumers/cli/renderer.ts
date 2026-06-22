@@ -101,20 +101,47 @@ export function renderRuntimeMatrix(agent: {
   readonly runtime_surfaces?: readonly Record<string, unknown>[];
 }): string[] {
   const surfaces = agent.runtime_surfaces ?? [];
-  const selected = surfaces.find((surface) => surface.runtime_surface === "headless");
   const lines = [`agent ${agent.id}: status=${agent.status ?? "unknown"}`];
-  if (selected) {
-    const profiles = selected.isolation_profiles as Record<string, { readiness?: string }> | undefined;
-    lines.push(
-      `  selected runtime=${selected.runtime_surface} kind=${selected.runtime_kind} ` +
-        `coder=${profiles?.coder_worktree?.readiness ?? "unknown"} ` +
-        `reviewer=${profiles?.read_only_review?.readiness ?? "unknown"}`,
-    );
+  lines.push("  runtime matrix: source=flock-wire descriptive_only=true");
+  if (surfaces.length === 0) {
+    lines.push("  matrix missing: no runtime_surfaces (not schedulable)");
+    return lines;
   }
   for (const surface of surfaces) {
+    const direct = objectOrUndefined(surface.direct_channel);
     lines.push(
-      `  surface ${surface.runtime_surface}: support=${surface.surface_support} kind=${surface.runtime_kind}`,
+      `  surface ${stringField(surface, "runtime_surface") ?? "unknown"}: ` +
+        `support=${stringField(surface, "surface_support") ?? "unknown"} ` +
+        `kind=${stringField(surface, "runtime_kind") ?? "unknown"} ` +
+        `mutation=${boolField(surface, "global_mutation_required") ?? "unknown"} ` +
+        `declared_not_enforced=${boolField(surface, "declared_not_enforced") ?? "unknown"} ` +
+        `state=${stringField(surface, "state_declaration_ref") ?? "none"}`,
     );
+    if (direct) {
+      lines.push(
+        `    observation: channel=${stringField(direct, "channel_type") ?? "unknown"} ` +
+          `attach=${stringField(direct, "attach") ?? "unknown"} ` +
+          `observe=${stringField(direct, "observe") ?? "unknown"} ` +
+          `read=${stringField(direct, "read") ?? "unknown"} ` +
+          `owner_scope=${stringField(direct, "owner_scope") ?? "unknown"}`,
+      );
+      lines.push(
+        `    control: inject=${stringField(direct, "inject") ?? "unknown"} ` +
+          `interrupt=${stringField(direct, "interrupt") ?? "unknown"} ` +
+          `cancel=${stringField(direct, "cancel") ?? "unknown"}`,
+      );
+    }
+    const profiles = objectPayload(surface.isolation_profiles);
+    for (const profile of [
+      "coder_worktree",
+      "read_only_review",
+      "real_provider_smoke",
+      "multi_agent_concurrent",
+      "user_global_install",
+      "high_isolation",
+    ]) {
+      lines.push(renderIsolationProfile(profile, objectPayload(profiles[profile])));
+    }
   }
   return lines;
 }
@@ -177,6 +204,27 @@ export function arrayPayload(value: unknown): readonly unknown[] {
 export function stringField(object: Record<string, unknown>, key: string): string | undefined {
   const value = object[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function boolField(object: Record<string, unknown>, key: string): boolean | undefined {
+  const value = object[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function objectOrUndefined(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined;
+}
+
+function renderIsolationProfile(profile: string, payload: Record<string, unknown>): string {
+  const readiness = stringField(payload, "readiness") ?? "missing";
+  const reason = stringField(payload, "reason");
+  const missing = arrayPayload(payload.missing).filter((item): item is string => typeof item === "string");
+  const warnings = arrayPayload(payload.warnings).filter((item): item is string => typeof item === "string");
+  const parts = [`    profile ${profile}: ${readiness}`];
+  if (reason) parts.push(`reason=${reason}`);
+  if (missing.length > 0) parts.push(`missing=${missing.join(",")}`);
+  if (warnings.length > 0) parts.push(`warnings=${warnings.join(",")}`);
+  return parts.join(" ");
 }
 
 function runtimeLine(payload: Record<string, unknown>): string {

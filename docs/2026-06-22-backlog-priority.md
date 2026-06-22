@@ -68,9 +68,9 @@
 
 #### 5. **PR12(M6c Runtime Surface and Session Matrix)**
 
-- **why P2**:v0.1.5 已经把 runtime surface / isolation matrix 提升为协议基准,但 consumer 端**还没有 matrix report 体验**——用户没法看到"为什么这个 agent 能做 reviewer,为什么那个被拒绝"
+- **why P2**:v0.1.5 已经把 runtime surface / isolation matrix 提升为协议基准;PR12 已补 consumer matrix report foundation,让用户能看到"为什么这个 agent 能做 reviewer,为什么那个被拒绝"
 - **依赖**:PR10(CLI 容器)+ PR11(第二 provider 提供 matrix 多样性)。两者完成后,PR12 可以把 Codex/Claude/fake/acp/direct 的 readiness 差异做成 consumer-visible report。
-- **新增工作**:direct channel 词表加 `observe`/`read` 字段(spec 已声明 gap)
+- **收口**:direct channel 词表已加 `observe`/`read`;CLI report 已区分 observation surface 与 control surface。真实 ACP/direct session、cmux/Warp/tmux UI 控制和稳定 event model mapping 仍是后续项。
 - **参考素材**:loopwright V2.4 `harness_registry` / registry-derived selection / availability invalidation(`3b445bb` / `fa30943` / `bea0f5c`)可作为 PR12 matrix 与 eligibility resolver 分层参考
 
 #### 6. **Issue #18(PR11/M6b ACP 参考素材)**
