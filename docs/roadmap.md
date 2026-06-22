@@ -18,7 +18,7 @@
 - M1 e2e 闭环:`initialize -> flock.declare -> orchestrate.run -> events.subscribe -> approval.resolve -> artifact.get`。**fake backend,非真实 provider**。
 - M2 契约回归网:`daemon/handlers/m2_contract.test.ts` 已锁定当前实现的关键 v0.1.4 语义；approval 超时已由 M4a skeleton 接入正向 contract,显式 reviewer panel 的 consensus kernel 已由 M4b 接入,M5 deterministic demo 已覆盖 findings envelope / inline fallback,heartbeat 仍转交后续。
 - M5 deterministic unanimous-approve fake+fake multi-agent consensus demo:`npm run demo:m5` 通过 stdio daemon wire 跑通 producer artifact、author exclusion、quorum、`consensus_verdict`、findings artifact envelope 和 `artifact_refs:false` inline fallback。
-- M5b real reviewer execution pilot:显式 reviewer panel 可把非作者真实 `mcp-codex` reviewer 接入 consensus gate。completed vote 必须经过严格 JSON parser/validator 和本次执行 read-only attestation;fake reviewer path 也走同一个 validator。真实 Codex reviewer smoke 默认 SKIP,需 `HOLP_REAL_CODEX_REVIEWER_SMOKE=1` 显式开启。
+- M5b real reviewer execution pilot:显式 reviewer panel 可把非作者 `mcp-codex` reviewer execution hook 接入 consensus gate。completed vote 必须经过严格 JSON parser/validator,且本次 runtime selection 必须证明 `read_only_review` ready/enforced;fake reviewer path 也走同一个 validator。当前 Codex declaration 仍 degraded/read_only_not_enforced,真实 Codex reviewer smoke 默认 SKIP,显式开启后若无法证明只读则 INCONCLUSIVE。
 - M6a fake consumer CLI partial:`npm run demo:cli` / `demo:cli:inline` / `demo:cli:degraded` 通过 stdio daemon wire 跑通 fake single/consensus/degraded paths,展示 runtime/isolation metadata、approval、terminal event、consensus report、artifact refs/inline fallback 和 raw/debug frames。real reviewer CLI 入口指向 PR9 opt-in smoke。
 - 参考 daemon 代码常量仍按 v0.1.4 contract 运行;v0.1.5 是当前协议基准修订,PR6+ 必须承接 runtime surface / isolation readiness matrix。
 
@@ -176,7 +176,7 @@
 
 ## M4:Governance Kernel Import
 
-> 状态(PR6/M4a + PR7/M4b + PR8/M5 + PR9/M5b):data/state/decision skeleton partial 已落地:内部 event archive、`decision_made`、harness registry archive、run lifecycle state machine、approval expiry timer。M4b 已接入纯 consensus kernel、author exclusion、二段式 quorum 和显式 reviewer panel 的 `consensus_verdict`/`consensus_degraded`。M5 已补 deterministic fake+fake demo,展示 findings artifact envelope / inline fallback。M5b 已补 `mcp-codex` real reviewer execution pilot,但只在 read-only attestation + strict JSON validator 通过时计入 completed vote。`permission_surface` / `observability_surface` 仍作为保留列记录为 `unknown`;第二真实 provider 和稳定 gate protocol surface 仍未落地。
+> 状态(PR6/M4a + PR7/M4b + PR8/M5 + PR9/M5b):data/state/decision skeleton partial 已落地:内部 event archive、`decision_made`、harness registry archive、run lifecycle state machine、approval expiry timer。M4b 已接入纯 consensus kernel、author exclusion、二段式 quorum 和显式 reviewer panel 的 `consensus_verdict`/`consensus_degraded`。M5 已补 deterministic fake+fake demo,展示 findings artifact envelope / inline fallback。M5b 已补 `mcp-codex` reviewer execution hook,但只在 runtime read-only attestation + strict JSON validator 通过时计入 completed vote;当前 Codex profile degraded 时会 fail-closed/INCONCLUSIVE。`permission_surface` / `observability_surface` 仍作为保留列记录为 `unknown`;第二真实 provider 和稳定 gate protocol surface 仍未落地。
 
 目标:从 loopwright 挑拷纯逻辑治理内核,不要搬整个旧仓。
 
@@ -235,7 +235,7 @@
 
 建议拆成 4 个后续 PR:
 
-1. PR9/M5b:真实 reviewer execution pilot 已落地为 `mcp-codex` read-only reviewer opt-in path,让 reviewer panel 至少能启动一个真实 backend 产出 verdict/findings。
+1. PR9/M5b:真实 reviewer execution pilot 已落地为 `mcp-codex` reviewer execution hook + strict parser/attestation gate;只有 read-only attestation ready 时才会把真实 backend 输出计为 completed vote。
 2. PR10/M6a:consumer CLI experience 已落地 fake partial,让开发者能发起 fake run、处理 approval、查看 artifact 和 consensus report;real reviewer path 指向 PR9 opt-in smoke。
 3. PR11/M6b:第二真实 provider adapter,优先补 `native-claude` headless reviewer path,证明 HOLP 不只是 Codex-only。
 4. PR12/M6c:runtime surface/session matrix,把 headless/acp/direct_user_session 的 readiness、direct channel 能力和隔离声明做成 consumer-visible 矩阵。

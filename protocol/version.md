@@ -29,7 +29,7 @@
 - M4a governance data/state/decision skeleton partial:内部记录 events、`decision_made`、harness registry runtime/isolation matrix、run lifecycle state machine,并实现 approval expiry timer。该层无 public query API;`permission_surface` / `observability_surface` 为保留列且当前统一 `unknown`。
 - M4b consensus gate triage kernel partial:显式 reviewer panel 可触发纯 consensus aggregation、author exclusion、二段式 quorum、`consensus_verdict`/`consensus_degraded`。
 - M5 deterministic unanimous-approve multi-agent consensus demo:`npm run demo:m5` 使用 fake+fake reviewer path 真走 stdio JSON-RPC daemon wire,覆盖 producer artifact、author exclusion、quorum、findings artifact envelope 和 `artifact_refs:false` inline fallback。该 demo 不表示真实 reviewer provider sessions 或 dissent/timeout demo 已执行。
-- M5b real reviewer execution pilot:显式 reviewer panel 可把非作者 `mcp-codex` reviewer 作为真实 backend 启动。completed vote 必须来自 strict JSON parser/validator,并携带本次执行的 read-only attestation;fake reviewer path 也复用同一 validator。真实 Codex reviewer smoke 默认 SKIP,需 `HOLP_REAL_CODEX_REVIEWER_SMOKE=1`。
+- M5b real reviewer execution pilot:显式 reviewer panel 可把非作者 `mcp-codex` reviewer execution hook 接入 consensus gate。completed vote 必须来自 strict JSON parser/validator,并且本次 runtime selection 必须证明 `read_only_review` ready/enforced;fake reviewer path 也复用同一 validator。当前 Codex declaration 仍 degraded/read_only_not_enforced,真实 Codex reviewer smoke 默认 SKIP,显式开启后若无法证明只读则 INCONCLUSIVE。
 - M6a fake consumer CLI partial:`npm run demo:cli` / `demo:cli:inline` / `demo:cli:degraded` 使用 fake path 真走 stdio JSON-RPC daemon wire,渲染 run/approval/terminal/consensus/artifact report 和 raw/debug frames。`real-reviewer` path 指向 PR9 opt-in smoke。
 
 **参考 daemon 下一步 milestone**:

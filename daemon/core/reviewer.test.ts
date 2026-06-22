@@ -12,6 +12,7 @@ import type {
   AgentMessage,
   AgentMessageHandler,
 } from "../../adapters/agent-backend.js";
+import type { RuntimeSelectionMetadata } from "../../adapters/harness-declaration.js";
 
 const passingAttestation: ReviewerExecutionAttestation = {
   enforced_read_only: true,
@@ -19,6 +20,26 @@ const passingAttestation: ReviewerExecutionAttestation = {
   deny_write_check: "passed",
   review_input_source: "artifact_snapshot",
   sandbox: "read-only",
+};
+
+const readyRuntime: RuntimeSelectionMetadata = {
+  agent_id: "realish",
+  transport: "mcp-codex",
+  runtime_surface: "headless",
+  runtime_kind: "app_server",
+  isolation_profile: "read_only_review",
+  isolation_status: "ready",
+  global_mutation_required: false,
+  declared_not_enforced: false,
+};
+
+const degradedRuntime: RuntimeSelectionMetadata = {
+  ...readyRuntime,
+  isolation_status: "degraded",
+  isolation_reason: "read_only_not_enforced",
+  isolation_missing: ["read_only_enforcement"],
+  isolation_warnings: ["declared_not_enforced"],
+  declared_not_enforced: true,
 };
 
 describe("canonical reviewer output parser", () => {
@@ -110,6 +131,7 @@ describe("reviewer result validation", () => {
         agent_id: "realish",
         transport: "mcp-codex",
         mode: "backend",
+        runtime: readyRuntime,
         backendFactory: () => new OutputBackend([
           {
             type: "model-output",
@@ -147,6 +169,71 @@ describe("reviewer result validation", () => {
     }));
   });
 
+  it("fails closed when backend reviewer runtime is degraded/not enforced", async () => {
+    const ctx = contextWithArtifact(clockNow());
+    const executor = createReviewerExecutor([
+      {
+        agent_id: "degraded",
+        transport: "mcp-codex",
+        mode: "backend",
+        runtime: { ...degradedRuntime, agent_id: "degraded" },
+        backendFactory: () => new OutputBackend([
+          {
+            type: "model-output",
+            fullText: JSON.stringify({
+              verdict: "approve",
+              max_severity: "NONE",
+              findings: [],
+            }),
+          },
+        ]),
+        sandbox: "read-only",
+      },
+    ]);
+
+    const results = await executor({
+      runId: "run_1",
+      goal: "review it",
+      artifactId: "art_diff_run_1",
+      agents: ["degraded"],
+      ctx: ctx.ctx,
+      clock: ctx.clock,
+    });
+
+    expect(results).toEqual([
+      { agent: "degraded", status: "error", reason: "read_only_attestation_failed" },
+    ]);
+  });
+
+  it("fails closed when backend reviewer emits non-JSON prose", async () => {
+    const ctx = contextWithArtifact(clockNow());
+    const executor = createReviewerExecutor([
+      {
+        agent_id: "realish",
+        transport: "mcp-codex",
+        mode: "backend",
+        runtime: readyRuntime,
+        backendFactory: () => new OutputBackend([
+          { type: "model-output", fullText: "Looks good to me." },
+        ]),
+        sandbox: "read-only",
+      },
+    ]);
+
+    const results = await executor({
+      runId: "run_1",
+      goal: "review it",
+      artifactId: "art_diff_run_1",
+      agents: ["realish"],
+      ctx: ctx.ctx,
+      clock: ctx.clock,
+    });
+
+    expect(results).toEqual([
+      { agent: "realish", status: "error", reason: "reviewer_output_not_strict_json" },
+    ]);
+  });
+
   it("maps backend reviewer timeout to a non-completed reviewer result", async () => {
     const ctx = new ConnectionContext();
     const clock = new FakeClock();
@@ -168,6 +255,7 @@ describe("reviewer result validation", () => {
         agent_id: "slow",
         transport: "mcp-codex",
         mode: "backend",
+        runtime: { ...readyRuntime, agent_id: "slow" },
         backendFactory: () => new HangingBackend(),
         sandbox: "read-only",
       },
@@ -186,7 +274,77 @@ describe("reviewer result validation", () => {
       { agent: "slow", status: "timeout", reason: "reviewer_timeout" },
     ]);
   });
+
+  it("preserves completed reviews when total review budget times out pending reviewers", async () => {
+    const ctx = contextWithArtifact(clockNow());
+    const executor = createReviewerExecutor([
+      {
+        agent_id: "fast",
+        transport: "mcp-codex",
+        mode: "backend",
+        runtime: { ...readyRuntime, agent_id: "fast" },
+        backendFactory: () => new OutputBackend([
+          {
+            type: "model-output",
+            fullText: JSON.stringify({
+              verdict: "approve",
+              max_severity: "NONE",
+              findings: [],
+            }),
+          },
+        ]),
+        sandbox: "read-only",
+      },
+      {
+        agent_id: "slow",
+        transport: "mcp-codex",
+        mode: "backend",
+        runtime: { ...readyRuntime, agent_id: "slow" },
+        backendFactory: () => new HangingBackend(),
+        sandbox: "read-only",
+      },
+    ], { reviewerTimeoutMs: 100, totalBudgetMs: 1 });
+
+    const results = await executor({
+      runId: "run_1",
+      goal: "review it",
+      artifactId: "art_diff_run_1",
+      agents: ["fast", "slow"],
+      ctx: ctx.ctx,
+      clock: ctx.clock,
+    });
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        agent: "fast",
+        status: "completed",
+        verdict: "approve",
+      }),
+      { agent: "slow", status: "timeout", reason: "total_review_budget_exhausted" },
+    ]);
+  });
 });
+
+function clockNow(): FakeClock {
+  return new FakeClock();
+}
+
+function contextWithArtifact(clock: FakeClock): { ctx: ConnectionContext; clock: FakeClock } {
+  const ctx = new ConnectionContext();
+  ctx.artifacts.set("art_diff_run_1", {
+    envelope: {
+      artifact_id: "art_diff_run_1",
+      type: "diff",
+      mime: "text/x-diff",
+      size: 8,
+      sha256: "hash",
+      created_by: "test",
+      created_at: clock.now(),
+    },
+    content: "diff --x",
+  });
+  return { ctx, clock };
+}
 
 class OutputBackend implements AgentBackend {
   private handlers: AgentMessageHandler[] = [];

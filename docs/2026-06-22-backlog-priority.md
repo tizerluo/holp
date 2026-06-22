@@ -38,7 +38,7 @@
 #### 1. **Issue #17 + PR9(M5b 真实 reviewer execution pilot)联动 — 已处理**
 
 - **why bundle**:PR9 spec 明示 *"`mcp-codex` reviewer 只有在可用 read-only enforced session 时才可执行"*,而 #17 已把 Codex app-server 从一次性脆弱模型推进到基础 turn recovery,并为后续 read-only sandbox 启动路径留出 adapter option。PR9 已在此基础上补 enforcement attestation + reviewer parser,没有把 default `workspace-write` 当 read-only reviewer。
-- **顺序**:#17 已作为健壮性底盘落地 → PR9 在底盘上接入 `mcp-codex` read-only reviewer pilot
+- **顺序**:#17 已作为健壮性底盘落地 → PR9 在底盘上接入 `mcp-codex` reviewer execution hook + read-only attestation gate;当前 Codex `read_only_review` declaration 仍 degraded 时真实 smoke 只能 INCONCLUSIVE
 - **参考素材**:Issue #17 本身 + Issue #19(codex-native-review 形状)+ happier 最新 Codex runtime recovery 线(`13f701d4e` / `8c9f79f51` / `46ba80464` / `dd4288b12` / `08804d305`),只借 recovery/turn lifecycle 形状,不借 connected-service/account switching
 - **额外参考**:issue-to-pr `739714b` 已把 Codex review 从全关沙箱改成 `codex exec -s read-only -c approval_policy="never"`,并收紧 Claude reviewer `--allowedTools`;这是 PR9/PR11 read-only enforcement attestation 的直接实战素材
 - **收口**:PR9 已补 canonical reviewer parser/validator、read-only attestation 和 opt-in Codex reviewer smoke。剩余阻塞转移到 PR11 的 second provider 接线。
@@ -61,7 +61,7 @@
 
 #### 4. **Issue #17(Codex runtime recovery)的"细分"独立项**
 
-注:#17 基础 runtime recovery 已落地;PR9 已在此基础上补 read-only enforcement attestation 和 canonical reviewer parser。loopwright V2.4 的 failure taxonomy / availability feedback(`fb8a0dd` / `bea0f5c`)已作为 transient / unavailable 分类参考,但没有搬它的整套 orchestrator。
+注:#17 基础 runtime recovery 已落地;PR9 已在此基础上补 read-only enforcement attestation 和 canonical reviewer parser。当前 Codex declaration 仍不能证明 enforced read-only,所以真实 reviewer smoke 必须 fail-closed/INCONCLUSIVE,不能把 degraded runtime 当 completed vote。loopwright V2.4 的 failure taxonomy / availability feedback(`fb8a0dd` / `bea0f5c`)已作为 transient / unavailable 分类参考,但没有搬它的整套 orchestrator。
 
 ### 🟡 P2 — 完整性 / 矩阵化
 

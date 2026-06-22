@@ -118,7 +118,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log("PASS: real Codex reviewer produced a strict JSON completed vote through read-only reviewer pilot.");
+  console.log("PASS: real Codex reviewer produced a strict JSON completed vote through the read-only attestation gate.");
 }
 
 async function dispatch(method: string, params: unknown): Promise<unknown> {

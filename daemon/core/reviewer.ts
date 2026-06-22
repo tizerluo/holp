@@ -209,8 +209,9 @@ export function createReviewerExecutor(
       }),
     );
 
+    let budgetTimer: NodeJS.Timeout | undefined;
     const budgetPromise = new Promise<readonly ConsensusReviewerResult[]>((resolve) => {
-      setTimeout(() => {
+      budgetTimer = setTimeout(() => {
         for (const task of pending.values()) {
           void task.cancel();
           const result = {
@@ -225,6 +226,7 @@ export function createReviewerExecutor(
     });
 
     const results = await Promise.race([resultsPromise, budgetPromise]);
+    if (budgetTimer) clearTimeout(budgetTimer);
     for (const result of results) {
       args.ctx.governance.recordDecision({
         decision_type: "reviewer_execution",
@@ -296,7 +298,7 @@ function startBackendReviewerTask(
   const handler: AgentMessageHandler = (msg) => {
     if (msg.type !== "model-output") return;
     if (typeof msg.fullText === "string") rawText = msg.fullText;
-    if (typeof msg.textDelta === "string") rawText += msg.textDelta;
+    else if (typeof msg.textDelta === "string") rawText += msg.textDelta;
   };
   backend.onMessage(handler);
 
@@ -318,17 +320,7 @@ function startBackendReviewerTask(
       return reviewerResultFromRawOutput({
         agent: config.agent_id,
         rawText,
-        attestation: {
-          enforced_read_only: true,
-          sandbox: config.sandbox,
-          tool_policy: "deny_all_permission_requests",
-          deny_write_check: "passed",
-          review_input_source: "artifact_snapshot",
-          details: {
-            runtime_surface: config.runtime?.runtime_surface,
-            isolation_profile: config.runtime?.isolation_profile,
-          },
-        },
+        attestation: backendReadOnlyAttestation(config),
         runId: args.runId,
         ctx: args.ctx,
         clock: args.clock,
@@ -355,6 +347,30 @@ function startBackendReviewerTask(
     }, backend, () => sessionId),
     async cancel() {
       await cancelBackend(backend, sessionId);
+    },
+  };
+}
+
+function backendReadOnlyAttestation(
+  config: Extract<ReviewerAgentExecutionConfig, { mode: "backend" }>,
+): ReviewerExecutionAttestation {
+  const missing = config.runtime?.isolation_missing ?? [];
+  const enforced = config.runtime?.isolation_status === "ready" &&
+    config.runtime.declared_not_enforced !== true &&
+    !missing.includes("read_only_enforcement");
+  return {
+    enforced_read_only: enforced,
+    sandbox: config.sandbox,
+    tool_policy: "deny_all_permission_requests",
+    deny_write_check: enforced ? "passed" : "not_run",
+    review_input_source: "artifact_snapshot",
+    details: {
+      runtime_surface: config.runtime?.runtime_surface,
+      isolation_profile: config.runtime?.isolation_profile,
+      isolation_status: config.runtime?.isolation_status,
+      isolation_reason: config.runtime?.isolation_reason,
+      isolation_missing: config.runtime?.isolation_missing,
+      declared_not_enforced: config.runtime?.declared_not_enforced,
     },
   };
 }
