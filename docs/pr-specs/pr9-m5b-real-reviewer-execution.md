@@ -1,6 +1,6 @@
 # PR9 SPEC - M5b Real Reviewer Execution Pilot
 
-> 状态:planned。目标是在 PR7 consensus kernel 和 PR8 deterministic fake demo 之后,让显式 reviewer panel 至少能启动一个真实 reviewer backend,产出真实 review result,再进入既有 quorum 聚合。该 PR 是 pilot,不是稳定多 provider review 平台。
+> 状态:implemented as M5b real reviewer execution pilot。显式 reviewer panel 可选择 `mcp-codex` reviewer execution hook;只有 strict parser/validator 与本次 runtime read-only attestation 同时通过时,该 reviewer 输出才会进入既有 quorum 聚合作为 completed vote。当前 Codex `read_only_review` declaration 仍 degraded/read_only_not_enforced,真实 smoke 必须 honest INCONCLUSIVE,不能当 approve。该 PR 是 pilot,不是稳定多 provider review 平台。
 
 ## 目的
 
@@ -11,12 +11,12 @@
 ## 当前代码事实
 
 - PR7 已提供纯 consensus kernel、author exclusion、二段式 quorum、`consensus_verdict` / `consensus_degraded` wire integration。
-- PR8 已提供 `npm run demo:m5`,但 reviewer votes 仍由 fake consensus path 合成。
+- PR8 已提供 `npm run demo:m5`;PR9 后 fake reviewer votes 仍保留为 deterministic fixture,但也必须通过同一 canonical parser/validator 后才能成为 completed vote。
 - `adapters/` 已有通用 `AgentBackendFactory` contract 和 Codex app-server real adapter(`mcp-codex`)。
 - 当前 `mcp-codex` app-server session 默认 `sandbox:"workspace-write"`;adapter 已有 sandbox option 可供后续选择 `read-only`,但其默认 `read_only_review` declaration 仍为 degraded(`read_only_not_enforced`)。PR9 若复用 Codex 当 reviewer,必须补本次执行的只读 enforcement attestation 或 fail-closed,不能把可配置启动参数当成真实只读证明。
-- `runEngine` 已能在 producer 完成后定位 reviewable artifact,并把 fake reviewer findings 写成 artifact envelope 或 inline fallback。
+- `runEngine` 已能在 producer 完成后定位 reviewable artifact,并通过 reviewer executor 产出 findings artifact envelope 或 inline fallback。
 - consensus kernel 已要求 completed vote 必须有明确 verdict/severity;缺字段不能默认为 approve。
-- 真实 reviewer backend 执行、dissent/timeout demo、稳定 gate protocol surface 仍未落地。
+- `mcp-codex` reviewer execution hook 已接入,但真实 completed vote 仍受 runtime read-only attestation gate 约束;第二 provider、真实 dissent/timeout 多 provider demo、稳定 gate protocol surface 仍未落地。
 - declaration readiness 不是 enforcement proof;真实 reviewer 进入 completed vote 前必须有本次执行的 enforcement attestation,证明所选 runtime/profile 确实以只读 reviewer 约束启动。
 
 ## 范围
@@ -59,6 +59,22 @@
   - 记录 reviewer execution decision/event 摘要,但不新增 public governance query API。
   - cost/session_id/provider raw metadata 如需保存,只进内部 decision data;不新增或扩展 public wire event payload。
   - 不改变 existing run terminal event shape。
+
+## 实现说明(PR9)
+
+- 新增 `daemon/core/reviewer.ts` 作为 canonical reviewer 层:
+  - `parseReviewerJsonOutput()` 只接受 trim 后完整 JSON object,拒绝空输出、非 JSON、JSON 前后 prose、缺字段和非法枚举。
+  - `reviewerResultFromRawOutput()` 只有在 parser 成功且 read-only attestation 通过时才返回 `status:"completed"`。
+  - fake reviewer executor 与 real backend reviewer executor 共用同一 parser/validator。
+- `orchestrate.run` 成功创建 run 时挂内部 `reviewerExecutor`:
+  - `fake` reviewer 继续用于 deterministic tests/demo。
+  - `mcp-codex` reviewer 使用独立 `createCodexAppServerBackendFactory({ sandbox:"read-only" })` 实例,但 `sandbox` option 只是启动 hint;completed vote 仍必须由 runtime selection 证明 `read_only_review` ready/enforced。若 declaration 是 degraded/read_only_not_enforced,backend 输出即使是合格 JSON 也必须变成 non-completed error/INCONCLUSIVE。
+  - 其他 transport 在 PR9 内 fail-closed 为 `real_reviewer_transport_not_wired:*`,等待 PR11/后续接线。
+- `runConsensusGate` 只把 author exclusion 后的 eligible reviewers 交给 executor,所以 author reviewer 不会被启动。
+- 新增 `npm run smoke:reviewer:codex`:
+  - 默认 SKIP。
+  - `HOLP_REAL_CODEX_REVIEWER_SMOKE=1` 时跑 fake producer + real `mcp-codex` reviewer。
+  - 只有真实 Codex reviewer 产出严格 JSON,且 runtime attestation 证明 `read_only_review` ready/enforced 时才打印 PASS;缺 binary/auth/quota、不可只读或输出不合格均为 INCONCLUSIVE/FAIL,不冒充通过。
 
 ## 非目标
 

@@ -24,6 +24,7 @@ import type { ApprovalRecord, FlockAgent, RunRecord } from "../core/stores.js";
 import { EventBus } from "../core/eventBus.js";
 import { evidencePayload } from "../core/evidence.js";
 import type { AdapterRegistry } from "../../adapters/registry.js";
+import { createCodexAppServerBackendFactory } from "../../adapters/codex-app-server.js";
 import type { Clock } from "../core/clock.js";
 import type { Scheduler } from "../core/scheduler.js";
 import { driveRun } from "../core/runEngine.js";
@@ -34,6 +35,10 @@ import type {
   OnQuorumUnsatisfiable,
   AuthorProvenance,
 } from "../core/consensus.js";
+import {
+  createReviewerExecutor,
+  type ReviewerAgentExecutionConfig,
+} from "../core/reviewer.js";
 import {
   findRuntimeProfile,
   runtimeSelectionFromDeclaration,
@@ -367,6 +372,11 @@ export function handleOrchestrateRun(
             policy: consensusPolicy,
             producer_agent_id: coderAgentId,
           },
+          reviewerExecutor: createReviewerExecutor(
+            reviewerRuntimeSelections.map((reviewer) =>
+              reviewerExecutionConfig(ctx.flock.get(reviewer.agent_id) as FlockAgent, reviewer.runtime)
+            ),
+          ),
         }
       : {}),
     pendingApprovals: new Set(),
@@ -462,6 +472,39 @@ export function handleOrchestrateRun(
   void driveRun(run, backend, ctx, clock, scheduler);
 
   return { run_id: runId, accepted: true };
+}
+
+function reviewerExecutionConfig(
+  agent: FlockAgent,
+  runtime: RuntimeSelectionMetadata | undefined,
+): ReviewerAgentExecutionConfig {
+  if (agent.transport === "fake") {
+    return {
+      agent_id: agent.id,
+      transport: agent.transport,
+      mode: "fake",
+      runtime,
+    };
+  }
+
+  if (agent.transport === "mcp-codex") {
+    return {
+      agent_id: agent.id,
+      transport: agent.transport,
+      mode: "backend",
+      runtime,
+      backendFactory: createCodexAppServerBackendFactory({ sandbox: "read-only" }),
+      sandbox: "read-only",
+    };
+  }
+
+  return {
+    agent_id: agent.id,
+    transport: agent.transport,
+    mode: "unsupported",
+    runtime,
+    reason: `real_reviewer_transport_not_wired:${agent.transport}`,
+  };
 }
 
 function runtimeKey(agentId: string, role: string): string {

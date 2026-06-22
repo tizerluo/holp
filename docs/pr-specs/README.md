@@ -1,6 +1,6 @@
 # HOLP PR SPEC
 
-这些 SPEC 把 HOLP roadmap 拆成可 review 的 PR。PR1-PR8 覆盖 M0-M5;PR9-PR12 是下一阶段的四个大块,用于把 fake consensus demo 推进到真实 reviewer、consumer 体验、第二真实 provider、runtime/session matrix。
+这些 SPEC 把 HOLP roadmap 拆成可 review 的 PR。PR1-PR9 覆盖 M0-M5b;PR10-PR12 是下一阶段的三个大块,用于把 consumer 体验、第二真实 provider、runtime/session matrix 补齐。
 
 早期 PR 文件保留对应阶段的冻结上下文;下面的当前代码事实随实现进度更新,避免误读为“尚无 daemon/真实 adapter”。
 
@@ -9,6 +9,7 @@
 - 已存在:`protocol/spec.md`、`protocol/version.md`、`docs/positioning.md`、`docs/roadmap.md`、`adapters/`、`daemon/`、`consumers/`、contract tests、`package.json`。
 - 当前 `adapters/` 包含 contract、demo/test fake backend、Codex app-server real adapter;`createDefaultAdapterRegistry()` 把 `"mcp-codex"` 接到 Codex app-server,`native-claude`/`acp` 仍是 stub。
 - `createFakeRegistry()` 保留 M1/M2 demo/test fake path;CLI demo 显式用 fake registry。
+- 当前 `runEngine` 已有 PR9 reviewer executor hook:`fake` reviewer 与 `mcp-codex` reviewer execution hook 都必须通过 canonical parser/validator;真实 backend 还必须通过 runtime read-only attestation gate 后才会成为 completed vote。
 
 ## PR 顺序:已落地基础
 
@@ -20,10 +21,10 @@
 6. [PR6 - M4a Data State Decision Skeleton](./pr6-m4a-data-state-decision.md)
 7. [PR7 - M4b Consensus Gate Triage Kernel](./pr7-m4b-consensus-gate-triage.md)
 8. [PR8 - M5 Multi-Agent Consensus Demo](./pr8-m5-consensus-demo.md)
+9. [PR9 - M5b Real Reviewer Execution Pilot](./pr9-m5b-real-reviewer-execution.md)
 
 ## PR 顺序:下一阶段
 
-9. [PR9 - M5b Real Reviewer Execution Pilot](./pr9-m5b-real-reviewer-execution.md)
 10. [PR10 - M6a Consumer CLI Experience](./pr10-m6a-consumer-cli-experience.md)
 11. [PR11 - M6b Second Real Provider Adapter](./pr11-m6b-second-real-provider.md)
 12. [PR12 - M6c Runtime Surface and Session Matrix](./pr12-m6c-runtime-session-matrix.md)

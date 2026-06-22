@@ -93,8 +93,9 @@ export function parseArgs(argv: readonly string[]): CliOptions {
 
 export async function runCli(options: CliOptions): Promise<number> {
   if (options.scenario === "real-reviewer") {
-    console.log("real reviewer path: unavailable until PR9 lands");
-    console.log("reason: PR10 only renders consumer experience; real reviewer execution remains opt-in/skipped");
+    console.log("real reviewer path: available as an opt-in smoke, not a default interactive CLI scenario");
+    console.log("run: HOLP_REAL_CODEX_REVIEWER_SMOKE=1 npm run smoke:reviewer:codex");
+    console.log("reason: PR9 keeps real provider execution behind explicit opt-in binary/auth/quota/read-only checks");
     return 0;
   }
 
