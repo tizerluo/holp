@@ -99,7 +99,7 @@ adapter 只声明自己能做什么;不能把声明当强制隔离证明。
 
 - headless: CLI / stdio / server adapter。
 - ACP: agent-client-protocol session。
-- direct_user_session: attach / inject / interrupt / cancel 用户会话。
+- direct_user_session: attach / observe / read 观察能力 + inject / interrupt / cancel 控制能力。
 - remote: 远程 runner 或 distributed execution。
 
 这些都是 HOLP 需要覆盖的 surface,只是落地顺序不同。

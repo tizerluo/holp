@@ -14,7 +14,6 @@
 - PR8 fake registry 已展示 `headless` ready,`acp` unsupported,`direct_user_session` unknown 的声明方式。
 - M4a governance store 已能 archive harness registry snapshot。
 - `permission_surface` / `observability_surface` 目前只存在于 internal governance registry,并统一记录为 `unknown`;它们不在 `flock.declare` / `flock.discover` public wire response 中。
-- 当前 direct channel 字段有 attach/inject/interrupt/cancel/owner_scope,但还没有单独表达 observe/read output stream 的字段。PR12 需要补这个词表,否则无法表达 observe-only session。
 - PR12 已把 direct channel 词表补成 attach/observe/read 与 inject/interrupt/cancel 分离;consumer CLI report 已按 observation/control 两组展示。
 - M6 roadmap 提到 cmux adapter、direct user session 示例和 capability negotiation。
 - 真实 ACP/direct session 执行仍未落地。

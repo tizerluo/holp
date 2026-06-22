@@ -602,17 +602,24 @@ JSON-RPC error object:`{ "code": <int>, "message": <string>, "data": {...} }`。
 
 **当前仓已落地**:
 - ✅ 协议 draft(`protocol/`)。
-- ✅ adapter 契约 + 桩(`adapters/`);`fake` transport 仅用于 demo/test。
+- ✅ adapter 契约 + Codex app-server real adapter(`mcp-codex`) + native-claude headless reviewer partial;`fake` transport 仅用于 demo/test,`acp` 仍是 stub。
 - ✅ 参考 daemon 协议骨架(`daemon/`):stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
-- ✅ 参考 consumer CLI(`consumers/cli/`)+ M1 e2e 闭环——**仅用 fake backend**,非真实 provider。
-- ✅ M2 契约回归网(`daemon/handlers/m2_contract.test.ts`):已锁定当前实现的关键 v0.1.4 语义；consensus 执行 / approval 超时 / heartbeat 转交 M3/M4/M5,由 §F 负向锁定当前缺席行为。参考 daemon 代码常量仍按 v0.1.4 contract 运行;v0.1.5 新增的 runtime surface / isolation readiness matrix 由 Issue #11 / PR6+ 承接。
+- ✅ 参考 consumer CLI(`consumers/cli/`)+ M1 e2e 闭环 + M6a fake consumer CLI partial——默认 demo 仍用 `fake` transport。
+- ✅ M2 契约回归网(`daemon/handlers/m2_contract.test.ts`):已锁定当前实现的关键 v0.1.4 语义；approval 超时已由 M4a skeleton 接入正向 contract,显式 reviewer panel 的 consensus kernel 已由 M4b 接入正向 contract,heartbeat 仍转交后续。
+- ✅ M3 首个真实 adapter:`mcp-codex` 接 Codex app-server over stdio,含基础 stdio/turn recovery;真实 provider smoke 取决于本机 Codex binary/auth/quota。
+- ✅ M4a governance data/state/decision skeleton partial:内部 event archive、`decision_made`、harness registry archive、run lifecycle state machine、approval expiry timer。
+- ✅ M4b consensus gate triage kernel partial:纯 consensus aggregation、author exclusion、二段式 quorum、显式 reviewer panel 的 `consensus_verdict`/`consensus_degraded`。
+- ✅ M5 deterministic unanimous-approve fake+fake multi-agent consensus demo:`npm run demo:m5` 真走 stdio JSON-RPC daemon wire,覆盖 findings artifact envelope 和 `artifact_refs:false` inline fallback。
+- ✅ M5b real reviewer execution pilot:`mcp-codex` reviewer execution hook 只有在 strict JSON parser/validator + read-only attestation 通过时才计为 completed vote。
+- ✅ M6b second real provider adapter partial:`native-claude` 通过 Claude Code headless `-p --output-format json` 接入 reviewer path,read-only ready 取决于 enforcement probe evidence。
+- ✅ M6c runtime/session matrix foundation:consumer CLI 从 flock public wire response 渲染 headless/acp/direct_user_session、direct channel observation/control、isolation readiness 和声明风险。
 
 **参考 daemon 下一步 milestone**:
-- ⏳ 从旧 loopwright 搬入:治理内核 / events-decisions-registry 数据骨架 / 共识 / 状态机。
-- ✅ M3 首个真实 adapter:`mcp-codex` 接 Codex app-server over stdio;真实 smoke 取决于本机 Codex binary/auth。
+- ⏳ M7 foundation loop:WorkPlanner / multiround / L0 workflow / step-level JSONL exporter。
+- ⏳ M8-M12:真实 ACP/direct path、stable gate surface、learned router safe lane、dynamic workflow、Remote/distributed HOLP。
 - ❌ 未做(不声称):acp 真接线、direct user session、12-agent 完整矩阵;Web 传输;Remote(wire 不含)。
 
-**当前仓只声称**「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter」。未接线 transport 的 declare/discover 实测 status 仍为 `rejected`;不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session` 三类运行面。
+**当前仓只声称**「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter + v0.1.5 runtime surface/isolation baseline + M4a governance skeleton partial + M4b consensus kernel partial + M5 fake+fake demo + M5b real reviewer pilot + M6a fake consumer CLI partial + M6b native-claude headless reviewer partial + M6c runtime/session matrix foundation」。未接线 transport 的 declare/discover 实测 status 仍为 `rejected`;不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session` 三类运行面,也不声称真实 ACP/direct session、stable gate protocol surface、learned router active、dynamic workflow 或 Remote 已完成。
 
 ### 12.1 adapter 实现约束
 

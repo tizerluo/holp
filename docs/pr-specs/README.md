@@ -1,6 +1,6 @@
 # HOLP PR SPEC
 
-这些 SPEC 把 HOLP roadmap 拆成可 review 的 PR。PR1-PR12 覆盖 M0-M6c,用于把 consumer 体验、第二真实 provider、runtime/session matrix foundation 补齐。
+这些 SPEC 把 HOLP roadmap 拆成可 review 的 PR。PR1-PR12 覆盖 M0-M6c,用于把 consumer 体验、第二真实 provider、runtime/session matrix foundation 补齐。M7 之后的权威路线见 `docs/holp-blueprint.md`。
 
 早期 PR 文件保留对应阶段的冻结上下文;下面的当前代码事实随实现进度更新,避免误读为“尚无 daemon/真实 adapter”。
 
@@ -29,6 +29,17 @@
 10. [PR10 - M6a Consumer CLI Experience](./pr10-m6a-consumer-cli-experience.md)
 11. [PR11 - M6b Second Real Provider Adapter](./pr11-m6b-second-real-provider.md)
 12. [PR12 - M6c Runtime Surface and Session Matrix](./pr12-m6c-runtime-session-matrix.md)
+
+## 后续路线
+
+M7+ 的总路线以 [HOLP Blueprint](../holp-blueprint.md) 为准;具体 PR SPEC 后续从 Blueprint 派生:
+
+- M7 foundation loop: WorkPlanner / multiround / data export。
+- M8 real runtime surfaces: first ACP/direct path。
+- M9 consumer and stable gate surface。
+- M10 learned router safe lane。
+- M11 dynamic workflow。
+- M12 Remote and distributed HOLP。
 
 ## Related issue SPEC
 

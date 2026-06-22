@@ -76,8 +76,9 @@ or cancellable scheduling readiness.
 
 ## cmux / Warp / tmux Boundary
 
-PR12 does not claim a real cmux, Warp, or tmux adapter. A future adapter SPEC
-must cite the exact public documentation, local source path, version, or commit
-that defines its event model before mapping it to HOLP `events.subscribe`.
-Unknown fields must stay `unknown` or `rejected`; the matrix report must not
-invent attach, observe, inject, interrupt, or cancel behavior.
+PR12 does not claim a real cmux, Warp, or tmux adapter. Real ACP/direct paths
+belong to Blueprint M8; stable consumer/gate rendering belongs to Blueprint M9.
+A future adapter SPEC must cite the exact public documentation, local source
+path, version, or commit that defines its event model before mapping it to HOLP
+`events.subscribe`. Unknown fields must stay `unknown` or `rejected`; the matrix
+report must not invent attach, observe, inject, interrupt, or cancel behavior.

@@ -56,6 +56,8 @@ HOLP 采用的启发:
 - 工作流模板和 step history。
 - WorkPlanner 抽象。
 - 训练样本导出与 reward 归因。
+- 第一条真实 ACP/direct session path。
+- stable consumer/gate surface。
 - learned router 的 shadow/replay/active 接入。
 
 因此 learned router 不是下一刀;下一刀是基座。
@@ -80,15 +82,15 @@ HOLP 分层:
 
 ## 4. 路线
 
-最小顺序:
+最小顺序(对齐 `docs/holp-blueprint.md`):
 
-1. 抽 `WorkPlanner` / `RuleWorkPlanner`,单步行为零变化。
-2. 引入多轮 step loop,`max_steps=1` 时等价当前单步 run。
-3. 引入 L0 静态 workflow 模板和 step history。
-4. 导出 step 级 JSONL 训练样本,reward 归因可版本化。
-5. 做离线 replay / eval harness。
-6. 训练并以 shadow mode 接入 `LearnedWorkPlanner`。
-7. 最后才考虑 active learned routing 和半动态/全动态 workflow。
+1. M7 foundation loop:抽 `WorkPlanner` / `RuleWorkPlanner`,引入多轮 step loop、L0 静态 workflow、step history、JSONL exporter 和 reward versioning。
+2. M8 real runtime surfaces:接第一条真实 ACP path 和 direct_user_session path。
+3. M9 consumer and gate surface:把 gate/consensus/runtime/report 做成稳定 consumer 体验。
+4. M10 learned router safe lane:offline replay / eval harness → `LearnedWorkPlanner` shadow → opt-in active/canary。
+5. M11 dynamic workflow:L1 半动态 workflow,再到有证据支撑的 L2 全动态 workflow。
+
+M12 Remote / distributed HOLP 属完整蓝图,不是 router 框架本身的训练/接入步骤。
 
 这条路线的懒人原则: 能用规则跑的先用规则跑;数据不够前不训练;没有 shadow 证据前不 active。
 
@@ -97,7 +99,7 @@ HOLP 分层:
 - 不复刻 Fugu 产品。
 - 不在 HOLP wire 里暴露 provider 私有细节。
 - 不把 learned router 设为必需。
-- 不在当前阶段实现 Conductor 式 L2 全动态 workflow。
-- 不把 ACP/direct session 接入混进 router 基座。
+- 不在 M7/M10 之前实现 Conductor 式 L2 全动态 workflow;L2 是 M11 目标。
+- 不把 ACP/direct session 接入混进 router 基座;它们属于 M8 runtime surface。
 
 一句话: HOLP 是开源、可观测、人在回路上的 orchestration protocol;learned router 只是将来可插拔的派单优化器。

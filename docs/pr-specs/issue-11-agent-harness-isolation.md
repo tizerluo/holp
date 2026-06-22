@@ -27,17 +27,17 @@ HOLP 的协议基准目标不是"今天就完整支持 12 个 agent 的所有运
   - product session:类似 Happy/Happier 的本地/远程 UI 会话,通常需要 message queue、metadata、permission UI、resume/handoff 等产品能力。
   - terminal session:类似 Warp、cmux、tmux 的终端会话。不同工具能力差异很大,可能提供 PTY/tmux attach、input injection、output stream、interrupt/cancel 等子能力;HOLP 必须逐项声明,不能把三者抹平成同一种既有能力。
 
-`direct_user_session` 不是单个 backend adapter 自动具备的能力。它必须显式声明 direct channel 类型、attach/inject/cancel 能力、会话归属和隔离边界。
+`direct_user_session` 不是单个 backend adapter 自动具备的能力。它必须显式声明 direct channel 类型、attach/observe/read 观察能力、inject/interrupt/cancel 控制能力、会话归属和隔离边界。
 
 协议必须能表达三种运行面,但每个 harness 对三种运行面的支持可以分别是 `supported`、`experimental`、`unsupported` 或 `unknown`。
 
 ## 当前代码事实
 
-- PR5/M3 已把 `"mcp-codex"` 接到 Codex app-server over stdio;`native-claude` 和 `acp` 仍是 honest stubs。
+- PR5/M3 已把 `"mcp-codex"` 接到 Codex app-server over stdio;PR11/M6b 已补 `native-claude` headless reviewer partial;`acp` 仍是 honest stub。
 - `AgentBackendOptions` 当前只有 `cwd`、`env`、`modelId`、`permissionHandler`;还没有通用 isolation profile、state declaration、hook/router/global mutation 模型。
 - 真实 Codex smoke 通过临时 workspace、临时 `CODEX_HOME`、复制 auth seed、写入 `notify = []` 来隔离 Codex state 和 workspace 文件副作用。
 - 该 smoke 不等于完整 OS sandbox:进程仍可能继承普通环境变量,网络、Keychain、provider quota、进程树和本机 auth 可见性不由 HOLP 完全隔离。
-- `flock.declare/discover` 当前能报告 binary/auth/probe readiness,但还不能说明某个 harness 在指定 isolation profile 下是 `ready`、`degraded` 还是 `rejected`。
+- PR6/PR12 已让 `flock.declare/discover` 和 consumer matrix report 能表达 runtime surface / isolation profile readiness;真实 ACP/direct session 仍未接线。
 - 当前 HOLP 还没有 Happy/Happier 式产品会话层,也没有 Warp/cmux/tmux 式 terminal attach/inject 会话层。后续若要支持,必须作为显式 `direct_user_session` 运行面接入,不能假设 headless/ACP adapter 天然等同于用户可直接通讯的会话体验。
 
 ## 调研依据
@@ -62,7 +62,7 @@ HOLP 的协议基准目标不是"今天就完整支持 12 个 agent 的所有运
 - `runtime_kind`:具体启动面,例如 app-server、ACP、headless print、MCP bridge、hook router。
 - `runtime_surface`:协议运行面,取 `headless`、`acp`、`direct_user_session` 之一。
 - `runtime_surface_support`:该运行面的支持级别,取 `supported`、`experimental`、`unsupported`、`unknown`。
-- `direct_channel`:当 `runtime_surface=direct_user_session` 时声明 channel 类型,例如 `product_session`、`pty`、`tmux`、`terminal_app`,以及 attach/inject/cancel 是否支持。
+- `direct_channel`:当 `runtime_surface=direct_user_session` 时声明 channel 类型,例如 `product_session`、`pty`、`tmux`、`terminal_app`,以及 attach/observe/read 与 inject/interrupt/cancel 是否支持。
 - `role_fit`:可作为 Architect、Coder、Tester、Reviewer 的默认能力声明。
 
 同一个 agent 可以有多个 runtime kind。Codex 例子:app-server、ACP、headless exec、MCP path 都不能在治理层混成一个不可区分的能力。

@@ -40,7 +40,7 @@
 - Runtime/isolation eligibility validation:
   - reviewer/coder/tester 的 required runtime surface 是否 declared
   - required isolation profile 是否 ready 或 policy 明确接受 degraded
-  - `direct_user_session` 是否声明 attach/inject/interrupt/cancel 能力
+  - `direct_user_session` 是否声明 attach/observe/read 观察能力与 inject/interrupt/cancel 控制能力
   - global mutation risk 是否与 gate policy 兼容
 - 最小 triage/gate hooks:
   - 足够展示 decision 和 approval interaction

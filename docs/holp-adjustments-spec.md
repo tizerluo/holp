@@ -116,13 +116,16 @@ JSONL 样本概念:
 
 ## 7. 与多轮基座的关系
 
-本文件定义单步阶段的最小可插拔点。真正值得训练 learned router 前,还需要 `docs/holp-multiround-base-spec.md` 的多轮基座:
+本文件定义单步阶段的最小可插拔点。M7 foundation loop 还需要 `docs/holp-multiround-base-spec.md` 的多轮基座:
 
 1. `WorkPlanner` 最小接口与规则基线。
 2. 多轮 step loop / workflow / history。
 3. step 级样本导出与 reward。
-4. offline replay / eval harness。
-5. learned router shadow。
-6. active learned routing,必须有 replay + shadow 证据后才允许。
+
+M10 learned router safe lane 再做:
+
+1. offline replay / eval harness。
+2. `LearnedWorkPlanner` shadow。
+3. opt-in active/canary;必须有 replay + shadow 证据后才允许。
 
 一句话: 先把决策点和数据管道铺好,再训练 router。

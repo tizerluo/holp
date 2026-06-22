@@ -143,7 +143,7 @@ type WorkPlan =
 - `orchestrate.run.workflow` 是可选字段;缺省等价当前行为。
 - 不改 approval/consensus/artifact/error model。
 
-## 9. 落地顺序
+## 9. 落地顺序(M7)
 
 1. `WorkPlanner` / `RuleWorkPlanner`,单步行为零变化。
 2. step loop skeleton,默认 `max_steps=1`。
@@ -152,16 +152,22 @@ type WorkPlan =
 5. governance decision snapshot。
 6. step 级 JSONL exporter。
 7. reward attribution versioning。
-8. offline replay / eval harness。
-9. `LearnedWorkPlanner` shadow 接入。
+
+M7 完成后才能进入后续蓝图阶段:
+
+- M8:真实 ACP/direct session path。
+- M9:consumer/gate surface,用于展示和审核多轮/gate 结果。
+- M10:offline replay / eval harness、`LearnedWorkPlanner` shadow、opt-in active/canary。
+- M11:L1 半动态和 L2 全动态 workflow。
+- M12:Remote / distributed HOLP。
 
 ## 10. 非目标
 
 - 不训练 learned router。
 - 不启用 active learned routing。
-- 不做 L2 全动态 workflow。
-- 不接 ACP/direct session。
-- 不做 Remote。
+- 不在本 SPEC 做 L1/L2 dynamic workflow;它们属于 Blueprint M11。
+- 不在本 SPEC 接 ACP/direct session;它们属于 Blueprint M8。
+- 不在本 SPEC 做 Remote;它属于 Blueprint M12。
 - 不破坏单步 run。
 
 一句话: 多轮基座的价值不是“现在就聪明”,而是让 HOLP 开始产生 learned router 真正需要的 per-step 活数据。

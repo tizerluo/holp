@@ -15,7 +15,7 @@
 - daemon 已支持 `initialize`、`flock.declare`、`orchestrate.run`、`events.subscribe`、`approval.resolve`、`task.cancel`、`artifact.get`。
 - approval 单通道、artifact envelope/inline fallback、consensus events 都已存在。
 - cmux/Warp/tmux 等 consumer 仍未接入;M6 roadmap 只要求先有 vendor-neutral 示例。
-- `real-reviewer` path 当前只显示 honest unavailable/skipped;真实 reviewer execution 留给 PR9。
+- `real-reviewer` path 已指向 PR9 opt-in smoke;默认仍可 honest skip / INCONCLUSIVE,不得把未证明的真实 reviewer 当 completed vote。
 
 ## 范围
 
