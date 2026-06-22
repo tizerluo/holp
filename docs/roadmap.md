@@ -237,6 +237,8 @@
 3. PR11/M6b:第二真实 provider adapter,优先补 `native-claude` headless reviewer path,证明 HOLP 不只是 Codex-only。
 4. PR12/M6c:runtime surface/session matrix,把 headless/acp/direct_user_session 的 readiness、direct channel 能力和隔离声明做成 consumer-visible 矩阵。
 
+执行顺序上,PR10 可先基于 fake/M5 consensus path 落地,不必等待 PR9;PR9 完成后再把真实 reviewer opt-in path 接进同一 CLI 体验。PR11 依赖 PR9 的真实 reviewer abstraction / parser / enforcement attestation,PR12 的完整展示价值依赖 PR10 的 CLI 容器和 PR11 的第二 provider matrix。
+
 交付物:
 
 - CLI consumer:开发者本地最小入口。

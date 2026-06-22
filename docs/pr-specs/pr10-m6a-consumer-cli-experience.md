@@ -1,6 +1,6 @@
 # PR10 SPEC - M6a Consumer CLI Experience
 
-> 状态:planned。目标是在真实 reviewer pilot 之后,把 HOLP 从 "daemon 可以跑" 推进到 "开发者可以通过 CLI 看得懂、插得上手、取得到证据"。该 PR 是 consumer experience,不是产品化 UI。
+> 状态:planned。目标是在 M5 deterministic demo 之后,先基于 fake reviewer path 把 HOLP 从 "daemon 可以跑" 推进到 "开发者可以通过 CLI 看得懂、插得上手、取得到证据";PR9 real reviewer pilot 可用后再展示 opt-in real reviewer path。该 PR 是 consumer experience,不是产品化 UI。
 
 ## 目的
 
