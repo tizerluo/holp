@@ -27,8 +27,8 @@ holp/
 🚧 **v0.1.5 draft**(v0.1.4 之后吸收 Issue #11 harness isolation baseline),参考实现进行中。
 
 - [x] 定位(`docs/positioning.md`)
-- [x] 整体规划(`docs/roadmap.md`)
-- [x] PR1-PR8 拆解 SPEC + PR9-PR12 下一阶段 SPEC(`docs/pr-specs/`)
+- [x] 整体规划(`docs/roadmap.md`) + 完整蓝图(`docs/holp-blueprint.md`)
+- [x] PR1-PR12 已落地 SPEC(`docs/pr-specs/`)
 - [x] 协议 spec v0.1.5(`protocol/spec.md`)— 经 v0.1→v0.1.4 迭代后,在 v0.1.5 把 runtime surface / isolation readiness matrix 提升为协议基准
 - [x] 朝下 adapter 契约 + 真实 adapter(`adapters/`)— **mcp-codex 接 Codex app-server,含基础 turn recovery;native-claude 接 Claude Code headless reviewer partial;acp 仍是桩**
 - [x] 参考 daemon 协议骨架(`daemon/`)— stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)
@@ -42,8 +42,16 @@ holp/
 - [x] M5b real reviewer execution pilot— 显式 reviewer panel 已接入 `mcp-codex` reviewer execution hook;completed vote 仍需 runtime read-only attestation 为 ready,真实 smoke 需显式 opt-in
 - [x] M6b second real provider adapter partial— `native-claude` 通过 Claude Code `-p --output-format json` 接入 headless reviewer path;ready 取决于 read-only tool whitelist enforcement probe
 - [x] M6c runtime/session matrix foundation— CLI 从 flock wire 渲染 `headless`/`acp`/`direct_user_session` 矩阵、direct channel observation/control 能力、isolation readiness 和声明风险
-- [ ] 稳定 gate protocol surface / 真实 dissent-timeout 多 provider demo / ACP 或 direct session 真接线
 - [x] 真实 adapter 接线(M3)— **Codex app-server over stdio 注册为 `mcp-codex`;自动覆盖 fake/app-server harness,已补基础 stdio/turn recovery;真实 smoke 依赖本机 Codex auth**
+
+下一阶段(Blueprint M7-M12):
+
+- [ ] M7 foundation loop— `WorkPlanner` / multiround step loop / L0 workflow / step-level JSONL export
+- [ ] M8 real runtime surfaces— 第一条真实 ACP path 和 direct_user_session path
+- [ ] M9 consumer and stable gate surface— stable gate protocol + consumer-facing reports/approval/override/audit
+- [ ] M10 learned router safe lane— replay/eval、shadow、opt-in active/canary
+- [ ] M11 dynamic workflow— L1 半动态和 L2 全动态 workflow
+- [ ] M12 Remote and distributed HOLP— remote runner、declaration health、artifact/event/approval relay
 
 > **当前只声称**:protocol draft + **fake backend 跑通的 M1 协议闭环**(daemon + CLI demo)+ M2 契约层 + **Codex app-server 作为首个真实 adapter**(含基础 stdio/turn recovery,不含多账号 quota 切换)+ v0.1.5 runtime surface/isolation baseline + **M4a governance data/state/decision skeleton partial** + **M4b consensus gate triage kernel partial** + **M5 deterministic unanimous-approve fake+fake multi-agent consensus demo** + **M5b real reviewer execution pilot** + **M6a fake consumer CLI partial** + **M6b native-claude headless reviewer partial** + **M6c runtime/session matrix foundation**。CLI demos 仍显式使用 `fake` transport;真实 Codex/Claude reviewer paths 通过 opt-in smoke 验证,且 read-only enforcement 不可证明时只会 INCONCLUSIVE/degraded;matrix report 只是 `flock.declare`/`flock.discover` wire 的 descriptive projection,不替代 `orchestrate.run` eligibility gate;`acp` 仍是桩,不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实多 provider dissent/timeout reviewer demo、ACP/direct session 真接线、或稳定 gate protocol surface 已完成。
 

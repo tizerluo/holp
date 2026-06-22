@@ -35,7 +35,8 @@
 - M6c runtime/session matrix foundation:consumer CLI 从 `flock.declare`/`flock.discover` public wire response 渲染 `runtime_surfaces` 矩阵,展示 headless/acp/direct_user_session、direct channel observation/control 能力、isolation readiness、global mutation risk、declared_not_enforced 和 state_declaration_ref。该 report 是 descriptive projection,不是 scheduling authority;真实调度仍由 `orchestrate.run` eligibility / isolation gate 决定。
 
 **参考 daemon 下一步 milestone**:
-- 真实 provider dissent/timeout demo、稳定 gate protocol surface。
+- M7 foundation loop:WorkPlanner / multiround / L0 workflow / step-level JSONL exporter。
+- M8-M12:真实 ACP/direct path、stable gate surface、learned router safe lane、dynamic workflow、Remote/distributed HOLP。
 - **未做(不声称)**:acp 真接线、direct user session、12 个 agent 的三类运行面完整支持、Web 传输。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
 
 > 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter(含基础 runtime recovery) + v0.1.5 runtime surface/isolation baseline + M4a governance data/state/decision skeleton partial + M4b consensus kernel partial + M5 deterministic unanimous-approve fake+fake demo + M5b real reviewer execution pilot + M6a fake consumer CLI partial + M6b native-claude headless reviewer partial + M6c runtime/session matrix foundation」,不声称已接 acp 真 agent/direct user session,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实 provider dissent/timeout demo、或稳定 gate protocol surface 已完成。

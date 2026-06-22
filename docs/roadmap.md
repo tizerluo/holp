@@ -2,7 +2,7 @@
 
 > 状态:规划文档,不表示对应实现已经存在。
 > 核查依据:`protocol/spec.md` v0.1.5、`protocol/version.md`、`docs/positioning.md`、`adapters/` 当前实现。
-> PR 拆解:PR1-PR8 覆盖 M0-M5;PR9-PR12 规划下一阶段真实 reviewer、consumer、provider/runtime 扩展。见 `docs/pr-specs/`。
+> PR 拆解:PR1-PR12 覆盖 M0-M6c。M7-M12 后续权威路线见 `docs/holp-blueprint.md`。
 
 ## 当前事实
 
@@ -11,7 +11,7 @@
 - `protocol/spec.md`:v0.1.5 draft,覆盖 stdio JSON-RPC、capability descriptor、flock runtime surface/isolation readiness matrix、orchestrate、events、consensus、approval、task.cancel、artifact、versioning、error model、unattended policy、implementation boundary。
 - `protocol/version.md`:版本规则和 v0.1.5 范围。
 - `docs/positioning.md`:定位、non-goals、设计来源边界。
-- `docs/pr-specs/`:PR1-PR8 已覆盖 M0-M5 拆解;PR9-PR12 已规划真实 reviewer、consumer 体验、第二 provider、runtime/session matrix。
+- `docs/pr-specs/`:PR1-PR12 已覆盖 M0-M6c 拆解;M7+ 不继续沿旧 PR 编号硬拆,以 `docs/holp-blueprint.md` 为准。
 - `adapters/`:朝下 adapter contract + Codex app-server real adapter(`mcp-codex`,含基础 stdio/turn recovery) + native-claude headless reviewer partial；`acp` 仍是 stub,`fake` transport 仅用于 demo/test。
 - `daemon/`:参考 daemon 协议骨架,支持 stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
 - `consumers/cli/`:参考 consumer CLI,可跑通 M1 fake backend 闭环,并提供 M6a fake consumer CLI partial:human-readable run/approval/consensus/artifact report + raw/debug wire view。
@@ -26,11 +26,15 @@
 
 当前仓未落地,也不声称已落地:
 
-- acp 真接线、direct user session。
+- M7 WorkPlanner / multiround step loop / L0 workflow / JSONL exporter。
+- M8 真实 ACP path 和 direct user session path。
+- M9 stable gate protocol surface 和完整 consumer-facing gate/report 体验。
+- M10 learned router replay / shadow / active/canary。
+- M11 L1/L2 dynamic workflow。
+- M12 Remote / distributed HOLP。
+- 完整 ACP/direct/session matrix、真实 provider dissent/timeout、stable gate 等散项分别归入 M8/M9。
 - 12 个 agent 在 `headless` / `acp` / `direct_user_session` 三类运行面的完整 adapter 实现。
-- 真实 provider dissent/timeout demo、稳定 gate protocol surface。
 - Web 传输。
-- Remote execution。
 - cmux/Warp/tmux/direct user session 真实 UI 控制与稳定 event model mapping。
 
 ## 规划原则
@@ -264,13 +268,20 @@
 - 不做产品化 Web app。
 - 不做 SaaS。
 
-## Future:Remote/Web/Stable
+## M7-M12:Blueprint 路线
 
-Remote execution:
+后续主线已移到 `docs/holp-blueprint.md`,这里保留压缩索引:
 
-- 不进入 v0.1.x wire。
-- 独立 proposal 一次性定义 workspace sync、secret scope、artifact transport、network policy、identity、cost/accounting、remote cancellation。
-- 参考 spawn 的 agent x cloud matrix 和 skypilot 的 AI compute/job control plane,但 HOLP 不复制它们。
+- M7 foundation loop: `WorkPlanner` / `RuleWorkPlanner`, `max_steps=1` 兼容, `max_steps>1` L0 workflow, step-level governance snapshot, JSONL exporter, reward attribution versioning。
+- M8 real runtime surfaces:第一条真实 ACP path 和 direct_user_session path,继续保持 unsupported/unknown/rejected 诚实矩阵。
+- M9 consumer and gate surface:stable gate protocol surface,CLI/TUI/external UI 一致渲染,approval/override/audit 单通道。
+- M10 learned router safe lane:learned-router transport / work_planner role,offline replay/eval,shadow,opt-in active/canary。
+- M11 dynamic workflow:L1 半动态 workflow 和有证据支撑的 L2 全动态 workflow。
+- M12 Remote and distributed HOLP:remote runner、harness health/readiness、artifact/event/approval relay,保留 local-first safety。
+
+## Future:Web/Stable
+
+Remote execution 属 Blueprint M12。它不进入 v0.1.x wire;落地时必须作为独立协议扩展定义 workspace sync、secret scope、artifact transport、network policy、identity、cost/accounting、remote cancellation。
 
 Web transport:
 
