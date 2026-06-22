@@ -20,6 +20,9 @@ import {
 const DEFAULT_PROBE_TIMEOUT_MS = 4_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const TURN_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_TURN_RECOVERY_MAX_RETRIES = 1;
+const DEFAULT_TURN_RECOVERY_BACKOFF_MS = 1_000;
+const DEFAULT_USAGE_LIMIT_BACKOFF_MS = 60_000;
 const DEFAULT_CODEX_COMMAND = "codex";
 const DEFAULT_APP_SERVER_ARGS = ["app-server", "--stdio"] as const;
 
@@ -55,10 +58,24 @@ interface CommandResult {
   timedOut: boolean;
 }
 
+type CodexTurnFailureKind = "transient" | "usage_limit" | "fatal" | "cancelled";
+
+interface CodexTurnFailureClassification {
+  readonly kind: CodexTurnFailureKind;
+  readonly reason: string;
+  readonly retryAfterMs: number | null;
+  readonly retryable: boolean;
+}
+
 export interface CodexAppServerBackendOptions {
   readonly command?: string;
   readonly args?: readonly string[];
   readonly probeTimeoutMs?: number;
+  readonly sandbox?: "workspace-write" | "read-only" | (string & {});
+  readonly maxTurnRecoveryRetries?: number;
+  readonly turnRecoveryBackoffMs?: number;
+  readonly usageLimitBackoffMs?: number;
+  readonly recoverySleep?: (ms: number) => Promise<void>;
 }
 
 export function createCodexAppServerBackendFactory(
@@ -248,21 +265,26 @@ async function probeInitialize(
 
 export class CodexAppServerBackend implements AgentBackend {
   private readonly opts: AgentBackendOptions;
+  private readonly options: CodexAppServerBackendOptions;
   private readonly client: AppServerClient;
   private handlers: AgentMessageHandler[] = [];
   private sessionId: string | undefined;
   private pendingTurn: PendingTurn | undefined;
+  private currentTurnHadActivity = false;
   private readonly emittedFileChanges = new Set<string>();
   private cancelled = false;
 
   constructor(opts: AgentBackendOptions, options: CodexAppServerBackendOptions = {}) {
     this.opts = opts;
+    this.options = options;
     this.client = new AppServerClient({
       cwd: opts.cwd,
       env: opts.env,
       options,
       timeoutMs: REQUEST_TIMEOUT_MS,
+      onFrameReceived: (frame) => this.handleClientFrameReceived(frame),
       onFrame: (frame) => this.handleFrame(frame),
+      onProcessFailure: (err) => this.handleClientFailure(err),
     });
   }
 
@@ -275,32 +297,117 @@ export class CodexAppServerBackend implements AgentBackend {
   }
 
   async startSession(initialPrompt?: string): Promise<{ sessionId: string }> {
+    const threadId = await this.startCodexThread("startup");
+    if (initialPrompt) await this.sendPrompt(threadId, initialPrompt);
+    if (!this.sessionId) throw new Error("codex app-server session was not started");
+    return { sessionId: this.sessionId };
+  }
+
+  private async startCodexThread(sessionStartSource: "startup" | "recovery"): Promise<string> {
+    if (this.cancelled) throw new Error("codex run cancelled");
     await this.client.startAndInitialize();
+    if (this.cancelled) {
+      await this.client.dispose();
+      throw new Error("codex run cancelled");
+    }
     const params: JsonObject = {
       cwd: this.opts.cwd,
       runtimeWorkspaceRoots: [this.opts.cwd],
       approvalPolicy: "on-request",
       approvalsReviewer: "user",
-      sandbox: "workspace-write",
+      sandbox: this.options.sandbox ?? "workspace-write",
       ephemeral: true,
-      sessionStartSource: "startup",
+      sessionStartSource,
     };
     if (this.opts.modelId) params.model = this.opts.modelId;
 
     const result = await this.client.request("thread/start", params);
+    if (this.cancelled) {
+      await this.client.dispose();
+      throw new Error("codex run cancelled");
+    }
     const thread = isObject(result) && isObject(result.thread) ? result.thread : undefined;
     const threadId = typeof thread?.id === "string" ? thread.id : undefined;
     if (!threadId) throw new Error("codex app-server thread/start did not return thread.id");
     this.sessionId = threadId;
-
-    if (initialPrompt) await this.sendPrompt(threadId, initialPrompt);
-    return { sessionId: threadId };
+    return threadId;
   }
 
   async sendPrompt(sessionId: string, prompt: string): Promise<void> {
     if (this.cancelled) return;
     if (sessionId !== this.sessionId) throw new Error(`unknown codex session '${sessionId}'`);
 
+    const maxRetries = normalizeRetryCount(this.options.maxTurnRecoveryRetries, DEFAULT_TURN_RECOVERY_MAX_RETRIES);
+    let attempts = 0;
+    let firstRecoverableFailure: Error | undefined;
+
+    while (true) {
+      if (this.cancelled) return;
+      try {
+        await this.sendPromptAttempt(this.sessionId, prompt);
+        return;
+      } catch (err) {
+        const failure = err instanceof Error ? err : new Error(String(err));
+        const classification = classifyCodexTurnFailure(failure, {
+          cancelled: this.cancelled,
+          hadActivity: this.currentTurnHadActivity,
+          recoveryBackoffMs: this.options.turnRecoveryBackoffMs ?? DEFAULT_TURN_RECOVERY_BACKOFF_MS,
+          usageLimitBackoffMs: this.options.usageLimitBackoffMs ?? DEFAULT_USAGE_LIMIT_BACKOFF_MS,
+        });
+
+        if (!classification.retryable || attempts >= maxRetries) {
+          if (classification.kind === "cancelled") return;
+          this.emit({
+            type: "event",
+            name: "codex_recovery_exhausted",
+            payload: {
+              kind: classification.kind,
+              reason: classification.reason,
+              attempts,
+              max_retries: maxRetries,
+            },
+          });
+          throw firstRecoverableFailure ?? failure;
+        }
+
+        firstRecoverableFailure ??= failure;
+        attempts += 1;
+        this.emit({
+          type: "event",
+          name: "codex_recovery_waiting",
+          payload: {
+            kind: classification.kind,
+            reason: classification.reason,
+            attempt: attempts,
+            max_retries: maxRetries,
+            retry_after_ms: classification.retryAfterMs,
+          },
+        });
+        await this.sleepBeforeRecovery(classification.retryAfterMs);
+        if (this.cancelled) return;
+        await this.client.dispose();
+        if (this.cancelled) return;
+        try {
+          await this.startCodexThread("recovery");
+        } catch (err) {
+          if (this.cancelled) return;
+          throw err;
+        }
+        if (this.cancelled) {
+          await this.client.dispose();
+          return;
+        }
+        this.emit({
+          type: "event",
+          name: "codex_recovery_restarted",
+          payload: { attempt: attempts, max_retries: maxRetries },
+        });
+      }
+    }
+  }
+
+  private async sendPromptAttempt(sessionId: string, prompt: string): Promise<void> {
+    this.currentTurnHadActivity = false;
     const turnPromise = new Promise<void>((resolve, reject) => {
       this.pendingTurn = {
         resolve,
@@ -317,6 +424,7 @@ export class CodexAppServerBackend implements AgentBackend {
         runtimeWorkspaceRoots: [this.opts.cwd],
         approvalPolicy: "on-request",
         approvalsReviewer: "user",
+        sandbox: this.options.sandbox ?? "workspace-write",
         model: this.opts.modelId ?? null,
       });
       const turn = isObject(result) && isObject(result.turn) ? result.turn : undefined;
@@ -331,8 +439,19 @@ export class CodexAppServerBackend implements AgentBackend {
       await turnPromise;
     } catch (err) {
       this.failTurn(err instanceof Error ? err : new Error(String(err)));
-      throw err;
+      await turnPromise.catch(() => {});
+      throw err instanceof Error ? err : new Error(String(err));
     }
+  }
+
+  private async sleepBeforeRecovery(ms: number | null): Promise<void> {
+    const delayMs = typeof ms === "number" && Number.isFinite(ms) && ms > 0 ? Math.trunc(ms) : 0;
+    if (delayMs <= 0) return;
+    if (this.options.recoverySleep) {
+      await this.options.recoverySleep(delayMs);
+      return;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
   }
 
   async waitForResponseComplete(timeoutMs = TURN_TIMEOUT_MS): Promise<void> {
@@ -357,9 +476,13 @@ export class CodexAppServerBackend implements AgentBackend {
 
   async cancel(sessionId: string): Promise<void> {
     this.cancelled = true;
-    if (sessionId === this.sessionId) {
-      await this.client.request("turn/interrupt", { threadId: sessionId }).catch(() => {});
+    const activeSessionId = this.sessionId;
+    // Recovery can replace the original returned thread id; this backend is
+    // single-session, so cancellation targets the one active Codex thread.
+    if (activeSessionId && this.client.isRunning()) {
+      await this.client.request("turn/interrupt", { threadId: activeSessionId }).catch(() => {});
     }
+    void sessionId;
     this.failTurn(new Error("codex run cancelled"));
     await this.client.dispose();
   }
@@ -384,6 +507,10 @@ export class CodexAppServerBackend implements AgentBackend {
     this.handleNotification(frame.method, frame.params);
   }
 
+  private handleClientFrameReceived(frame: AppFrame): void {
+    if (this.pendingTurn && isMeaningfulTurnActivityFrame(frame)) this.currentTurnHadActivity = true;
+  }
+
   private handleNotification(method: string, params: unknown): void {
     switch (method) {
       case "turn/started":
@@ -393,15 +520,19 @@ export class CodexAppServerBackend implements AgentBackend {
         this.handleTurnCompleted(params);
         break;
       case "item/agentMessage/delta":
+        this.markTurnActivity();
         this.emit({ type: "model-output", textDelta: stringField(params, "delta") });
         break;
       case "item/started":
+        this.markTurnActivity();
         this.handleItemStarted(params);
         break;
       case "item/completed":
+        this.markTurnActivity();
         this.handleItemCompleted(params);
         break;
       case "item/fileChange/patchUpdated":
+        this.markTurnActivity();
         this.handlePatchUpdated(params);
         break;
       case "item/commandExecution/outputDelta":
@@ -410,6 +541,7 @@ export class CodexAppServerBackend implements AgentBackend {
       case "process/outputDelta":
       case "process/exited":
       case "item/commandExecution/terminalInteraction":
+        this.markTurnActivity();
         this.emit({ type: "event", name: method, payload: params });
         break;
       case "error":
@@ -424,6 +556,7 @@ export class CodexAppServerBackend implements AgentBackend {
 
   private async handleServerRequest(frame: AppFrame): Promise<void> {
     const method = frame.method as string;
+    this.markTurnActivity();
     try {
       switch (method) {
         case "item/commandExecution/requestApproval":
@@ -619,6 +752,14 @@ export class CodexAppServerBackend implements AgentBackend {
     this.pendingTurn = undefined;
     pending.reject(err);
   }
+
+  private handleClientFailure(err: Error): void {
+    this.failTurn(err);
+  }
+
+  private markTurnActivity(): void {
+    if (this.pendingTurn) this.currentTurnHadActivity = true;
+  }
 }
 
 class AppServerClient {
@@ -626,7 +767,9 @@ class AppServerClient {
   private readonly env: Readonly<Record<string, string>> | undefined;
   private readonly options: CodexAppServerBackendOptions;
   private readonly timeoutMs: number;
+  private readonly onFrameReceived?: (frame: AppFrame) => void;
   private readonly onFrame?: (frame: AppFrame) => void | Promise<void>;
+  private readonly onProcessFailure?: (err: Error) => void;
   private child: ChildProcessWithoutNullStreams | undefined;
   private lines: ReadlineInterface | undefined;
   private pending = new Map<RequestId, PendingRequest>();
@@ -639,13 +782,17 @@ class AppServerClient {
     env?: Readonly<Record<string, string>>;
     options?: CodexAppServerBackendOptions;
     timeoutMs: number;
+    onFrameReceived?: (frame: AppFrame) => void;
     onFrame?: (frame: AppFrame) => void | Promise<void>;
+    onProcessFailure?: (err: Error) => void;
   }) {
     this.cwd = opts.cwd;
     this.env = opts.env;
     this.options = opts.options ?? {};
     this.timeoutMs = opts.timeoutMs;
+    this.onFrameReceived = opts.onFrameReceived;
     this.onFrame = opts.onFrame;
+    this.onProcessFailure = opts.onProcessFailure;
   }
 
   async startAndInitialize(): Promise<unknown> {
@@ -683,6 +830,10 @@ class AppServerClient {
 
   notify(method: string, params?: unknown): void {
     this.write(params === undefined ? { method } : { method, params });
+  }
+
+  isRunning(): boolean {
+    return this.child !== undefined && !this.child.killed;
   }
 
   async drainFrames(graceMs = 25): Promise<void> {
@@ -724,9 +875,12 @@ class AppServerClient {
       this.stderr += String(chunk);
       if (this.stderr.length > 8_000) this.stderr = this.stderr.slice(-8_000);
     });
-    child.on("error", (err) => this.rejectAll(err));
-    child.on("exit", (code, signal) => {
-      this.rejectAll(new Error(`codex app-server exited code=${code ?? "null"} signal=${signal ?? "null"} ${this.stderr}`.trim()));
+    child.on("error", (err) => this.handleProcessFailure(child, err));
+    child.on("close", (code, signal) => {
+      this.handleProcessFailure(
+        child,
+        new Error(`codex app-server exited code=${code ?? "null"} signal=${signal ?? "null"} ${this.stderr}`.trim()),
+      );
     });
   }
 
@@ -749,6 +903,7 @@ class AppServerClient {
       }
       return;
     }
+    this.onFrameReceived?.(frame);
     this.enqueueFrame(frame);
   }
 
@@ -774,6 +929,80 @@ class AppServerClient {
       this.pending.delete(id);
     }
   }
+
+  private handleProcessFailure(child: ChildProcessWithoutNullStreams, err: Error): void {
+    if (this.child === child) {
+      this.child = undefined;
+      this.lines?.close();
+      this.lines = undefined;
+    }
+    this.rejectAll(err);
+    this.onProcessFailure?.(err);
+  }
+}
+
+function classifyCodexTurnFailure(
+  err: Error,
+  input: {
+    cancelled: boolean;
+    hadActivity: boolean;
+    recoveryBackoffMs: number;
+    usageLimitBackoffMs: number;
+  },
+): CodexTurnFailureClassification {
+  const message = err.message;
+  const lower = message.toLowerCase();
+  if (input.cancelled || lower.includes("cancelled") || lower.includes("disposed")) {
+    return { kind: "cancelled", reason: "codex_turn_cancelled", retryAfterMs: null, retryable: false };
+  }
+  if (isUsageLimitError(lower)) {
+    return {
+      kind: "usage_limit",
+      reason: "codex_usage_limit",
+      retryAfterMs: normalizeBackoffMs(input.usageLimitBackoffMs),
+      retryable: !input.hadActivity,
+    };
+  }
+  if (input.hadActivity) {
+    return {
+      kind: "fatal",
+      reason: "codex_turn_failed_after_activity",
+      retryAfterMs: null,
+      retryable: false,
+    };
+  }
+  if (isTransientTurnError(lower)) {
+    return {
+      kind: "transient",
+      reason: "codex_transient_runtime_failure",
+      retryAfterMs: normalizeBackoffMs(input.recoveryBackoffMs),
+      retryable: true,
+    };
+  }
+  return { kind: "fatal", reason: "codex_turn_failure", retryAfterMs: null, retryable: false };
+}
+
+function isUsageLimitError(message: string): boolean {
+  return /usage limit|rate limit|too many requests|\b429\b|quota|exhausted/.test(message);
+}
+
+function isTransientTurnError(message: string): boolean {
+  return /app-server exited|sigkill|sigterm|econnreset|epipe|app-server request '[^']+' timed out|bad gateway|service unavailable|overloaded|temporar/.test(message);
+}
+
+function isMeaningfulTurnActivityFrame(frame: AppFrame): boolean {
+  if (typeof frame.method !== "string") return false;
+  if (frame.id !== undefined) return true;
+  return frame.method !== "turn/started" && frame.method !== "turn/completed";
+}
+
+function normalizeRetryCount(value: number | undefined, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.trunc(value));
+}
+
+function normalizeBackoffMs(value: number): number {
+  return Math.max(0, Math.trunc(Number.isFinite(value) ? value : 0));
 }
 
 async function runBounded(command: string, args: string[], opts: { cwd: string; timeoutMs: number }): Promise<CommandResult> {

@@ -123,6 +123,7 @@ export interface AgentBackend {
   /** 单 session 约束:同一 backend 实例只有一个活跃 session。 */
   startSession(initialPrompt?: string): Promise<{ sessionId: string }>;
   sendPrompt(sessionId: string, prompt: string): Promise<void>;
+  /** 取消当前活跃 session; 单 session backend 可能忽略过期的 sessionId。 */
   cancel(sessionId: string): Promise<void>;
   onMessage(handler: AgentMessageHandler): void;
   offMessage?(handler: AgentMessageHandler): void;
