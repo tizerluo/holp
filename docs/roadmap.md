@@ -12,7 +12,7 @@
 - `protocol/version.md`:版本规则和 v0.1.5 范围。
 - `docs/positioning.md`:定位、non-goals、设计来源边界。
 - `docs/pr-specs/`:PR1-PR8 已覆盖 M0-M5 拆解;PR9-PR12 已规划真实 reviewer、consumer 体验、第二 provider、runtime/session matrix。
-- `adapters/`:朝下 adapter contract + Codex app-server real adapter(`mcp-codex`,含基础 stdio/turn recovery) + native-claude/acp stub；`fake` transport 仅用于 demo/test。
+- `adapters/`:朝下 adapter contract + Codex app-server real adapter(`mcp-codex`,含基础 stdio/turn recovery) + native-claude headless reviewer partial；`acp` 仍是 stub,`fake` transport 仅用于 demo/test。
 - `daemon/`:参考 daemon 协议骨架,支持 stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
 - `consumers/cli/`:参考 consumer CLI,可跑通 M1 fake backend 闭环,并提供 M6a fake consumer CLI partial:human-readable run/approval/consensus/artifact report + raw/debug wire view。
 - M1 e2e 闭环:`initialize -> flock.declare -> orchestrate.run -> events.subscribe -> approval.resolve -> artifact.get`。**fake backend,非真实 provider**。
@@ -20,13 +20,14 @@
 - M5 deterministic unanimous-approve fake+fake multi-agent consensus demo:`npm run demo:m5` 通过 stdio daemon wire 跑通 producer artifact、author exclusion、quorum、`consensus_verdict`、findings artifact envelope 和 `artifact_refs:false` inline fallback。
 - M5b real reviewer execution pilot:显式 reviewer panel 可把非作者 `mcp-codex` reviewer execution hook 接入 consensus gate。completed vote 必须经过严格 JSON parser/validator,且本次 runtime selection 必须证明 `read_only_review` ready/enforced;fake reviewer path 也走同一个 validator。当前 Codex declaration 仍 degraded/read_only_not_enforced,真实 Codex reviewer smoke 默认 SKIP,显式开启后若无法证明只读则 INCONCLUSIVE。
 - M6a fake consumer CLI partial:`npm run demo:cli` / `demo:cli:inline` / `demo:cli:degraded` 通过 stdio daemon wire 跑通 fake single/consensus/degraded paths,展示 runtime/isolation metadata、approval、terminal event、consensus report、artifact refs/inline fallback 和 raw/debug frames。real reviewer CLI 入口指向 PR9 opt-in smoke。
+- M6b second real provider adapter partial:`native-claude` 通过 Claude Code headless `-p --output-format json` 接入 reviewer path;outer Claude CLI JSON 与 inner reviewer JSON 双层 fail-closed,read-only reviewer ready 取决于 whitelist/deny-write evidence probe。
 - 参考 daemon 代码常量仍按 v0.1.4 contract 运行;v0.1.5 是当前协议基准修订,PR6+ 必须承接 runtime surface / isolation readiness matrix。
 
 当前仓未落地,也不声称已落地:
 
-- native-claude/acp 真接线。
+- acp 真接线、direct user session。
 - 12 个 agent 在 `headless` / `acp` / `direct_user_session` 三类运行面的完整 adapter 实现。
-- 第二真实 provider reviewer、真实 provider dissent/timeout demo、稳定 gate protocol surface。
+- 真实 provider dissent/timeout demo、稳定 gate protocol surface。
 - Web 传输。
 - Remote execution。
 
@@ -98,7 +99,7 @@
 
 非目标:
 
-- 不接 native-claude/acp 真 agent;`mcp-codex` 已在 M3 接 Codex app-server。
+- 不接 ACP/direct session 真 agent;`mcp-codex` 已在 M3 接 Codex app-server,`native-claude` 已在 M6b 接 headless reviewer partial。
 - 不做持久化数据库。
 - 不做 WebSocket。
 
@@ -143,12 +144,12 @@
 
 ## M3:First Real Adapter
 
-目标:只接通一家真实 agent,验证 adapter contract 和 permission resume 语义。当前实现选择 **Codex app-server over stdio**,注册为 HOLP transport `"mcp-codex"`;`native-claude`/`acp` 仍是桩。
+目标:先接通真实 agent,验证 adapter contract 和 permission/reviewer 语义。当前实现选择 **Codex app-server over stdio**,注册为 HOLP transport `"mcp-codex"`;并补了 **native-claude headless reviewer partial**。`acp` 仍是桩。
 
 建议顺序:
 
 1. Codex 优先:更适合作为 CLI/MCP 形状的首个协议测试对象。
-2. Claude 第二:补 native-claude/SDK 形状。
+2. Claude 第二:已补 native-claude headless reviewer partial;SDK/ACP/direct session 仍不做。
 3. ACP 第三:等前两者证明 adapter contract 稳定后再接。
 
 交付物:
@@ -176,7 +177,7 @@
 
 ## M4:Governance Kernel Import
 
-> 状态(PR6/M4a + PR7/M4b + PR8/M5 + PR9/M5b):data/state/decision skeleton partial 已落地:内部 event archive、`decision_made`、harness registry archive、run lifecycle state machine、approval expiry timer。M4b 已接入纯 consensus kernel、author exclusion、二段式 quorum 和显式 reviewer panel 的 `consensus_verdict`/`consensus_degraded`。M5 已补 deterministic fake+fake demo,展示 findings artifact envelope / inline fallback。M5b 已补 `mcp-codex` reviewer execution hook,但只在 runtime read-only attestation + strict JSON validator 通过时计入 completed vote;当前 Codex profile degraded 时会 fail-closed/INCONCLUSIVE。`permission_surface` / `observability_surface` 仍作为保留列记录为 `unknown`;第二真实 provider 和稳定 gate protocol surface 仍未落地。
+> 状态(PR6/M4a + PR7/M4b + PR8/M5 + PR9/M5b + PR11/M6b):data/state/decision skeleton partial 已落地:内部 event archive、`decision_made`、harness registry archive、run lifecycle state machine、approval expiry timer。M4b 已接入纯 consensus kernel、author exclusion、二段式 quorum 和显式 reviewer panel 的 `consensus_verdict`/`consensus_degraded`。M5 已补 deterministic fake+fake demo,展示 findings artifact envelope / inline fallback。M5b 已补 `mcp-codex` reviewer execution hook,但只在 runtime read-only attestation + strict JSON validator 通过时计入 completed vote;当前 Codex profile degraded 时会 fail-closed/INCONCLUSIVE。M6b 已补 `native-claude` headless reviewer partial,但 read-only ready 取决于 enforcement probe evidence。`permission_surface` / `observability_surface` 仍作为保留列记录为 `unknown`;稳定 gate protocol surface 仍未落地。
 
 目标:从 loopwright 挑拷纯逻辑治理内核,不要搬整个旧仓。
 
@@ -237,7 +238,7 @@
 
 1. PR9/M5b:真实 reviewer execution pilot 已落地为 `mcp-codex` reviewer execution hook + strict parser/attestation gate;只有 read-only attestation ready 时才会把真实 backend 输出计为 completed vote。
 2. PR10/M6a:consumer CLI experience 已落地 fake partial,让开发者能发起 fake run、处理 approval、查看 artifact 和 consensus report;real reviewer path 指向 PR9 opt-in smoke。
-3. PR11/M6b:第二真实 provider adapter,优先补 `native-claude` headless reviewer path,证明 HOLP 不只是 Codex-only。
+3. PR11/M6b:第二真实 provider adapter 已补 `native-claude` headless reviewer partial,证明 HOLP 不只是 Codex-only。
 4. PR12/M6c:runtime surface/session matrix,把 headless/acp/direct_user_session 的 readiness、direct channel 能力和隔离声明做成 consumer-visible 矩阵。
 
 执行顺序上,PR10 已先基于 fake/M5 consensus path 落地,PR9 随后补真实 reviewer abstraction / parser / enforcement attestation 和 opt-in Codex reviewer smoke。PR11 依赖 PR9 的真实 reviewer abstraction / parser / enforcement attestation,PR12 的完整展示价值依赖 PR10 的 CLI 容器和 PR11 的第二 provider matrix。

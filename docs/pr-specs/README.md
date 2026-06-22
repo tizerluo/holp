@@ -7,7 +7,7 @@
 当前代码事实:
 
 - 已存在:`protocol/spec.md`、`protocol/version.md`、`docs/positioning.md`、`docs/roadmap.md`、`adapters/`、`daemon/`、`consumers/`、contract tests、`package.json`。
-- 当前 `adapters/` 包含 contract、demo/test fake backend、Codex app-server real adapter;`createDefaultAdapterRegistry()` 把 `"mcp-codex"` 接到 Codex app-server,`native-claude`/`acp` 仍是 stub。
+- 当前 `adapters/` 包含 contract、demo/test fake backend、Codex app-server real adapter 和 native-claude headless reviewer partial;`createDefaultAdapterRegistry()` 把 `"mcp-codex"` 接到 Codex app-server、把 `"native-claude"` 接到 Claude Code `-p --output-format json`;`acp` 仍是 stub。
 - `createFakeRegistry()` 保留 M1/M2 demo/test fake path;CLI demo 显式用 fake registry。
 - 当前 `runEngine` 已有 PR9 reviewer executor hook:`fake` reviewer 与 `mcp-codex` reviewer execution hook 都必须通过 canonical parser/validator;真实 backend 还必须通过 runtime read-only attestation gate 后才会成为 completed vote。
 

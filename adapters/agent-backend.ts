@@ -6,7 +6,8 @@
  *
  * 设计借自 happier 的 AgentBackend 接口(`apps/cli/src/agent/core/AgentBackend.ts`)
  * 与 ExecutionRunBackendFactory(`apps/cli/src/agent/executionRuns/registry/`)。
- * v0.1.x 参考实现已将 mcp-codex 接到 Codex app-server;native-claude/acp 仍是桩。
+ * v0.1.x 参考实现已将 mcp-codex 接到 Codex app-server,并将 native-claude
+ * 接到 Claude Code headless reviewer partial;acp 仍是桩。
  * 后续 provider 接线可通过 wrapper 或抽取包复用 happier backend 模块。
  *
  * 关键接缝(对应协议能力):

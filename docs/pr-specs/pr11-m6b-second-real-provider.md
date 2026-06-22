@@ -1,6 +1,6 @@
 # PR11 SPEC - M6b Second Real Provider Adapter
 
-> 状态:planned。目标是在 Codex app-server 之外接入第二个真实 provider,优先选择 `native-claude` headless reviewer path。该 PR 证明 adapter contract 不是 Codex-only,但不追求 12-agent 完整矩阵。
+> 状态:implemented as M6b second real provider adapter partial。`native-claude` 通过 Claude Code headless `-p --output-format json` 接入 reviewer path。该 PR 证明 adapter contract 不是 Codex-only,但不追求 12-agent 完整矩阵,不接 ACP/direct session。
 
 ## 目的
 
@@ -9,9 +9,9 @@
 ## 当前代码事实
 
 - `mcp-codex` 已是首个真实 adapter。
-- `native-claude` / `acp` 仍是 stub。
-- PR9 预计提供真实 reviewer execution pilot。
-- PR10 预计提供 consumer-facing CLI,能展示 reviewer selection、approval、artifact、consensus report。
+- `native-claude` 已接 Claude Code headless reviewer partial;`acp` 仍是 stub。
+- PR9 已提供真实 reviewer execution pilot 和 canonical parser/attestation gate。
+- PR10 已提供 consumer-facing CLI,能展示 reviewer selection、approval、artifact、consensus report。
 - runtime surface / isolation readiness matrix 已是 v0.1.5 基准,新增 provider 不能退回 transport/status-only。
 - Claude Code headless 的可用入口是 `claude -p`;Claude Code 无官方 ACP,但有自有 stream-json / JSON output、OAuth/user settings、`--allowedTools`、`--permission-mode`、`--model` 等驱动面。
 
