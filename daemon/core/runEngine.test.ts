@@ -4,6 +4,7 @@ import { EventBus } from "./eventBus.js";
 import { FakeClock } from "./clock.js";
 import { FakeScheduler } from "./scheduler.js";
 import { driveRun } from "./runEngine.js";
+import { reviewerResultFromRawOutput } from "./reviewer.js";
 import type { RunRecord } from "./stores.js";
 import type {
   AgentBackend,
@@ -91,6 +92,84 @@ describe("driveRun real-backend event forwarding", () => {
       "waiting_approval",
       "merged",
     ]);
+  });
+
+  it("executes reviewer votes only after author exclusion", async () => {
+    const clock = new FakeClock();
+    const scheduler = new FakeScheduler();
+    const ctx = new ConnectionContext();
+    ctx.initialized = {
+      protocolVersion: "0.1.4",
+      clientName: "run-engine-test",
+      clientVersion: "0",
+      negotiated: {
+        consensus: { supported: true },
+        approval: { supported: true, kinds: ["merge_approval"] },
+        artifact_refs: { supported: false },
+        unattended_loop: { supported: false },
+      },
+    };
+    const bus = new EventBus("run_consensus", clock);
+    const calledAgents: string[] = [];
+    const run: RunRecord = {
+      run_id: "run_consensus",
+      goal: "produce a diff",
+      trigger: "manual",
+      status: "active",
+      bus,
+      consensus: {
+        panel: [{ agent_id: "author" }, { agent_id: "r1" }],
+        quorum: 1,
+        policy: {
+          exclude_author: true,
+          author_provenance: "produced_by_agent_id",
+          on_quorum_unsatisfiable: "reject",
+        },
+        producer_agent_id: "author",
+      },
+      reviewerExecutor: async (args) => {
+        calledAgents.push(...args.agents);
+        return args.agents.map((agent) =>
+          reviewerResultFromRawOutput({
+            agent,
+            rawText: JSON.stringify({
+              verdict: "approve",
+              max_severity: "NONE",
+              findings: [],
+            }),
+            attestation: {
+              enforced_read_only: true,
+              tool_policy: "test",
+              deny_write_check: "passed",
+              review_input_source: "artifact_snapshot",
+            },
+            runId: args.runId,
+            ctx: args.ctx,
+            clock: args.clock,
+            generatedBy: "test",
+          })
+        );
+      },
+      pendingApprovals: new Set(),
+      approvalSeq: 0,
+    };
+    const backend = new MessageBackend([
+      {
+        type: "fs-edit",
+        description: "diff",
+        diff: "--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n",
+      },
+    ]);
+
+    await driveRun(run, backend, ctx, clock, scheduler);
+
+    expect(calledAgents).toEqual(["r1"]);
+    const verdict = bus.allEvents().find((event) => event.name === "consensus_verdict");
+    expect(verdict?.payload).toMatchObject({
+      excluded: [{ agent: "author", reason: "produced_by_agent_id (author)" }],
+      reviews: [{ agent: "r1", status: "completed" }],
+      quorum: { required: 1, eligible: 1, met: true },
+    });
   });
 });
 

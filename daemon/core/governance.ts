@@ -17,6 +17,7 @@ export type DecisionType =
   | "approval_resolved"
   | "approval_expired"
   | "approval_cancelled"
+  | "reviewer_execution"
   | "consensus_verdict"
   | "consensus_degraded"
   | "run_terminal";

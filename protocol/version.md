@@ -29,13 +29,14 @@
 - M4a governance data/state/decision skeleton partial:内部记录 events、`decision_made`、harness registry runtime/isolation matrix、run lifecycle state machine,并实现 approval expiry timer。该层无 public query API;`permission_surface` / `observability_surface` 为保留列且当前统一 `unknown`。
 - M4b consensus gate triage kernel partial:显式 reviewer panel 可触发纯 consensus aggregation、author exclusion、二段式 quorum、`consensus_verdict`/`consensus_degraded`。
 - M5 deterministic unanimous-approve multi-agent consensus demo:`npm run demo:m5` 使用 fake+fake reviewer path 真走 stdio JSON-RPC daemon wire,覆盖 producer artifact、author exclusion、quorum、findings artifact envelope 和 `artifact_refs:false` inline fallback。该 demo 不表示真实 reviewer provider sessions 或 dissent/timeout demo 已执行。
-- M6a fake consumer CLI partial:`npm run demo:cli` / `demo:cli:inline` / `demo:cli:degraded` 使用 fake path 真走 stdio JSON-RPC daemon wire,渲染 run/approval/terminal/consensus/artifact report 和 raw/debug frames。`real-reviewer` path 当前只显示 honest unavailable/skipped,等待 PR9。
+- M5b real reviewer execution pilot:显式 reviewer panel 可把非作者 `mcp-codex` reviewer 作为真实 backend 启动。completed vote 必须来自 strict JSON parser/validator,并携带本次执行的 read-only attestation;fake reviewer path 也复用同一 validator。真实 Codex reviewer smoke 默认 SKIP,需 `HOLP_REAL_CODEX_REVIEWER_SMOKE=1`。
+- M6a fake consumer CLI partial:`npm run demo:cli` / `demo:cli:inline` / `demo:cli:degraded` 使用 fake path 真走 stdio JSON-RPC daemon wire,渲染 run/approval/terminal/consensus/artifact report 和 raw/debug frames。`real-reviewer` path 指向 PR9 opt-in smoke。
 
 **参考 daemon 下一步 milestone**:
-- 真实 reviewer backend 执行、真实 provider dissent/timeout demo、稳定 gate protocol surface。
+- 第二真实 provider reviewer、真实 provider dissent/timeout demo、稳定 gate protocol surface。
 - **未做(不声称)**:native-claude/acp 真接线、12 个 agent 的三类运行面完整支持、Web 传输。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
 
-> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter(含基础 runtime recovery) + v0.1.5 runtime surface/isolation baseline + M4a governance data/state/decision skeleton partial + M4b consensus kernel partial + M5 deterministic unanimous-approve fake+fake demo + M6a fake consumer CLI partial」,不声称已接 native-claude/acp 真 agent,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实 reviewer backend 执行、真实 provider dissent/timeout demo、或稳定 gate protocol surface 已完成。
+> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter(含基础 runtime recovery) + v0.1.5 runtime surface/isolation baseline + M4a governance data/state/decision skeleton partial + M4b consensus kernel partial + M5 deterministic unanimous-approve fake+fake demo + M5b real reviewer execution pilot + M6a fake consumer CLI partial」,不声称已接 native-claude/acp 真 agent,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实多 provider consensus、真实 provider dissent/timeout demo、或稳定 gate protocol surface 已完成。
 
 ## 变更记录
 

@@ -12,6 +12,7 @@ import type {
 } from "../../adapters/harness-declaration.js";
 import type { ConsensusRunConfig } from "./consensus.js";
 import type { EventBus } from "./eventBus.js";
+import type { ReviewerExecutor } from "./reviewer.js";
 import type { ScheduledTask } from "./scheduler.js";
 
 // ---------------------------------------------------------------------------
@@ -101,6 +102,8 @@ export interface RunRecord {
   readonly runtime?: RuntimeSelectionMetadata;
   /** Optional PR7 consensus configuration; present only for explicit reviewer panels. */
   readonly consensus?: ConsensusRunConfig;
+  /** Internal PR9 reviewer execution hook; absent for single-coder runs. */
+  readonly reviewerExecutor?: ReviewerExecutor;
   /** Pending approval ids (for task.cancel to drain). */
   readonly pendingApprovals: Set<string>;
   /** Monotonic per-run counter for deterministic approval id generation. */
