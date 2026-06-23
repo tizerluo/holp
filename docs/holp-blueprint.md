@@ -185,6 +185,14 @@ M7 completion contract:
 
 完成后可以声称 “first real ACP/direct session path landed”,但不能声称 12-agent/runtime adapter 全覆盖。
 
+PR14 落地后仍需要一个 bounded CLI cohort 的 runtime-surface parity
+阶段,再让 learned-model data-readiness 声称训练数据充分。该阶段见
+`docs/pr-specs/issue-45-multi-agent-cli-runtime-surface-completion.md`:它需覆盖
+Codex、Claude Code、Cursor Agent、Kimi Code、OpenCode、Pi、Reasonix 的
+headless、ACP/native-or-bridge 和 direct_user_session 证据,但不声称 roadmap
+里延后的 12-agent 全覆盖。#42/#43 数据管道可以并行推进;#41 的数据充分性、
+#44 的模型兼容约束和 #36 learned-active readiness 必须等该阶段完成后再声称。
+
 ### M9: Consumer and gate surface
 
 把用户能看到、能审核、能批准/拒绝的体验补完整:

@@ -82,3 +82,7 @@ A future adapter SPEC must cite the exact public documentation, local source
 path, version, or commit that defines its event model before mapping it to HOLP
 `events.subscribe`. Unknown fields must stay `unknown` or `rejected`; the matrix
 report must not invent attach, observe, inject, interrupt, or cancel behavior.
+
+PR14 later proved a first-batch harness pilot, not complete runtime-surface
+parity. Issue #45 tracks the bounded CLI cohort phase required before #41 can
+claim learned-router data sufficiency.
