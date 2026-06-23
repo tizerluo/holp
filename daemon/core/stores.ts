@@ -14,6 +14,11 @@ import type { ConsensusRunConfig } from "./consensus.js";
 import type { EventBus } from "./eventBus.js";
 import type { ReviewerExecutor } from "./reviewer.js";
 import type { ScheduledTask } from "./scheduler.js";
+import type {
+  DispatchHistoryEntryV1,
+  RuntimeActionV1,
+  WorkflowIdV1,
+} from "./workPlanner.js";
 
 // ---------------------------------------------------------------------------
 // Flock (§3 / §4.2)
@@ -108,4 +113,23 @@ export interface RunRecord {
   readonly pendingApprovals: Set<string>;
   /** Monotonic per-run counter for deterministic approval id generation. */
   approvalSeq: number;
+  /** Optional M7 workflow metadata; absent for legacy single-step runs. */
+  workflow?: {
+    readonly version: "WorkflowRun.v1";
+    readonly workflow_id: WorkflowIdV1;
+    readonly max_steps: number;
+  };
+  step_index?: number;
+  step_history?: DispatchHistoryEntryV1[];
+  planner_mode?: "rule" | "learned-shadow" | "learned-active";
+  per_step?: Array<{
+    readonly step_index: number;
+    readonly action: RuntimeActionV1;
+    readonly runtime?: RuntimeSelectionMetadata;
+    readonly artifact_id?: string;
+    readonly outcome: "completed" | "failed" | "blocked" | "cancelled";
+    readonly reason?: string;
+  }>;
+  /** Step-scoped token used by M7 multi-step execution to ignore stale callbacks. */
+  active_step_token?: string;
 }

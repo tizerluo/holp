@@ -216,7 +216,7 @@ export async function driveRun(
   }
 }
 
-async function runConsensusGate(
+export async function runConsensusGate(
   run: RunRecord,
   ctx: ConnectionContext,
   clock: Clock,
