@@ -20,7 +20,14 @@ export type DecisionType =
   | "reviewer_execution"
   | "consensus_verdict"
   | "consensus_degraded"
-  | "run_terminal";
+  | "run_terminal"
+  | "workflow_selected"
+  | "workflow_step_planned"
+  | "workflow_step_started"
+  | "workflow_step_completed"
+  | "workflow_step_failed"
+  | "dispatch_snapshot_recorded"
+  | "training_sample_recorded";
 
 export type RunLifecycleState =
   | "queued"

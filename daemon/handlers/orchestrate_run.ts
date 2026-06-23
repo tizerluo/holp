@@ -30,6 +30,13 @@ import type { Clock } from "../core/clock.js";
 import type { Scheduler } from "../core/scheduler.js";
 import { driveRun } from "../core/runEngine.js";
 import { expireApproval } from "../core/approvalLifecycle.js";
+import { driveWorkflowRun } from "../core/workflowEngine.js";
+import {
+  parseMaxSteps,
+  parseWorkflowId,
+  RuleWorkPlanner,
+  type DispatchCandidateV1,
+} from "../core/workPlanner.js";
 import type {
   ConsensusPolicy,
   ConsensusReviewerSelection,
@@ -76,6 +83,8 @@ export function handleOrchestrateRun(
   const trigger = typeof params.trigger === "string" ? params.trigger : "manual";
   const roles = params.roles as Record<string, unknown>;
   const consensusPolicy = parseConsensusPolicy(params.policy);
+  const workflowId = parseWorkflowParam(params.workflow);
+  const maxSteps = parseMaxStepsParam(params.max_steps);
 
   // Collect all agent ids referenced.
   const agentRefs: Array<{ agentId: string; role: string; isPanel: boolean }> = [];
@@ -402,6 +411,37 @@ export function handleOrchestrateRun(
     data: coderRuntime,
   });
 
+  if (maxSteps > 1) {
+    const candidates = buildDispatchCandidates(
+      coderAgent,
+      coderRuntime,
+      reviewerRuntimeSelections,
+      ctx,
+    );
+    void driveWorkflowRun(
+      run,
+      {
+        workflowId,
+        maxSteps,
+        planner: new RuleWorkPlanner(),
+        candidates,
+        coder: {
+          agent_id: coderAgentId,
+          transport: coderAgent.transport,
+          runtime: coderRuntime,
+          factory,
+        },
+        reviewerPanelPresent: reviewerPanel.length > 0,
+        reviewerQuorum: reviewerPanel.length > 0 ? quorum : undefined,
+      },
+      ctx,
+      clock,
+      scheduler,
+    );
+
+    return { run_id: runId, accepted: true };
+  }
+
   // --- Create backend and wire it ---
   const backend = factory({
     cwd: process.cwd(),
@@ -473,6 +513,57 @@ export function handleOrchestrateRun(
   void driveRun(run, backend, ctx, clock, scheduler);
 
   return { run_id: runId, accepted: true };
+}
+
+function parseWorkflowParam(value: unknown) {
+  try {
+    return parseWorkflowId(value);
+  } catch (error) {
+    throw new HolpRpcError(
+      invalidRequest(error instanceof Error ? error.message : String(error)),
+    );
+  }
+}
+
+function parseMaxStepsParam(value: unknown): number {
+  try {
+    return parseMaxSteps(value);
+  } catch (error) {
+    throw new HolpRpcError(
+      invalidRequest(error instanceof Error ? error.message : String(error)),
+    );
+  }
+}
+
+function buildDispatchCandidates(
+  coderAgent: FlockAgent,
+  coderRuntime: RuntimeSelectionMetadata,
+  reviewerRuntimeSelections: readonly ConsensusReviewerSelection[],
+  ctx: ConnectionContext,
+): readonly DispatchCandidateV1[] {
+  const candidates: DispatchCandidateV1[] = [
+    {
+      agent_id: coderAgent.id,
+      role: "coder",
+      transport: coderAgent.transport,
+      status: coderAgent.status,
+      runtime: coderRuntime,
+    },
+  ];
+
+  for (const reviewer of reviewerRuntimeSelections) {
+    const agent = ctx.flock.get(reviewer.agent_id);
+    if (!agent) continue;
+    candidates.push({
+      agent_id: agent.id,
+      role: "reviewer",
+      transport: agent.transport,
+      status: agent.status,
+      runtime: reviewer.runtime,
+    });
+  }
+
+  return candidates;
 }
 
 function reviewerExecutionConfig(
