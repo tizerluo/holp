@@ -54,6 +54,47 @@ explicit HOLP-owned stream-json bridge with declared fidelity
 (`one_shot` or `streaming_controlled`) and fail-closed behavior, or an honest
 `unsupported` / `rejected` state.
 
+## External Agent Fallback Contract
+
+Role fallback may change who reviews or tests a PR. Runtime-surface fallback
+must never change what is counted as ready: headless, ACP/native-or-bridge, and
+direct session readiness can only be proven by matching-surface probe/smoke
+evidence.
+
+Architect and external reviewer fallback order:
+
+1. Claude Opus via Pioneer 100U
+2. Claude Opus via Pioneer 50U
+3. Claude Opus via official OAuth
+4. ZCode
+5. Kimi Code
+6. Internal Codex subagent only
+
+When invoking Claude Opus, use high reasoning effort rather than max effort
+unless a per-PR spec explicitly requires max effort. This preserves quota while
+keeping the review strong enough for this phase.
+
+Tester fallback order:
+
+1. Kimi Code
+2. ZCode
+3. Internal Codex subagent only
+
+Every PR under this phase must record an external agent fallback ledger in the
+PR comments or Merge Gate report. The ledger must include the planned chain,
+actual agent/model/provider/mode, fallback reason, evidence class, and whether
+the result is external or internal-only. If all external agents fail and the PR
+uses only internal subagents for a role, state that explicitly.
+
+External agent runs should be given enough time for model startup, thinking, and
+final report generation. A quiet long-running process is not by itself a
+fallback trigger; fallback only after an explicit quota/session/auth/rate-limit
+failure, process exit, invalid or missing final output, or another concrete
+blocking condition.
+
+After each PR completes, Commander should inspect and clean up live subagents
+before starting the next PR so the next review/fix loop has available slots.
+
 ## Child Issues
 
 1. #46 - Runtime surface completion SPEC and baseline matrix
