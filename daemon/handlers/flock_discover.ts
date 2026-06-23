@@ -58,8 +58,7 @@ export async function handleFlockDiscover(
   const discovered: FlockAgent[] = [];
 
   for (const transport of transports) {
-    const factory = registry.resolve(transport);
-    if (!factory) {
+    if (!registry.hasTransport(transport)) {
       // No adapter for this transport — skip (discover silently omits unknowns).
       continue;
     }
@@ -135,6 +134,7 @@ function notProbedRuntimeSurfaces(id: string): readonly RuntimeSurfaceDeclaratio
     {
       runtime_surface: "headless",
       runtime_kind: "not_probed",
+      actual_fidelity: "one_shot",
       surface_support: "unknown",
       state_declaration_ref: `harness-state:${id}:headless`,
       ...common,
@@ -142,6 +142,7 @@ function notProbedRuntimeSurfaces(id: string): readonly RuntimeSurfaceDeclaratio
     {
       runtime_surface: "acp",
       runtime_kind: "not_probed_acp",
+      actual_fidelity: "one_shot",
       surface_support: "unknown",
       state_declaration_ref: `harness-state:${id}:acp`,
       ...common,
@@ -149,6 +150,7 @@ function notProbedRuntimeSurfaces(id: string): readonly RuntimeSurfaceDeclaratio
     {
       runtime_surface: "direct_user_session",
       runtime_kind: "not_probed_direct_session",
+      actual_fidelity: "one_shot",
       surface_support: "unknown",
       direct_channel: unknownDirectChannel(),
       state_declaration_ref: `harness-state:${id}:direct_user_session`,

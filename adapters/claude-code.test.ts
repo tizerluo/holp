@@ -79,6 +79,7 @@ describe("probeClaudeCode", () => {
     expect(result.resolved_roles).toEqual(["reviewer"]);
     const headless = result.runtime_surfaces?.find((surface) => surface.runtime_surface === "headless");
     expect(headless?.runtime_kind).toBe("claude_code_print_json");
+    expect(headless?.actual_fidelity).toBe("one_shot");
     expect(headless?.surface_support).toBe("supported");
     expect(headless?.declared_not_enforced).toBe(false);
     expect(headless?.isolation_profiles.read_only_review.readiness).toBe("ready");
@@ -203,6 +204,7 @@ describe("Claude Code reviewer executor integration", () => {
       transport: "native-claude",
       runtime_surface: "headless",
       runtime_kind: "claude_code_print_json",
+      actual_fidelity: "one_shot",
       isolation_profile: "read_only_review",
       isolation_status: "ready",
       global_mutation_required: false,

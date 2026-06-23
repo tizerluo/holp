@@ -485,6 +485,22 @@ describe("CodexAppServerBackend", () => {
     expect(result.version).toBe("Codex fake/1.0");
     expect(result.reason).toContain("exited code=42");
   });
+
+  it("declares codex app-server headless as streaming controlled when ready", async () => {
+    const dir = makeTempDir();
+    const command = fakeCodexCommand(dir, "ready");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      { command, probeTimeoutMs: 10_000 },
+    );
+
+    const headless = result.runtime_surfaces?.find((surface) =>
+      surface.runtime_surface === "headless"
+    );
+    expect(result.status).toBe("ready");
+    expect(headless?.runtime_kind).toBe("app_server");
+    expect(headless?.actual_fidelity).toBe("streaming_controlled");
+  });
 });
 
 function makeTempDir(): string {
@@ -760,13 +776,21 @@ rl.on("line", (line) => {
 `;
 }
 
-function fakeCodexCommand(dir: string, mode: "auth-missing" | "auth-unknown" | "init-fails"): string {
+function fakeCodexCommand(
+  dir: string,
+  mode: "auth-missing" | "auth-unknown" | "init-fails" | "ready",
+): string {
   const command = join(dir, `fake-codex-${mode}.mjs`);
-  const doctor = mode === "auth-missing" ? "auth is not configured" : mode === "auth-unknown" ? "doctor passed" : "auth is configured";
+  const doctor = mode === "auth-missing"
+    ? "auth is not configured"
+    : mode === "auth-unknown"
+      ? "doctor passed"
+      : "auth is configured";
   const appServerExit = mode === "auth-missing" ? 0 : 42;
   writeFileSync(
     command,
     `#!/usr/bin/env node
+import readline from "node:readline";
 const arg = process.argv[2];
 if (arg === "--version") {
   console.log("Codex fake/1.0");
@@ -777,9 +801,20 @@ if (arg === "doctor") {
   process.exit(0);
 }
 if (arg === "app-server") {
-  process.exit(${appServerExit});
+  if (${JSON.stringify(mode)} === "ready") {
+    const rl = readline.createInterface({ input: process.stdin });
+    rl.on("line", (line) => {
+      const frame = JSON.parse(line);
+      if (frame.method === "initialize") {
+        process.stdout.write(JSON.stringify({ id: frame.id, result: { userAgent: "Codex fake/ready" } }) + "\\n");
+      }
+    });
+  } else {
+    process.exit(${appServerExit});
+  }
+} else {
+  process.exit(64);
 }
-process.exit(64);
 `,
     "utf8",
   );

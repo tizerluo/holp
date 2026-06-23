@@ -310,6 +310,7 @@ describe("M4b consensus integration", () => {
             {
               runtime_surface: "headless",
               runtime_kind: "mutating-headless",
+            actual_fidelity: "one_shot",
               surface_support: "supported",
               isolation_profiles: withProfile(baseProfiles, "read_only_review", {
                 readiness: "ready",

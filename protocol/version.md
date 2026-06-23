@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-**v0.1.5 (draft)** — 见 `spec.md`。
+**v0.1.6 (draft)** — 见 `spec.md`。
 
 ## 版本号
 
@@ -14,11 +14,13 @@
 
 `initialize` 时双方报 `protocol_version`(比 `MAJOR.MINOR`),major 不匹配 → 拒绝(`protocol_version_mismatch`)。
 
-## v0.1.5 范围
+## v0.1.6 范围
 
 **协议层(draft)**:spec 全章有定义——握手+能力(descriptor) / flock(declare+discover) / orchestrate.run(含 §4.2 agent 引用绑定 flock + role 校验) / events.subscribe(categories 白名单语义 + seq 从 1 起) / consensus(两段式 quorum + artifact_refs 降级 findings) / approval(单通道状态机 + artifact_refs 降级 details) / task.cancel / artifact(强制 content + provenance artifact_id 例外) / 版本化 / 错误模型 / unattended policy / 实现边界。
 
-**v0.1.5 基准修订**:Issue #11 的 harness isolation baseline 已进入协议主干。`flock.declare`/`flock.discover` 必须能表达 runtime surface / isolation readiness matrix,覆盖 `headless`、`acp`、`direct_user_session` 三类运行面、runtime kind、direct channel、isolation profile readiness、state declaration ref、global mutation risk。`ready` 只表示某个 runtime surface + isolation profile 下可调度,不表示 agent 整体可用。当前实现可以返回 unknown/unsupported/rejected,但不能省略该语义。
+**v0.1.6 基准修订**:Issue #11 的 harness isolation baseline 已进入协议主干。`flock.declare`/`flock.discover` 必须能表达 runtime surface / isolation readiness matrix,覆盖 `headless`、`acp`、`direct_user_session` 三类运行面、runtime kind、actual fidelity、direct channel、isolation profile readiness、state declaration ref、global mutation risk。`ready` 只表示某个 runtime surface + isolation profile 下可调度,不表示 agent 整体可用。当前实现可以返回 unknown/unsupported/rejected,但不能省略该语义。
+
+**v0.1.6 runtime selection 修订**:`orchestrate.run.roles.<role>.preferred_runtime_surface` 可选,取值 `headless` / `acp` / `direct_user_session`。缺省保持 legacy headless;显式请求 ACP/direct 失败时不得 fallback headless。runtime declaration 和 runtime selection metadata 必须携带 `actual_fidelity`=`one_shot` 或 `streaming_controlled`,该值来自实际 backend/runtime kind,不是 surface 名称。
 
 **当前仓已落地**:
 - protocol draft + adapter 契约桩。
@@ -42,6 +44,11 @@
 > 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter(含基础 runtime recovery) + v0.1.5 runtime surface/isolation baseline + M4a governance data/state/decision skeleton partial + M4b consensus kernel partial + M5 deterministic unanimous-approve fake+fake demo + M5b real reviewer execution pilot + M6a fake consumer CLI partial + M6b native-claude headless reviewer partial + M6c runtime/session matrix foundation」,不声称已接 acp 真 agent/direct user session,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实 provider dissent/timeout demo、或稳定 gate protocol surface 已完成。
 
 ## 变更记录
+
+### v0.1.6 (draft) — Runtime surface selection + fidelity amendment
+- P1:`orchestrate.run.roles.<role>.preferred_runtime_surface` 进入协议,缺省 headless,未知值 invalid_request,显式 ACP/direct 不回退 headless。
+- P1:runtime declaration / selected runtime metadata 增加 `actual_fidelity`,区分 `one_shot` 与 `streaming_controlled`。
+- P1:澄清 fidelity 由 backend/runtime kind 决定,不是由 runtime surface 名称直接推断。
 
 ### v0.1.5 (draft) — Issue #11 baseline amendment
 - P1:把 runtime surface / isolation readiness matrix 提升为协议基准,而非后续可选扩展。

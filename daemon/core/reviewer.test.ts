@@ -27,6 +27,7 @@ const readyRuntime: RuntimeSelectionMetadata = {
   transport: "mcp-codex",
   runtime_surface: "headless",
   runtime_kind: "app_server",
+  actual_fidelity: "streaming_controlled",
   isolation_profile: "read_only_review",
   isolation_status: "ready",
   global_mutation_required: false,

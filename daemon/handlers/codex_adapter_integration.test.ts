@@ -39,6 +39,7 @@ describe("Codex adapter dispatcher integration", () => {
           runtime_surfaces: [{
             runtime_surface: "headless",
             runtime_kind: "app_server",
+            actual_fidelity: "one_shot",
             surface_support: "supported",
             isolation_profiles: withProfile(
               rejectedProfiles("unsupported_isolation_profile"),

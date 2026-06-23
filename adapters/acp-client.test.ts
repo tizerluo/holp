@@ -1,0 +1,153 @@
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { AcpClient, createAcpBackendFactory } from "./acp-client.js";
+import type { AgentMessage } from "./agent-backend.js";
+
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+describe("ACP stdio client", () => {
+  it("initializes, creates a session, streams updates, and resolves on terminal", async () => {
+    const client = new AcpClient({
+      command: fakeAcpServer("ok"),
+      cwd: process.cwd(),
+      requestTimeoutMs: 5_000,
+      terminalTimeoutMs: 5_000,
+    });
+
+    const { sessionId } = await client.startSession();
+    const output = await client.sendPrompt(sessionId, "hello");
+    await client.dispose();
+
+    expect(sessionId).toBe("session-1");
+    expect(output).toBe("final:hello");
+  });
+
+  it("resolves Kimi-style nested message chunks on prompt stopReason", async () => {
+    const client = new AcpClient({
+      command: fakeAcpServer("kimi-stop"),
+      cwd: process.cwd(),
+      requestTimeoutMs: 5_000,
+      terminalTimeoutMs: 5_000,
+    });
+
+    const { sessionId } = await client.startSession();
+    const output = await client.sendPrompt(sessionId, "hello");
+    await client.dispose();
+
+    expect(output).toBe("kimi:hello");
+  });
+
+  it("backend emits streamed and final model output", async () => {
+    const messages: AgentMessage[] = [];
+    const backend = createAcpBackendFactory({
+      transport: "fake-acp",
+      command: fakeAcpServer("ok"),
+      requestTimeoutMs: 5_000,
+      terminalTimeoutMs: 5_000,
+    })({ cwd: process.cwd() });
+    backend.onMessage((message) => messages.push(message));
+
+    const { sessionId } = await backend.startSession();
+    await backend.sendPrompt(sessionId, "world");
+    await backend.dispose();
+
+    expect(messages).toContainEqual({ type: "model-output", textDelta: "delta:world" });
+    expect(messages).toContainEqual({ type: "model-output", fullText: "final:world" });
+  });
+
+  it.each([
+    ["missing-terminal", "acp_terminal_timeout"],
+    ["malformed", "acp_malformed_json"],
+    ["exit", "acp_process_exit"],
+    ["prompt-error", "acp_rpc_error"],
+    ["stop-without-output", "acp_missing_final_result"],
+    ["request-timeout", "acp_request_timeout:initialize"],
+  ] as const)("fails closed for %s", async (mode, expected) => {
+    const client = new AcpClient({
+      command: fakeAcpServer(mode),
+      cwd: process.cwd(),
+      requestTimeoutMs: mode === "request-timeout" ? 30 : 5_000,
+      terminalTimeoutMs: 30,
+    });
+
+    await expect((async () => {
+      const { sessionId } = await client.startSession();
+      await client.sendPrompt(sessionId, "hello");
+    })()).rejects.toThrow(expected);
+    await client.dispose().catch(() => undefined);
+  });
+});
+
+function fakeAcpServer(
+  mode: "ok" | "kimi-stop" | "missing-terminal" | "malformed" | "exit" | "prompt-error" | "stop-without-output" | "request-timeout",
+): string {
+  const dir = mkdtempSync(join(tmpdir(), "holp-acp-client-"));
+  tempDirs.push(dir);
+  const script = join(dir, `fake-acp-${mode}.mjs`);
+  writeFileSync(script, `#!/usr/bin/env node
+import readline from "node:readline";
+const mode = ${JSON.stringify(mode)};
+const rl = readline.createInterface({ input: process.stdin });
+function send(frame) {
+  process.stdout.write(JSON.stringify(frame) + "\\n");
+}
+rl.on("line", (line) => {
+  const frame = JSON.parse(line);
+  if (mode === "request-timeout") return;
+  if (frame.method === "initialize") {
+    if (frame.params.protocolVersion !== 1) {
+      send({ id: frame.id, error: { code: -32602, message: "missing protocolVersion" } });
+      return;
+    }
+    send({ id: frame.id, result: { ok: true } });
+    return;
+  }
+  if (frame.method === "session/new") {
+    if (typeof frame.params.cwd !== "string" || !Array.isArray(frame.params.mcpServers)) {
+      send({ id: frame.id, error: { code: -32602, message: "invalid session/new params" } });
+      return;
+    }
+    send({ id: frame.id, result: { sessionId: "session-1" } });
+    return;
+  }
+  if (frame.method === "session/prompt") {
+    const prompt = Array.isArray(frame.params.prompt)
+      ? frame.params.prompt.map((block) => block.text || "").join("")
+      : frame.params.prompt;
+    if (mode === "prompt-error") {
+      send({ id: frame.id, error: { code: -32001, message: "prompt rejected" } });
+      return;
+    }
+    if (mode === "stop-without-output") {
+      send({ id: frame.id, result: { stopReason: "end_turn" } });
+      return;
+    }
+    if (mode === "kimi-stop") {
+      send({ method: "session/update", params: { sessionId: "session-1", update: { sessionUpdate: "agent_thought_chunk", content: { text: "thinking" } } } });
+      send({ method: "session/update", params: { sessionId: "session-1", update: { sessionUpdate: "agent_message_chunk", content: { text: "kimi:" } } } });
+      send({ method: "session/update", params: { sessionId: "session-1", update: { sessionUpdate: "agent_message_chunk", content: { chunk: prompt } } } });
+      send({ id: frame.id, result: { stopReason: "end_turn" } });
+      return;
+    }
+    send({ id: frame.id, result: { accepted: true } });
+    if (mode === "exit") process.exit(7);
+    if (mode === "malformed") {
+      process.stdout.write("not json\\n");
+      return;
+    }
+    send({ method: "session/update", params: { sessionId: "session-1", textDelta: "delta:" + prompt } });
+    if (mode !== "missing-terminal") {
+      send({ method: "session/update", params: { sessionId: "session-1", finalText: "final:" + prompt, type: "completed" } });
+    }
+  }
+});
+`, "utf8");
+  chmodSync(script, 0o755);
+  return script;
+}

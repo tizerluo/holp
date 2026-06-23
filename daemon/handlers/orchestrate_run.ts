@@ -26,6 +26,10 @@ import { evidencePayload } from "../core/evidence.js";
 import type { AdapterRegistry } from "../../adapters/registry.js";
 import { createClaudeCodeBackendFactory } from "../../adapters/claude-code.js";
 import { createCodexAppServerBackendFactory } from "../../adapters/codex-app-server.js";
+import {
+  firstBatchHeadlessFactoryForTransport,
+  isFirstBatchTransport,
+} from "../../adapters/first-batch-harnesses.js";
 import type { Clock } from "../core/clock.js";
 import type { Scheduler } from "../core/scheduler.js";
 import { driveRun } from "../core/runEngine.js";
@@ -51,6 +55,7 @@ import {
   findRuntimeProfile,
   runtimeSelectionFromDeclaration,
   type IsolationProfile,
+  type RuntimeSurface,
   type RuntimeSelectionMetadata,
 } from "../../adapters/harness-declaration.js";
 
@@ -87,28 +92,47 @@ export function handleOrchestrateRun(
   const maxSteps = parseMaxStepsParam(params.max_steps);
 
   // Collect all agent ids referenced.
-  const agentRefs: Array<{ agentId: string; role: string; isPanel: boolean }> = [];
+  const agentRefs: Array<{
+    agentId: string;
+    role: string;
+    isPanel: boolean;
+    runtimeSurface: RuntimeSurface;
+  }> = [];
 
   // Collect non-reviewer single-agent roles.
   for (const [roleName, roleSpec] of Object.entries(roles)) {
     if (roleName === "reviewer") continue;
     if (!isObject(roleSpec)) continue;
+    const runtimeSurface = parsePreferredRuntimeSurface(
+      (roleSpec as Record<string, unknown>).preferred_runtime_surface,
+      `roles.${roleName}.preferred_runtime_surface`,
+    );
     if (typeof roleSpec.agent === "string") {
-      agentRefs.push({ agentId: roleSpec.agent, role: roleName, isPanel: false });
+      agentRefs.push({ agentId: roleSpec.agent, role: roleName, isPanel: false, runtimeSurface });
     }
   }
 
   // Collect reviewer panel.
   let reviewerPanel: string[] = [];
   let quorum = 0;
+  let reviewerRuntimeSurface: RuntimeSurface = "headless";
   if (isObject(roles.reviewer)) {
     const rv = roles.reviewer as Record<string, unknown>;
+    reviewerRuntimeSurface = parsePreferredRuntimeSurface(
+      rv.preferred_runtime_surface,
+      "roles.reviewer.preferred_runtime_surface",
+    );
     if (Array.isArray(rv.panel)) {
       reviewerPanel = (rv.panel as unknown[]).filter((x) => typeof x === "string") as string[];
       quorum = typeof rv.quorum === "number" ? rv.quorum : 0;
     }
     for (const agentId of reviewerPanel) {
-      agentRefs.push({ agentId, role: "reviewer", isPanel: true });
+      agentRefs.push({
+        agentId,
+        role: "reviewer",
+        isPanel: true,
+        runtimeSurface: reviewerRuntimeSurface,
+      });
     }
   }
 
@@ -262,7 +286,7 @@ export function handleOrchestrateRun(
   for (const ref of agentRefs) {
     if (ref.isPanel) continue;
     const agent = ctx.flock.get(ref.agentId) as FlockAgent;
-    const selection = resolveRuntimeSelection(agent, ref.role);
+    const selection = resolveRuntimeSelection(agent, ref.role, ref.runtimeSurface);
     runtimeSelections.set(runtimeKey(ref.agentId, ref.role), selection);
   }
   if (reviewerPanel.length > 0) {
@@ -280,12 +304,18 @@ export function handleOrchestrateRun(
     for (const agentId of reviewerPanel) {
       const agent = ctx.flock.get(agentId) as FlockAgent;
       try {
-        const selection = resolveRuntimeSelection(agent, "reviewer");
+        const selection = resolveRuntimeSelection(agent, "reviewer", reviewerRuntimeSurface);
         if (selection.global_mutation_required) {
-          throw isolationError(agent, "reviewer", "read_only_review", {
-            reason: "global_mutation_required_for_read_only_review",
-            missing: ["global_mutation_required:false"],
-          });
+          throw isolationError(
+            agent,
+            "reviewer",
+            reviewerRuntimeSurface,
+            "read_only_review",
+            {
+              reason: "global_mutation_required_for_read_only_review",
+              missing: ["global_mutation_required:false"],
+            },
+          );
         }
         reviewerSelections.push({ agentId, selection });
       } catch (error) {
@@ -300,7 +330,7 @@ export function handleOrchestrateRun(
           `only ${reviewerSelections.length} reviewer agents satisfy read_only_review but quorum=${quorum}`,
           {
             role: "reviewer",
-            runtime_surface: "headless",
+            runtime_surface: reviewerRuntimeSurface,
             isolation_profile: "read_only_review",
             available: reviewerSelections.length,
             quorum,
@@ -351,12 +381,21 @@ export function handleOrchestrateRun(
   }
 
   const coderAgent = ctx.flock.get(coderAgentId) as FlockAgent;
+  const coderRoleSpec = isObject(roles.coder) ? roles.coder as Record<string, unknown> : {};
+  const coderRuntimeSurface = parsePreferredRuntimeSurface(
+    coderRoleSpec.preferred_runtime_surface,
+    "roles.coder.preferred_runtime_surface",
+  );
   const coderRuntime = runtimeSelections.get(runtimeKey(coderAgentId, "coder")) ??
-    resolveRuntimeSelection(coderAgent, "coder");
-  const factory = registry.resolve(coderAgent.transport);
+    resolveRuntimeSelection(coderAgent, "coder", coderRuntimeSurface);
+  const factory = registry.resolve(coderAgent.transport, coderRuntime.runtime_surface);
   if (!factory) {
     throw new HolpRpcError(
-      holpError("unsupported_transport", `no adapter for transport '${coderAgent.transport}'`),
+      holpError(
+        "unsupported_transport",
+        `no adapter for transport '${coderAgent.transport}' runtime surface '${coderRuntime.runtime_surface}'`,
+        { transport: coderAgent.transport, runtime_surface: coderRuntime.runtime_surface },
+      ),
     );
   }
 
@@ -535,6 +574,21 @@ function parseMaxStepsParam(value: unknown): number {
   }
 }
 
+function parsePreferredRuntimeSurface(value: unknown, path: string): RuntimeSurface {
+  if (value === undefined) return "headless";
+  if (isRuntimeSurface(value)) return value;
+  throw new HolpRpcError(
+    invalidRequest(`${path} must be one of: headless, acp, direct_user_session`, {
+      field: path,
+      value,
+    }),
+  );
+}
+
+function isRuntimeSurface(value: unknown): value is RuntimeSurface {
+  return value === "headless" || value === "acp" || value === "direct_user_session";
+}
+
 function buildDispatchCandidates(
   coderAgent: FlockAgent,
   coderRuntime: RuntimeSelectionMetadata,
@@ -601,6 +655,38 @@ function reviewerExecutionConfig(
     };
   }
 
+  if (isFirstBatchTransport(agent.transport) && runtime?.runtime_surface === "headless") {
+    const backendFactory = firstBatchHeadlessFactoryForTransport(agent.transport);
+    if (backendFactory) {
+      return {
+        agent_id: agent.id,
+        transport: agent.transport,
+        mode: "backend",
+        runtime,
+        backendFactory,
+        sandbox: "read-only",
+      };
+    }
+  }
+
+  if (
+    runtime?.isolation_profile === "read_only_review" &&
+    runtime.isolation_status === "ready"
+  ) {
+    throw new HolpRpcError(
+      holpError(
+        "unsupported_transport",
+        `reviewer transport '${agent.transport}' declares read_only_review ready but has no reviewer executor`,
+        {
+          agent_id: agent.id,
+          transport: agent.transport,
+          runtime_surface: runtime.runtime_surface,
+          reason: "reviewer_execution_config_missing",
+        },
+      ),
+    );
+  }
+
   return {
     agent_id: agent.id,
     transport: agent.transport,
@@ -644,27 +730,30 @@ function defaultIsolationProfileForRole(role: string): IsolationProfile {
 
 function canSelectRuntime(agent: FlockAgent, role: string): boolean {
   try {
-    resolveRuntimeSelection(agent, role);
+    resolveRuntimeSelection(agent, role, "headless");
     return true;
   } catch {
     return false;
   }
 }
 
-function resolveRuntimeSelection(agent: FlockAgent, role: string): RuntimeSelectionMetadata {
-  const runtimeSurface = "headless";
+function resolveRuntimeSelection(
+  agent: FlockAgent,
+  role: string,
+  runtimeSurface: RuntimeSurface,
+): RuntimeSelectionMetadata {
   const isolationProfile = defaultIsolationProfileForRole(role);
   const resolved = findRuntimeProfile(agent.runtime_surfaces, runtimeSurface, isolationProfile);
 
   if (!resolved) {
-    throw isolationError(agent, role, isolationProfile, {
+    throw isolationError(agent, role, runtimeSurface, isolationProfile, {
       reason: "isolation_declaration_missing",
       missing: [`runtime_surface:${runtimeSurface}`, `isolation_profile:${isolationProfile}`],
     });
   }
 
   if (resolved.profile.readiness === "rejected") {
-    throw isolationError(agent, role, isolationProfile, {
+    throw isolationError(agent, role, runtimeSurface, isolationProfile, {
       reason: resolved.profile.reason ?? "isolation_profile_rejected",
       missing: resolved.profile.missing,
       warnings: resolved.profile.warnings,
@@ -684,6 +773,7 @@ function resolveRuntimeSelection(agent: FlockAgent, role: string): RuntimeSelect
 function isolationError(
   agent: FlockAgent,
   role: string,
+  runtimeSurface: RuntimeSurface,
   isolationProfile: IsolationProfile,
   detail: {
     reason: string;
@@ -699,7 +789,7 @@ function isolationError(
         agent_id: agent.id,
         role,
         transport: agent.transport,
-        runtime_surface: "headless",
+        runtime_surface: runtimeSurface,
         isolation_profile: isolationProfile,
         reason: detail.reason,
         missing: detail.missing,

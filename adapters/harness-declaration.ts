@@ -8,6 +8,7 @@ export const ISOLATION_PROFILES = [
 ] as const;
 
 export type RuntimeSurface = "headless" | "acp" | "direct_user_session";
+export type RuntimeActualFidelity = "one_shot" | "streaming_controlled";
 export type SurfaceSupport = "supported" | "experimental" | "unsupported" | "unknown";
 export type IsolationProfile = (typeof ISOLATION_PROFILES)[number];
 export type IsolationReadiness = "ready" | "degraded" | "rejected";
@@ -28,11 +29,15 @@ export interface DirectChannelDeclaration {
   readonly interrupt: SurfaceSupport;
   readonly cancel: SurfaceSupport;
   readonly owner_scope: SurfaceSupport;
+  readonly session_origin?: "holp_created" | "existing_user_session" | "unknown" | (string & {});
+  readonly session_id_namespace?: string;
+  readonly capability_bitmask?: readonly string[];
 }
 
 export interface RuntimeSurfaceDeclaration {
   readonly runtime_surface: RuntimeSurface;
   readonly runtime_kind: string;
+  readonly actual_fidelity: RuntimeActualFidelity;
   readonly surface_support: SurfaceSupport;
   readonly isolation_profiles: Record<IsolationProfile, IsolationProfileReadiness>;
   readonly direct_channel?: DirectChannelDeclaration;
@@ -59,6 +64,7 @@ export interface RuntimeSelectionMetadata {
   readonly transport: string;
   readonly runtime_surface: RuntimeSurface;
   readonly runtime_kind: string;
+  readonly actual_fidelity: RuntimeActualFidelity;
   readonly isolation_profile: IsolationProfile;
   readonly isolation_status: IsolationReadiness;
   readonly isolation_reason?: string;
@@ -117,6 +123,7 @@ export function runtimeSelectionFromDeclaration(args: {
     transport: args.transport,
     runtime_surface: args.runtimeSurface,
     runtime_kind: args.declaration.runtime_kind,
+    actual_fidelity: args.declaration.actual_fidelity,
     isolation_profile: args.isolationProfile,
     isolation_status: args.profile.readiness,
     isolation_reason: args.profile.reason,

@@ -41,6 +41,7 @@ const registry = createAdapterRegistry(
       runtime_surfaces: [{
         runtime_surface: "headless",
         runtime_kind: "fake",
+        actual_fidelity: "streaming_controlled",
         surface_support: "supported",
         isolation_profiles: {
           read_only_review: { readiness: "ready" },

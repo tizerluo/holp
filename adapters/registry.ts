@@ -21,9 +21,14 @@ import { createClaudeCodeBackendFactory, probeClaudeCode } from "./claude-code.j
 import { createCodexAppServerBackendFactory, probeCodexAppServer } from "./codex-app-server.js";
 import { createFakeBackendFactory } from "./fake-backend.js";
 import {
+  firstBatchAdapterFactories,
+  firstBatchAdapterProbes,
+} from "./first-batch-harnesses.js";
+import {
   rejectedProfiles,
   withProfile,
   type DirectChannelDeclaration,
+  type RuntimeSurface,
   type RuntimeSurfaceDeclaration,
 } from "./harness-declaration.js";
 
@@ -51,6 +56,7 @@ function stubRuntimeSurfaces(reason = "unsupported_transport"): readonly Runtime
     {
       runtime_surface: "headless",
       runtime_kind: "stub",
+      actual_fidelity: "one_shot",
       surface_support: "unsupported",
       state_declaration_ref: "harness-state:stub",
       ...common,
@@ -58,6 +64,7 @@ function stubRuntimeSurfaces(reason = "unsupported_transport"): readonly Runtime
     {
       runtime_surface: "acp",
       runtime_kind: "stub-acp-unwired",
+      actual_fidelity: "one_shot",
       surface_support: "unsupported",
       state_declaration_ref: "harness-state:stub:acp",
       ...common,
@@ -65,6 +72,7 @@ function stubRuntimeSurfaces(reason = "unsupported_transport"): readonly Runtime
     {
       runtime_surface: "direct_user_session",
       runtime_kind: "stub-direct-session-unwired",
+      actual_fidelity: "one_shot",
       surface_support: "unknown",
       direct_channel: unknownDirectChannel(),
       state_declaration_ref: "harness-state:stub:direct_user_session",
@@ -82,6 +90,7 @@ function fakeRuntimeSurfaces(): readonly RuntimeSurfaceDeclaration[] {
     {
       runtime_surface: "headless",
       runtime_kind: "fake",
+      actual_fidelity: "streaming_controlled",
       surface_support: "supported",
       isolation_profiles: withProfile(
         withProfile(base, "coder_worktree", { readiness: "ready" }),
@@ -95,6 +104,7 @@ function fakeRuntimeSurfaces(): readonly RuntimeSurfaceDeclaration[] {
     {
       runtime_surface: "acp",
       runtime_kind: "fake-acp-unwired",
+      actual_fidelity: "one_shot",
       surface_support: "unsupported",
       isolation_profiles: rejectedProfiles("unsupported_runtime_surface"),
       state_declaration_ref: "harness-state:fake:acp",
@@ -104,6 +114,7 @@ function fakeRuntimeSurfaces(): readonly RuntimeSurfaceDeclaration[] {
     {
       runtime_surface: "direct_user_session",
       runtime_kind: "fake-direct-session-unwired",
+      actual_fidelity: "one_shot",
       surface_support: "unknown",
       isolation_profiles: rejectedProfiles("unknown_runtime_surface"),
       direct_channel: {
@@ -147,22 +158,31 @@ function createStubBackend(transport: TransportClass): AgentBackend {
 
 /** transport → factory/probe 映射。daemon 启动时注入。 */
 export interface AdapterRegistry {
-  resolve(transport: TransportClass): AgentBackendFactory | undefined;
+  resolve(transport: TransportClass, surface?: RuntimeSurface): AgentBackendFactory | undefined;
+  hasTransport(transport: TransportClass): boolean;
   probe(input: AgentProbeInput): AgentProbeResult | Promise<AgentProbeResult>;
 }
 
 export function createAdapterRegistry(
-  factories: Partial<Record<TransportClass, AgentBackendFactory>>,
+  factories: Partial<Record<TransportClass, AgentBackendFactory | Partial<Record<RuntimeSurface, AgentBackendFactory>>>>,
   probes: Partial<Record<TransportClass, AgentBackendProbe>> = {},
 ): AdapterRegistry {
   return {
-    resolve(transport) {
-      return factories[transport];
+    resolve(transport, surface = "headless") {
+      const entry = factories[transport];
+      if (!entry) return undefined;
+      if (typeof entry === "function") {
+        return surface === "headless" ? entry : undefined;
+      }
+      return entry[surface];
+    },
+    hasTransport(transport) {
+      return factories[transport] !== undefined;
     },
     async probe(input) {
       const probe = probes[input.transport];
       if (probe) return probe(input);
-      if (!factories[input.transport]) {
+      if (factories[input.transport] === undefined) {
         return {
           status: "rejected",
           harness_id: input.id,
@@ -193,10 +213,12 @@ export function createDefaultAdapterRegistry(): AdapterRegistry {
       "native-claude": createClaudeCodeBackendFactory(),
       "mcp-codex": createCodexAppServerBackendFactory(),
       acp: createStubFactory("acp"),
+      ...firstBatchAdapterFactories(),
     },
     {
       "native-claude": probeClaudeCode,
       "mcp-codex": probeCodexAppServer,
+      ...firstBatchAdapterProbes(),
       acp: (input) => ({
         status: "rejected",
         harness_id: "acp",
