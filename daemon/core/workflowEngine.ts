@@ -12,6 +12,7 @@ import type { Scheduler } from "./scheduler.js";
 import { evidencePayload } from "./evidence.js";
 import { expireApproval } from "./approvalLifecycle.js";
 import { runConsensusGate } from "./runEngine.js";
+import { claimTerminal } from "./terminalRun.js";
 import {
   runtimeActionFromWorkPlan,
   type DispatchCandidateV1,
@@ -86,6 +87,12 @@ export async function driveWorkflowRun(
     while (run.status === "active") {
       const history: readonly DispatchHistoryEntryV1[] = run.step_history ?? [];
       const state = dispatchState(run, options, history.length);
+      const plan = options.planner.nextStep(state);
+      if (plan.kind === "terminal") {
+        completeRun(run, ctx, clock, latestArtifactId(run), plan.reason);
+        return;
+      }
+
       ctx.governance.recordDecision({
         decision_type: "dispatch_snapshot_recorded",
         run_id: run.run_id,
@@ -93,12 +100,6 @@ export async function driveWorkflowRun(
         ts: clock.now(),
         data: state,
       });
-
-      const plan = options.planner.nextStep(state);
-      if (plan.kind === "terminal") {
-        completeRun(run, ctx, clock, latestArtifactId(run), plan.reason);
-        return;
-      }
 
       ctx.governance.recordDecision({
         decision_type: "workflow_step_planned",
@@ -144,18 +145,16 @@ export async function driveWorkflowRun(
       if (run.active_step_token === token) run.active_step_token = undefined;
 
       if (outcome.outcome !== "completed") {
-        if (outcome.outcome !== "cancelled") {
-          recordStepOutcome({
-            run,
-            ctx,
-            clock,
-            state,
-            plan,
-            runtimeAction,
-            outcome,
-            history,
-          });
-        }
+        recordStepOutcome({
+          run,
+          ctx,
+          clock,
+          state,
+          plan,
+          runtimeAction,
+          outcome,
+          history,
+        });
         if (run.status === "active") {
           blockRun(run, ctx, clock, outcome.reason ?? "workflow_step_failed");
         } else {
@@ -270,7 +269,11 @@ async function executeRuntimeAction(
     const artifactId = latestArtifactId(run);
     const canContinue = await runConsensusGate(run, ctx, clock, artifactId, scheduler);
     if (!canContinue) {
-      return { outcome: "blocked", reason: terminalReason(run, ctx) ?? "consensus_rejected" };
+      const reason = terminalReason(run, ctx) ?? "consensus_rejected";
+      if (run.status !== "active" && isExternalTerminalInterruption(reason)) {
+        return { outcome: "cancelled", reason };
+      }
+      return { outcome: "blocked", reason };
     }
     return { outcome: "completed", artifact_id: artifactId };
   }
@@ -492,6 +495,8 @@ function recordStepOutcome(args: {
       reason,
     },
   ];
+  if (args.outcome.outcome === "cancelled") return;
+
   args.ctx.governance.recordDecision({
     decision_type: "workflow_step_failed",
     run_id: args.run.run_id,
@@ -524,20 +529,16 @@ function completeRun(
   artifactId: string | undefined,
   reason: string,
 ): void {
-  if (run.status !== "active") return;
   clearWorkflowStep(run);
-  ctx.governance.transitionRun(run.run_id, "merged", clock.now(), reason);
-  run.status = "merged";
-  ctx.governance.recordDecision({
-    decision_type: "run_terminal",
-    run_id: run.run_id,
+  claimTerminal(run, ctx, clock, {
+    state: "merged",
     reason,
-    ts: clock.now(),
-    data: { state: "merged", artifact_id: artifactId },
-  });
-  run.bus.publish("run", "run_merged", {
-    ...(artifactId ? { artifact_id: artifactId } : {}),
-    reason,
+    eventName: "run_merged",
+    ...(artifactId ? { data: { artifact_id: artifactId } } : {}),
+    payload: {
+      ...(artifactId ? { artifact_id: artifactId } : {}),
+      reason,
+    },
   });
 }
 
@@ -547,33 +548,23 @@ function blockRun(
   clock: Clock,
   reason: string,
 ): void {
-  if (run.status !== "active") return;
   clearWorkflowStep(run);
-  ctx.governance.transitionRun(run.run_id, "blocked", clock.now(), reason);
-  run.status = "blocked";
-  ctx.governance.recordDecision({
-    decision_type: "run_terminal",
-    run_id: run.run_id,
+  claimTerminal(run, ctx, clock, {
+    state: "blocked",
     reason,
-    ts: clock.now(),
-    data: { state: "blocked" },
+    eventName: "run_blocked",
+    payload: { reason },
   });
-  run.bus.publish("run", "run_blocked", { reason });
 }
 
 function failRun(run: RunRecord, ctx: ConnectionContext, clock: Clock, reason: string): void {
-  if (run.status !== "active") return;
   clearWorkflowStep(run);
-  ctx.governance.transitionRun(run.run_id, "gave_up", clock.now(), reason);
-  run.status = "gave_up";
-  ctx.governance.recordDecision({
-    decision_type: "run_terminal",
-    run_id: run.run_id,
+  claimTerminal(run, ctx, clock, {
+    state: "gave_up",
     reason,
-    ts: clock.now(),
-    data: { state: "gave_up" },
+    eventName: "run_gave_up",
+    payload: { reason },
   });
-  run.bus.publish("run", "run_gave_up", { reason });
 }
 
 function clearWorkflowStep(run: RunRecord): void {
@@ -586,6 +577,10 @@ function terminalReason(run: RunRecord, ctx: ConnectionContext): string | undefi
     .reverse()
     .find((decision) => decision.run_id === run.run_id && decision.decision_type === "run_terminal")
     ?.reason;
+}
+
+function isExternalTerminalInterruption(reason: string): boolean {
+  return reason === "cancelled" || reason === "approval_timeout_auto_reject";
 }
 
 function decisionIds(ctx: ConnectionContext, runId: string, decisionType: string): readonly string[] {

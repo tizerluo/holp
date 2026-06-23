@@ -1,6 +1,7 @@
 import type { Clock } from "./clock.js";
 import type { ConnectionContext } from "./context.js";
 import type { ApprovalRecord, RunRecord } from "./stores.js";
+import { claimTerminal } from "./terminalRun.js";
 
 export function clearApprovalTimer(approval: ApprovalRecord): void {
   approval.expiryTimer?.cancel();
@@ -35,23 +36,15 @@ export function expireApproval(
       ts: clock.now(),
       data: { kind: approval.kind },
     });
-    if (run.status === "active") {
-      // Claim run terminal ownership before resuming the backend; driveRun checks
-      // run.status after sendPrompt returns and must not emit a second terminal.
-      run.status = "blocked";
-      ctx.governance.transitionRun(run.run_id, "blocked", clock.now(), "approval_timeout_auto_reject");
-      ctx.governance.recordDecision({
-        decision_type: "run_terminal",
-        run_id: run.run_id,
-        approval_id: approvalId,
+    claimTerminal(run, ctx, clock, {
+      state: "blocked",
+      reason: "approval_timeout_auto_reject",
+      eventName: "run_blocked",
+      approvalId,
+      payload: {
         reason: "approval_timeout_auto_reject",
-        ts: clock.now(),
-        data: { state: "blocked" },
-      });
-      run.bus.publish("run", "run_blocked", {
-        reason: "approval_timeout_auto_reject",
-      });
-    }
+      },
+    });
   }
 
   approval.resumeBackend("deny");

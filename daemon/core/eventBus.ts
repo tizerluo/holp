@@ -16,6 +16,7 @@
 import type { Clock } from "./clock.js";
 import type { EventCategory } from "./context.js";
 import type { EventSink } from "./eventSink.js";
+import { isKnownEventName } from "./eventContract.js";
 
 export interface StoredEvent {
   readonly seq: number;
@@ -55,6 +56,10 @@ export class EventBus {
    * active subscribers that pass the category filter.
    */
   publish(category: EventCategory, name: string, payload: unknown): StoredEvent {
+    if (!isKnownEventName(category, name)) {
+      throw new Error(`unknown event '${category}.${name}'`);
+    }
+
     this.seq += 1;
     const event: StoredEvent = {
       seq: this.seq,

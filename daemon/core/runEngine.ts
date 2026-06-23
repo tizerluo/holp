@@ -19,6 +19,7 @@ import type { AgentBackend } from "../../adapters/agent-backend.js";
 import { createHash } from "node:crypto";
 import { expireApproval } from "./approvalLifecycle.js";
 import { evidencePayload } from "./evidence.js";
+import { claimTerminal } from "./terminalRun.js";
 import {
   buildConsensusVerdict,
   type ConsensusDegradedOutcome,
@@ -138,17 +139,13 @@ export async function driveRun(
     // 5a. If the backend was aborted (e.g. approval rejected), emit run_blocked
     //     and skip artifact registration entirely.
     if (aborted) {
-      ctx.governance.transitionRun(run.run_id, "blocked", clock.now(), abortReason ?? "approval_rejected");
-      run.status = "blocked";
-      ctx.governance.recordDecision({
-        decision_type: "run_terminal",
-        run_id: run.run_id,
+      claimTerminal(run, ctx, clock, {
+        state: "blocked",
         reason: abortReason ?? "approval_rejected",
-        ts: clock.now(),
-        data: { state: "blocked" },
-      });
-      bus.publish("run", "run_blocked", {
-        reason: abortReason ?? "approval_rejected",
+        eventName: "run_blocked",
+        payload: {
+          reason: abortReason ?? "approval_rejected",
+        },
       });
       return;
     }
@@ -182,33 +179,25 @@ export async function driveRun(
 
     // 6. Emit terminal run_merged. A run may complete without a diff artifact
     // if the real provider produced only lifecycle/model output.
-    ctx.governance.transitionRun(run.run_id, "merged", clock.now(), "run completed");
-    run.status = "merged";
-    ctx.governance.recordDecision({
-      decision_type: "run_terminal",
-      run_id: run.run_id,
+    claimTerminal(run, ctx, clock, {
+      state: "merged",
       reason: "run completed",
-      ts: clock.now(),
-      data: { state: "merged", artifact_id: artifactId },
-    });
-    bus.publish("run", "run_merged", {
-      ...(artifactId ? { artifact_id: artifactId } : {}),
-      ...(diffArtifactPath ? { path: diffArtifactPath } : {}),
-      reason: "run completed",
+      eventName: "run_merged",
+      ...(artifactId ? { data: { artifact_id: artifactId } } : {}),
+      payload: {
+        ...(artifactId ? { artifact_id: artifactId } : {}),
+        ...(diffArtifactPath ? { path: diffArtifactPath } : {}),
+        reason: "run completed",
+      },
     });
   } catch (err) {
     if (run.status === "active") {
-      ctx.governance.transitionRun(run.run_id, "gave_up", clock.now(), "run_error");
-      run.status = "gave_up";
-      ctx.governance.recordDecision({
-        decision_type: "run_terminal",
-        run_id: run.run_id,
-        reason: err instanceof Error ? err.message : String(err),
-        ts: clock.now(),
-        data: { state: "gave_up" },
-      });
-      bus.publish("run", "run_gave_up", {
-        reason: err instanceof Error ? err.message : String(err),
+      const reason = err instanceof Error ? err.message : String(err);
+      claimTerminal(run, ctx, clock, {
+        state: "gave_up",
+        reason,
+        eventName: "run_gave_up",
+        payload: { reason },
       });
     }
   } finally {
@@ -285,6 +274,8 @@ export async function runConsensusGate(
   const effectiveQuorum = eligible < consensus.quorum ? eligible : consensus.quorum;
   const votingAgents = panel.filter((agent) => !(excludeAuthor && agent === consensus.producer_agent_id));
   const results = await reviewerResults(votingAgents, run, ctx, clock, artifactId);
+  if (run.status !== "active") return false;
+
   const verdict = buildConsensusVerdict({
     target,
     panel,
@@ -411,17 +402,12 @@ function blockRun(
   clock: Clock,
   reason: string,
 ): void {
-  if (run.status !== "active") return;
-  ctx.governance.transitionRun(run.run_id, "blocked", clock.now(), reason);
-  run.status = "blocked";
-  ctx.governance.recordDecision({
-    decision_type: "run_terminal",
-    run_id: run.run_id,
+  claimTerminal(run, ctx, clock, {
+    state: "blocked",
     reason,
-    ts: clock.now(),
-    data: { state: "blocked" },
+    eventName: "run_blocked",
+    payload: { reason },
   });
-  run.bus.publish("run", "run_blocked", { reason });
 }
 
 async function requestSemanticDecisionApproval(

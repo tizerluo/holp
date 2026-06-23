@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  assertDefaultSingleStepEventAllowed,
-  isKnownEventName,
-} from "./eventContract.js";
+import { EventBus } from "./eventBus.js";
+import { FakeClock } from "./clock.js";
+import { isKnownEventName } from "./eventContract.js";
 
 describe("event contract registry", () => {
   it("accepts legacy event names and contains workflow multi-step names", () => {
@@ -12,10 +11,17 @@ describe("event contract registry", () => {
     expect(isKnownEventName("lifecycle", "workflow_step_planned")).toBe(true);
   });
 
-  it("rejects workflow events on the default single-step path", () => {
-    expect(() => assertDefaultSingleStepEventAllowed("run_started")).not.toThrow();
-    expect(() => assertDefaultSingleStepEventAllowed("workflow_step_planned")).toThrow(
-      "not allowed",
+  it("rejects unknown published names before mutating the bus", () => {
+    const bus = new EventBus("run_contract", new FakeClock());
+
+    expect(() => bus.publish("run", "workflow_step_planned", {})).toThrow(
+      "unknown event 'run.workflow_step_planned'",
     );
+    expect(bus.latestSeq).toBe(0);
+    expect(bus.allEvents()).toHaveLength(0);
+
+    bus.publish("run", "run_started", {});
+    expect(bus.latestSeq).toBe(1);
+    expect(bus.allEvents().map((event) => event.name)).toEqual(["run_started"]);
   });
 });

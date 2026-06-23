@@ -14,6 +14,7 @@ import type { JsonRpcRequest } from "../runtime/jsonrpc.js";
 import type { ConnectionContext } from "../core/context.js";
 import { clearApprovalTimer } from "../core/approvalLifecycle.js";
 import { systemClock, type Clock } from "../core/clock.js";
+import { claimTerminal } from "../core/terminalRun.js";
 
 export function handleTaskCancel(
   req: JsonRpcRequest,
@@ -43,7 +44,6 @@ export function handleTaskCancel(
 
   // Mark cancelled.
   ctx.governance.transitionRun(runId, "cancelling", clock.now(), "task.cancel");
-  run.status = "cancelled";
 
   // Cancel backend (if available).
   if (run.backend && run.sessionId) {
@@ -76,14 +76,11 @@ export function handleTaskCancel(
   run.pendingApprovals.clear();
 
   // Emit terminal run_gave_up.
-  run.bus.publish("run", "run_gave_up", { reason: "cancelled" });
-  ctx.governance.transitionRun(runId, "cancelled", clock.now(), "task.cancel");
-  ctx.governance.recordDecision({
-    decision_type: "run_terminal",
-    run_id: runId,
+  claimTerminal(run, ctx, clock, {
+    state: "cancelled",
     reason: "cancelled",
-    ts: clock.now(),
-    data: { state: "cancelled" },
+    eventName: "run_gave_up",
+    payload: { reason: "cancelled" },
   });
 
   return { run_id: runId, cancelling: true };
