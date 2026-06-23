@@ -255,14 +255,11 @@ async function probeFirstBatchHarness(
     ? headlessReady ? undefined : "headless_smoke_not_enabled_or_failed"
     : headlessVersion.reason ?? "headless_unavailable";
 
-  const reasonixBinaryAvailable = definition.transport !== "reasonix" || headlessVersion.ok;
   const acpReady = definition.transport !== "reasonix" &&
     (definition.probeAcpSmoke || realSmokeEnabled) &&
     await acpSmokeReady(definition, input.cwd);
   const acpReason = definition.transport === "reasonix"
-    ? reasonixBinaryAvailable
-      ? await reasonixAcpDegradedReason(definition, input.cwd, definition.probeAcpSmoke || realSmokeEnabled)
-      : "reasonix_binary_unavailable"
+    ? await reasonixAcpDegradedReason(definition, input.cwd, definition.probeAcpSmoke || realSmokeEnabled)
     : acpReady ? undefined : "acp_smoke_not_enabled_or_failed";
 
   const directProbe = await directProbeResult(definition, input.cwd, directSmokeEnabled);

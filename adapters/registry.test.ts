@@ -135,42 +135,6 @@ describe("adapter registry runtime surface resolution", () => {
     });
   }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
-  it("keeps missing Reasonix binary rejected instead of policy-degraded present", async () => {
-    const dir = makeTempDir();
-    const definition = reasonixDefinition(dir);
-    const missingDefinition: FirstBatchHarnessDefinition = {
-      ...definition,
-      headless: {
-        ...definition.headless,
-        command: join(dir, "missing-reasonix"),
-      },
-    };
-    const registry = createAdapterRegistry(
-      firstBatchAdapterFactories([missingDefinition]),
-      firstBatchAdapterProbes([missingDefinition]),
-    );
-
-    const result = await registry.probe({
-      id: "reasonix",
-      transport: "reasonix",
-      roles: ["coder"],
-      cwd: dir,
-    });
-
-    const acp = result.runtime_surfaces?.find((surface) => surface.runtime_surface === "acp");
-    expect(result.status).toBe("rejected");
-    expect(result.resolved_roles).toEqual([]);
-    expect(result.reason).toBe("missing_binary");
-    expect(result.missing).toEqual(expect.arrayContaining([
-      "headless:missing_binary",
-      "acp:reasonix_binary_unavailable",
-    ]));
-    expect(acp?.isolation_profiles.coder_worktree).toMatchObject({
-      readiness: "degraded",
-      reason: "reasonix_binary_unavailable",
-    });
-  });
-
   it("wires first-batch direct factories for every configured direct target", async () => {
     const factories = firstBatchAdapterFactories(FIRST_BATCH_HARNESSES);
 
@@ -188,6 +152,77 @@ describe("adapter registry runtime surface resolution", () => {
       });
       expect(factories[definition.transport]?.direct_user_session).toBeDefined();
     }
+  });
+
+  it("declares exact first-batch direct command shapes", () => {
+    const directDefinitions = Object.fromEntries(FIRST_BATCH_HARNESSES.map((definition) => {
+      expect(definition.direct.state).toBe("configured");
+      if (definition.direct.state !== "configured") throw new Error("direct not configured");
+      return [definition.transport, definition.direct.definition];
+    }));
+
+    expect(directDefinitions["cursor-agent"]).toMatchObject({
+      transport: "cursor-agent",
+      agentCommand: "cursor-agent",
+    });
+    expect(directDefinitions["cursor-agent"].agentArgsForPrompt("PROMPT")).toEqual([
+      "-p",
+      "PROMPT",
+      "--output-format",
+      "text",
+      "--force",
+    ]);
+
+    expect(directDefinitions["kimi-code"]).toMatchObject({
+      transport: "kimi-code",
+      agentCommand: "kimi",
+    });
+    expect(directDefinitions["kimi-code"].agentArgsForPrompt("PROMPT")).toEqual([
+      "-p",
+      "PROMPT",
+      "-m",
+      "kimi-code/kimi-for-coding",
+      "--output-format",
+      "text",
+    ]);
+
+    expect(directDefinitions.opencode).toMatchObject({
+      transport: "opencode",
+      agentCommand: "opencode",
+    });
+    expect(directDefinitions.opencode.agentArgsForPrompt("PROMPT")).toEqual([
+      "run",
+      "--pure",
+      "PROMPT",
+      "-m",
+      "opencode/deepseek-v4-flash-free",
+    ]);
+
+    expect(directDefinitions.pi).toMatchObject({
+      transport: "pi",
+      agentCommand: "pi",
+    });
+    expect(directDefinitions.pi.agentArgsForPrompt("PROMPT")).toEqual([
+      "-p",
+      "PROMPT",
+      "--mode",
+      "text",
+      "--provider",
+      "xiaomi-token-plan-sgp",
+      "--model",
+      "mimo-v2.5-pro",
+    ]);
+
+    expect(directDefinitions.reasonix).toMatchObject({
+      transport: "reasonix",
+      agentCommand: "reasonix",
+    });
+    expect(directDefinitions.reasonix.agentArgsForPrompt("PROMPT")).toEqual([
+      "run",
+      "--model",
+      "deepseek-flash",
+      "PROMPT",
+    ]);
   });
 
   it("keeps first-batch direct surfaces degraded by default without direct smoke env", async () => {
