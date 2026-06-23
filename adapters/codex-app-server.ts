@@ -219,6 +219,7 @@ function codexRuntimeSurfaces(
     {
       runtime_surface: "headless",
       runtime_kind: "app_server",
+      actual_fidelity: "streaming_controlled",
       surface_support: status === "rejected" ? "unsupported" : "supported",
       isolation_profiles: appServerProfiles,
       state_declaration_ref: "harness-state:codex",
@@ -228,6 +229,7 @@ function codexRuntimeSurfaces(
     {
       runtime_surface: "acp",
       runtime_kind: "codex_acp_unwired",
+      actual_fidelity: "one_shot",
       surface_support: "unsupported",
       isolation_profiles: rejectedProfiles("codex_acp_not_wired"),
       state_declaration_ref: "harness-state:codex:acp",
@@ -237,6 +239,7 @@ function codexRuntimeSurfaces(
     {
       runtime_surface: "direct_user_session",
       runtime_kind: "unknown",
+      actual_fidelity: "one_shot",
       surface_support: "unknown",
       isolation_profiles: rejectedProfiles("direct_user_session_not_declared"),
       direct_channel: unknownDirectChannel(),

@@ -274,6 +274,7 @@ function claudeRuntimeSurfaces(
     {
       runtime_surface: "headless",
       runtime_kind: "claude_code_print_json",
+      actual_fidelity: "one_shot",
       surface_support: status === "rejected" ? "unsupported" : "supported",
       isolation_profiles: profiles,
       state_declaration_ref: "harness-state:claude-code:headless",
@@ -283,6 +284,7 @@ function claudeRuntimeSurfaces(
     {
       runtime_surface: "acp",
       runtime_kind: "claude_code_no_acp",
+      actual_fidelity: "one_shot",
       surface_support: "unsupported",
       isolation_profiles: rejectedProfiles("claude_code_has_no_official_acp"),
       state_declaration_ref: "harness-state:claude-code:acp",
@@ -292,6 +294,7 @@ function claudeRuntimeSurfaces(
     {
       runtime_surface: "direct_user_session",
       runtime_kind: "claude_code_direct_session_unwired",
+      actual_fidelity: "one_shot",
       surface_support: "unknown",
       isolation_profiles: rejectedProfiles("direct_user_session_not_declared"),
       direct_channel: unknownDirectChannel(),

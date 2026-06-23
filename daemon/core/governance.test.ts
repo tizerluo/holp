@@ -82,6 +82,7 @@ describe("GovernanceStore", () => {
         {
           runtime_surface: "headless",
           runtime_kind: "fake-headless",
+          actual_fidelity: "streaming_controlled",
           surface_support: "supported",
           isolation_profiles: profiles,
           state_declaration_ref: "harness-state:fake",

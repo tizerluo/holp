@@ -26,6 +26,7 @@ describe("flock probe statuses", () => {
             {
               runtime_surface: "headless",
               runtime_kind: "test-ready",
+            actual_fidelity: "one_shot",
               surface_support: "supported",
               isolation_profiles: withProfile(
                 rejectedProfiles("unsupported_isolation_profile"),
@@ -47,6 +48,7 @@ describe("flock probe statuses", () => {
             {
               runtime_surface: "headless",
               runtime_kind: "test-degraded",
+            actual_fidelity: "one_shot",
               surface_support: "supported",
               isolation_profiles: withProfile(
                 rejectedProfiles("unsupported_isolation_profile"),
@@ -73,6 +75,7 @@ describe("flock probe statuses", () => {
             {
               runtime_surface: "headless",
               runtime_kind: "test-rejected",
+            actual_fidelity: "one_shot",
               surface_support: "unsupported",
               isolation_profiles: rejectedProfiles("missing_binary_codex", ["binary:codex"]),
               state_declaration_ref: "harness-state:test-rejected",
@@ -171,6 +174,7 @@ describe("flock probe statuses", () => {
               {
                 runtime_surface: "headless",
                 runtime_kind: "route-test",
+            actual_fidelity: "one_shot",
                 surface_support: "supported",
                 isolation_profiles: withProfile(
                   rejectedProfiles("unsupported_isolation_profile"),
