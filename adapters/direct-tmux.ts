@@ -43,7 +43,11 @@ export async function probeDirectTmux(args: {
   }
   const agent = await runCommand(args.agentCommand, ["--version"], args.cwd, args.timeoutMs ?? 2_000);
   if (agent.code !== 0 || agent.timedOut) {
-    return { ready: false, reason: "kimi_unavailable", missing: ["binary:kimi"] };
+    return {
+      ready: false,
+      reason: "direct_agent_unavailable",
+      missing: [`binary:${args.agentCommand}`],
+    };
   }
   if (args.verifyCapabilities === true) {
     const tmuxCommand = args.tmuxCommand ?? "tmux";
@@ -109,18 +113,20 @@ class DirectTmuxBackend implements AgentBackend {
   }
 
   async startSession(): Promise<{ sessionId: string }> {
-    this.sessionId = `holp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const sessionId = `holp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    if (!sessionId.startsWith("holp-")) throw new Error("direct_tmux_session_namespace_invalid");
     const created = await runCommand(
       this.tmuxCommand,
-      ["new-session", "-d", "-s", this.sessionId],
+      ["new-session", "-d", "-s", sessionId],
       this.opts.cwd,
       5_000,
     );
     if (created.code !== 0 || created.timedOut) {
       throw new Error(created.timedOut ? "direct_tmux_create_timeout" : "direct_tmux_create_failed");
     }
-    this.emit({ type: "status", status: "starting", detail: this.sessionId });
-    return { sessionId: this.sessionId };
+    this.sessionId = sessionId;
+    this.emit({ type: "status", status: "starting", detail: sessionId });
+    return { sessionId };
   }
 
   async sendPrompt(sessionId: string, prompt: string): Promise<void> {

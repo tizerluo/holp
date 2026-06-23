@@ -5,6 +5,7 @@ import { afterEach } from "vitest";
 import { describe, expect, it } from "vitest";
 import { createAdapterRegistry, createFakeRegistry, createStubFactory } from "./registry.js";
 import {
+  FIRST_BATCH_HARNESSES,
   firstBatchAdapterFactories,
   firstBatchAdapterProbes,
   type FirstBatchHarnessDefinition,
@@ -168,6 +169,26 @@ describe("adapter registry runtime surface resolution", () => {
     });
   });
 
+  it("keeps non-Kimi first-batch direct surfaces explicitly unsupported without backend factories", async () => {
+    const factories = firstBatchAdapterFactories(FIRST_BATCH_HARNESSES);
+    const nonKimi = FIRST_BATCH_HARNESSES.filter((definition) => definition.transport !== "kimi-code");
+
+    expect(nonKimi.map((definition) => definition.transport)).toEqual([
+      "cursor-agent",
+      "opencode",
+      "pi",
+      "reasonix",
+    ]);
+    for (const definition of nonKimi) {
+      expect(definition.direct).toMatchObject({
+        state: "rejected",
+        surfaceSupport: "unsupported",
+        reason: "direct_user_session_not_declared_until_issue_50",
+      });
+      expect(factories[definition.transport]?.direct_user_session).toBeUndefined();
+    }
+  });
+
   it("keeps Reasonix ACP degraded when full terminal prompt verifies HOLP_OK by policy", async () => {
     const dir = makeTempDir();
     const definition = reasonixDefinition(dir, "ok");
@@ -250,6 +271,7 @@ describe("adapter registry runtime surface resolution", () => {
         requestTimeoutMs: 5_000,
         terminalTimeoutMs: 5_000,
       },
+      direct: unsupportedDirect("opencode"),
     };
     const registry = createAdapterRegistry(
       firstBatchAdapterFactories([definition]),
@@ -299,6 +321,32 @@ describe("adapter registry runtime surface resolution", () => {
       capability_bitmask: ["observe", "read", "inject", "interrupt", "cancel", "owner_verified"],
     });
   });
+
+  it("does not declare direct ready from tmux capability probe without agent smoke output", async () => {
+    const dir = makeTempDir();
+    const definition = kimiDefinition(dir, { directReady: true, directOutput: "NO_TOKEN" });
+    const registry = createAdapterRegistry(
+      firstBatchAdapterFactories([definition]),
+      firstBatchAdapterProbes([definition]),
+    );
+
+    const result = await registry.probe({
+      id: "kimi",
+      transport: "kimi-code",
+      roles: ["coder"],
+      cwd: dir,
+    });
+
+    const direct = result.runtime_surfaces?.find((surface) =>
+      surface.runtime_surface === "direct_user_session"
+    );
+    expect(direct?.isolation_profiles.coder_worktree).toMatchObject({
+      readiness: "degraded",
+      reason: "direct_tmux_capability_not_proven",
+      missing: ["agent_in_tmux_smoke", "owner_verified"],
+    });
+    expect(direct?.direct_channel?.capability_bitmask).toEqual([]);
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
   it("leaves Kimi direct tmux degraded when owner/capability proof is missing", async () => {
     const dir = makeTempDir();
@@ -390,6 +438,7 @@ function opencodeDefinition(
       requestTimeoutMs: 5_000,
       terminalTimeoutMs: 5_000,
     },
+    direct: unsupportedDirect("opencode"),
   };
 }
 
@@ -414,12 +463,13 @@ function reasonixDefinition(
       requestTimeoutMs: 5_000,
       terminalTimeoutMs: 5_000,
     },
+    direct: unsupportedDirect("reasonix"),
   };
 }
 
 function kimiDefinition(
   dir: string,
-  opts: { directReady: boolean },
+  opts: { directReady: boolean; directOutput?: string },
 ): FirstBatchHarnessDefinition {
   return {
     transport: "kimi-code",
@@ -439,11 +489,30 @@ function kimiDefinition(
       terminalTimeoutMs: 5_000,
     },
     direct: {
-      transport: "kimi-code",
-      tmuxCommand: fakeTmux(dir),
-      agentCommand: opts.directReady ? fakeCli(dir, "kimi-direct") : join(dir, "missing-kimi"),
-      agentArgsForPrompt: (prompt) => ["-p", prompt],
+      state: "configured",
+      definition: {
+        transport: "kimi-code",
+        tmuxCommand: fakeTmux(dir, opts.directOutput ?? "HOLP_OK"),
+        agentCommand: opts.directReady ? fakeCli(dir, "kimi-direct") : join(dir, "missing-kimi"),
+        agentArgsForPrompt: (prompt) => ["-p", prompt],
+      },
+      reason: "direct_tmux_capability_not_proven",
+      missing: ["agent_in_tmux_smoke", "owner_verified"],
     },
+  };
+}
+
+function unsupportedDirect(transport: string) {
+  return {
+    state: "rejected" as const,
+    runtimeKind: `${transport}_direct_unsupported_until_issue_50`,
+    surfaceSupport: "unsupported" as const,
+    reason: "direct_user_session_not_declared_until_issue_50",
+    missing: [
+      "issue-50:direct_user_session_parity",
+      "agent_in_tmux_smoke",
+      "owner_verified",
+    ],
   };
 }
 
@@ -491,7 +560,7 @@ rl.on("line", (line) => {
   return script;
 }
 
-function fakeTmux(dir: string): string {
+function fakeTmux(dir: string, directOutput: string): string {
   const script = join(dir, "fake-tmux.mjs");
   const statePath = join(dir, "fake-tmux-state.json");
   writeFileSync(script, `#!/usr/bin/env node
@@ -515,14 +584,21 @@ if (args[0] === "new-session") {
 }
 if (args[0] === "send-keys") {
   const command = args[args.indexOf("-t") + 2];
-  const marker = command.match(/__HOLP_OWNER_VERIFIED_[A-Za-z0-9_]+__/)?.[0] || "";
+  const marker = command.match(/__(?:HOLP_OWNER_VERIFIED|HOLP_DONE)_[A-Za-z0-9_]+__/)?.[0] || "";
+  const output = marker.includes("HOLP_DONE") ? ${JSON.stringify(directOutput)} : "owner verified";
   const state = readState();
-  state.pane = marker;
+  state.echo = command;
+  state.pane = command + "\\n" + output + "\\n" + marker + "\\n";
+  state.captureCount = 0;
   writeState(state);
   process.exit(0);
 }
 if (args[0] === "capture-pane") {
-  process.stdout.write(readState().pane || "");
+  const state = readState();
+  const pane = state.captureCount === 0 ? state.echo : state.pane;
+  state.captureCount = (state.captureCount || 0) + 1;
+  writeState(state);
+  process.stdout.write(pane || "");
   process.exit(0);
 }
 if (args[0] === "kill-session") process.exit(0);

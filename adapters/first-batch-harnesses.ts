@@ -42,14 +42,38 @@ export interface FirstBatchHarnessDefinition {
   readonly vendor: string;
   readonly headless: CliHarnessDefinition;
   readonly acp: AcpBackendDefinition;
-  readonly direct?: DirectTmuxDefinition;
+  readonly direct: FirstBatchDirectSessionDeclaration;
   readonly readOnlyReviewEnforced?: boolean;
   readonly probeHeadlessSmoke?: boolean;
   readonly probeAcpSmoke?: boolean;
   readonly probeDirectReady?: boolean;
 }
 
+export type FirstBatchDirectSessionDeclaration =
+  | FirstBatchDirectTmuxDeclaration
+  | FirstBatchUnsupportedDirectDeclaration;
+
+export interface FirstBatchDirectTmuxDeclaration {
+  readonly state: "configured";
+  readonly definition: DirectTmuxDefinition;
+  readonly reason?: string;
+  readonly missing?: readonly string[];
+}
+
+export interface FirstBatchUnsupportedDirectDeclaration {
+  readonly state: "unsupported" | "rejected" | "degraded";
+  readonly runtimeKind: string;
+  readonly surfaceSupport: "unsupported" | "unknown" | "experimental";
+  readonly reason: string;
+  readonly missing?: readonly string[];
+}
+
 const DEFAULT_TIMEOUT_MS = 60_000;
+const FIRST_BATCH_DIRECT_UNSUPPORTED_MISSING = [
+  "issue-50:direct_user_session_parity",
+  "agent_in_tmux_smoke",
+  "owner_verified",
+] as const;
 
 export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
   {
@@ -64,6 +88,7 @@ export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
       timeoutMs: DEFAULT_TIMEOUT_MS,
     },
     acp: { transport: "cursor-agent", command: "cursor-agent", args: ["acp"] },
+    direct: unsupportedDirect("cursor-agent"),
   },
   {
     transport: "kimi-code",
@@ -85,16 +110,21 @@ export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
     },
     acp: { transport: "kimi-code", command: "kimi", args: ["acp"] },
     direct: {
-      transport: "kimi-code",
-      agentCommand: "kimi",
-      agentArgsForPrompt: (prompt) => [
-        "-p",
-        prompt,
-        "-m",
-        "kimi-code/kimi-for-coding",
-        "--output-format",
-        "text",
-      ],
+      state: "configured",
+      definition: {
+        transport: "kimi-code",
+        agentCommand: "kimi",
+        agentArgsForPrompt: (prompt) => [
+          "-p",
+          prompt,
+          "-m",
+          "kimi-code/kimi-for-coding",
+          "--output-format",
+          "text",
+        ],
+      },
+      reason: "direct_tmux_capability_not_proven",
+      missing: ["agent_in_tmux_smoke", "owner_verified"],
     },
   },
   {
@@ -109,6 +139,7 @@ export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
       timeoutMs: DEFAULT_TIMEOUT_MS,
     },
     acp: { transport: "opencode", command: "opencode", args: ["acp"] },
+    direct: unsupportedDirect("opencode"),
   },
   {
     transport: "pi",
@@ -122,6 +153,7 @@ export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
       timeoutMs: DEFAULT_TIMEOUT_MS,
     },
     acp: { transport: "pi", command: "pi-acp" },
+    direct: unsupportedDirect("pi"),
   },
   {
     transport: "reasonix",
@@ -135,6 +167,7 @@ export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
       timeoutMs: DEFAULT_TIMEOUT_MS,
     },
     acp: { transport: "reasonix", command: "reasonix", args: ["acp"] },
+    direct: unsupportedDirect("reasonix"),
   },
 ];
 
@@ -146,8 +179,8 @@ export function firstBatchAdapterFactories(
     {
       headless: createCliHarnessBackendFactory(definition.headless),
       acp: createAcpBackendFactory(definition.acp),
-      ...(definition.direct
-        ? { direct_user_session: createDirectTmuxBackendFactory(definition.direct) }
+      ...(definition.direct.state === "configured"
+        ? { direct_user_session: createDirectTmuxBackendFactory(definition.direct.definition) }
         : {}),
     },
   ]));
@@ -200,12 +233,11 @@ async function probeFirstBatchHarness(
       : "reasonix_binary_unavailable"
     : acpReady ? undefined : "acp_smoke_not_enabled_or_failed";
 
-  const directReady = definition.direct
+  const directReady = definition.direct.state === "configured"
     ? await directProbeReady(definition, input.cwd, realSmokeEnabled)
     : false;
-  const directReason = definition.direct
-    ? directReady ? undefined : "direct_tmux_capability_not_proven"
-    : "direct_user_session_not_declared";
+  const directReason = directReady ? undefined : definition.direct.reason;
+  const directMissing = directReady ? undefined : definition.direct.missing;
 
   const runtimeSurfaces = [
     runtimeSurface({
@@ -230,11 +262,12 @@ async function probeFirstBatchHarness(
     }),
     runtimeSurface({
       surface: "direct_user_session",
-      kind: definition.direct ? "tmux" : `${definition.transport}_direct_unwired`,
-      fidelity: definition.direct ? "streaming_controlled" : "one_shot",
-      support: definition.direct ? "experimental" : "unknown",
+      kind: directRuntimeKind(definition),
+      fidelity: definition.direct.state === "configured" ? "streaming_controlled" : "one_shot",
+      support: directSurfaceSupport(definition),
       ready: directReady,
       reason: directReason,
+      missing: directMissing,
       readOnlyEnforced: false,
       stateRef: `harness-state:${definition.transport}:direct_user_session`,
       directChannel: directChannel(directReady),
@@ -244,7 +277,7 @@ async function probeFirstBatchHarness(
   const anyReady = headlessReady || acpReady || directReady;
   const anyPresent = headlessVersion.ok ||
     (definition.transport !== "reasonix" && acpReason !== "acp_smoke_not_enabled_or_failed") ||
-    definition.direct;
+    definition.direct.state === "configured";
   return {
     status: anyReady ? "ready" : anyPresent ? "degraded" : "rejected",
     harness_id: definition.harnessId,
@@ -258,7 +291,7 @@ async function probeFirstBatchHarness(
     resolved_roles: anyReady || anyPresent
       ? (input.roles.length > 0 ? input.roles : ["coder", "tester", "architect", "reviewer"])
       : [],
-    missing: anyReady ? undefined : missingFor(headlessVersion, acpReason),
+    missing: anyReady ? undefined : missingFor(headlessVersion, acpReason, directReason),
     reason: anyReady ? undefined : headlessReason,
   };
 }
@@ -335,14 +368,33 @@ async function directProbeReady(
   cwd: string,
   realSmokeEnabled: boolean,
 ): Promise<boolean> {
-  if (!definition.direct || (!definition.probeDirectReady && !realSmokeEnabled)) return false;
+  if (definition.direct.state !== "configured" || (!definition.probeDirectReady && !realSmokeEnabled)) {
+    return false;
+  }
+  const direct = definition.direct.definition;
   const result = await probeDirectTmux({
-    tmuxCommand: definition.direct.tmuxCommand,
-    agentCommand: definition.direct.agentCommand,
+    tmuxCommand: direct.tmuxCommand,
+    agentCommand: direct.agentCommand,
     cwd,
     verifyCapabilities: true,
   });
-  return result.ready;
+  if (!result.ready) return false;
+  const backend = createDirectTmuxBackendFactory(direct)({ cwd });
+  const output: string[] = [];
+  backend.onMessage((message) => {
+    if (message.type === "model-output" && typeof message.fullText === "string") {
+      output.push(message.fullText);
+    }
+  });
+  try {
+    const session = await backend.startSession();
+    await backend.sendPrompt(session.sessionId, "HOLP direct tmux smoke. Reply with HOLP_OK.");
+    return output.some((text) => text.includes("HOLP_OK"));
+  } catch {
+    return false;
+  } finally {
+    await backend.dispose().catch(() => undefined);
+  }
 }
 
 function runtimeSurface(args: {
@@ -352,6 +404,7 @@ function runtimeSurface(args: {
   readonly support: "supported" | "experimental" | "unsupported" | "unknown";
   readonly ready: boolean;
   readonly reason?: string;
+  readonly missing?: readonly string[];
   readonly readOnlyEnforced: boolean;
   readonly stateRef: string;
   readonly directChannel?: DirectChannelDeclaration;
@@ -361,7 +414,7 @@ function runtimeSurface(args: {
     runtime_kind: args.kind,
     actual_fidelity: args.fidelity,
     surface_support: args.support,
-    isolation_profiles: profilesFor(args.ready, args.reason, args.readOnlyEnforced),
+    isolation_profiles: profilesFor(args.ready, args.reason, args.readOnlyEnforced, args.missing),
     ...(args.directChannel ? { direct_channel: args.directChannel } : {}),
     state_declaration_ref: args.stateRef,
     global_mutation_required: false,
@@ -373,17 +426,18 @@ function profilesFor(
   ready: boolean,
   reason = "runtime_surface_not_ready",
   readOnlyEnforced: boolean,
+  missing: readonly string[] = [reason],
 ) {
   const base = rejectedProfiles("unsupported_isolation_profile");
   const execution: IsolationProfileReadiness = ready
     ? { readiness: "ready" }
-    : { readiness: "degraded", reason, missing: [reason] };
+    : { readiness: "degraded", reason, missing };
   const readOnly: IsolationProfileReadiness = ready && readOnlyEnforced
     ? { readiness: "ready" }
     : {
         readiness: ready ? "degraded" : "rejected",
         reason: readOnlyEnforced ? reason : "read_only_enforcement_not_proven",
-        missing: readOnlyEnforced ? [reason] : ["read_only_enforcement"],
+        missing: readOnlyEnforced ? missing : ["read_only_enforcement"],
         warnings: readOnlyEnforced ? undefined : ["declared_not_enforced"],
       };
   return withProfile(
@@ -419,10 +473,32 @@ function directChannel(ready: boolean): DirectChannelDeclaration {
 function missingFor(
   headlessVersion: { readonly ok: boolean; readonly reason?: string },
   acpReason?: string,
+  directReason?: string,
 ): readonly string[] | undefined {
   const missing = [
     ...(headlessVersion.ok ? [] : [`headless:${headlessVersion.reason ?? "unavailable"}`]),
     ...(acpReason ? [`acp:${acpReason}`] : []),
+    ...(directReason ? [`direct_user_session:${directReason}`] : []),
   ];
   return missing.length > 0 ? missing : undefined;
+}
+
+function unsupportedDirect(transport: FirstBatchTransport): FirstBatchUnsupportedDirectDeclaration {
+  return {
+    state: "rejected",
+    runtimeKind: `${transport}_direct_unsupported_until_issue_50`,
+    surfaceSupport: "unsupported",
+    reason: "direct_user_session_not_declared_until_issue_50",
+    missing: FIRST_BATCH_DIRECT_UNSUPPORTED_MISSING,
+  };
+}
+
+function directRuntimeKind(definition: FirstBatchHarnessDefinition): string {
+  return definition.direct.state === "configured" ? "tmux" : definition.direct.runtimeKind;
+}
+
+function directSurfaceSupport(
+  definition: FirstBatchHarnessDefinition,
+): "supported" | "experimental" | "unsupported" | "unknown" {
+  return definition.direct.state === "configured" ? "experimental" : definition.direct.surfaceSupport;
 }
