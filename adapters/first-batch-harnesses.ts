@@ -190,11 +190,14 @@ async function probeFirstBatchHarness(
     ? headlessReady ? undefined : "headless_smoke_not_enabled_or_failed"
     : headlessVersion.reason ?? "headless_unavailable";
 
+  const reasonixBinaryAvailable = definition.transport !== "reasonix" || headlessVersion.ok;
   const acpReady = definition.transport !== "reasonix" &&
     (definition.probeAcpSmoke || realSmokeEnabled) &&
     await acpSmokeReady(definition, input.cwd);
   const acpReason = definition.transport === "reasonix"
-    ? await reasonixAcpDegradedReason(definition, input.cwd, definition.probeAcpSmoke || realSmokeEnabled)
+    ? reasonixBinaryAvailable
+      ? await reasonixAcpDegradedReason(definition, input.cwd, definition.probeAcpSmoke || realSmokeEnabled)
+      : "reasonix_binary_unavailable"
     : acpReady ? undefined : "acp_smoke_not_enabled_or_failed";
 
   const directReady = definition.direct
@@ -239,7 +242,9 @@ async function probeFirstBatchHarness(
   ] as const;
 
   const anyReady = headlessReady || acpReady || directReady;
-  const anyPresent = headlessVersion.ok || acpReason !== "acp_smoke_not_enabled_or_failed" || definition.direct;
+  const anyPresent = headlessVersion.ok ||
+    (definition.transport !== "reasonix" && acpReason !== "acp_smoke_not_enabled_or_failed") ||
+    definition.direct;
   return {
     status: anyReady ? "ready" : anyPresent ? "degraded" : "rejected",
     harness_id: definition.harnessId,

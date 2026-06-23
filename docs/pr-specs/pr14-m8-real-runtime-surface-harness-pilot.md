@@ -118,6 +118,7 @@
   - `npm run typecheck`
   - `npm test`
   - opt-in harness smoke suite,例如 `HOLP_REAL_HARNESS_SMOKE=1 npm run smoke:harnesses`
+    - 该 smoke 会发真实 provider turns,可能消耗额度;默认未设置 `HOLP_REAL_HARNESS_SMOKE=1` 时必须 SKIP。
   - `git diff --check`
   - `npx gitnexus detect-changes --repo holp`
 

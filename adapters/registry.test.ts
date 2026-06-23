@@ -112,6 +112,42 @@ describe("adapter registry runtime surface resolution", () => {
     });
   });
 
+  it("keeps missing Reasonix binary rejected instead of policy-degraded present", async () => {
+    const dir = makeTempDir();
+    const definition = reasonixDefinition(dir);
+    const missingDefinition: FirstBatchHarnessDefinition = {
+      ...definition,
+      headless: {
+        ...definition.headless,
+        command: join(dir, "missing-reasonix"),
+      },
+    };
+    const registry = createAdapterRegistry(
+      firstBatchAdapterFactories([missingDefinition]),
+      firstBatchAdapterProbes([missingDefinition]),
+    );
+
+    const result = await registry.probe({
+      id: "reasonix",
+      transport: "reasonix",
+      roles: ["coder"],
+      cwd: dir,
+    });
+
+    const acp = result.runtime_surfaces?.find((surface) => surface.runtime_surface === "acp");
+    expect(result.status).toBe("rejected");
+    expect(result.resolved_roles).toEqual([]);
+    expect(result.reason).toBe("missing_binary");
+    expect(result.missing).toEqual(expect.arrayContaining([
+      "headless:missing_binary",
+      "acp:reasonix_binary_unavailable",
+    ]));
+    expect(acp?.isolation_profiles.coder_worktree).toMatchObject({
+      readiness: "degraded",
+      reason: "reasonix_binary_unavailable",
+    });
+  });
+
   it("keeps Reasonix ACP degraded when full terminal prompt verifies HOLP_OK by policy", async () => {
     const dir = makeTempDir();
     const definition = reasonixDefinition(dir, "ok");
