@@ -53,6 +53,8 @@ holp/
 - [ ] M11 dynamic workflow— L1 半动态和 L2 全动态 workflow
 - [ ] M12 Remote and distributed HOLP— remote runner、declaration health、artifact/event/approval relay
 
+当前 learned-model data readiness 之前新增 #45 runtime-surface parity + terminal-consumer smoke 前置阶段。PR14 是 first-batch harness pilot,不是 bounded CLI cohort 的完整候选空间证明,也不是 cmux-ready 证明。
+
 > **当前只声称**:protocol draft + **fake backend 跑通的 M1 协议闭环**(daemon + CLI demo)+ M2 契约层 + **Codex app-server 作为首个真实 adapter**(含基础 stdio/turn recovery,不含多账号 quota 切换)+ v0.1.5 runtime surface/isolation baseline + **M4a governance data/state/decision skeleton partial** + **M4b consensus gate triage kernel partial** + **M5 deterministic unanimous-approve fake+fake multi-agent consensus demo** + **M5b real reviewer execution pilot** + **M6a fake consumer CLI partial** + **M6b native-claude headless reviewer partial** + **M6c runtime/session matrix foundation**。CLI demos 仍显式使用 `fake` transport;真实 Codex/Claude reviewer paths 通过 opt-in smoke 验证,且 read-only enforcement 不可证明时只会 INCONCLUSIVE/degraded;matrix report 只是 `flock.declare`/`flock.discover` wire 的 descriptive projection,不替代 `orchestrate.run` eligibility gate;`acp` 仍是桩,不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实多 provider dissent/timeout reviewer demo、ACP/direct session 真接线、或稳定 gate protocol surface 已完成。
 
 > 参考 daemon 已把 v0.1.5 runtime surface/isolation matrix 落进 declare/discover、run metadata 和内部 registry archive;这仍是声明/记录层,不表示真实 OS/provider 隔离已经强制执行。
