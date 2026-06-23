@@ -690,7 +690,10 @@ async function selectPlannerStep(
     return prediction.output;
   } catch (error) {
     ctx.governance.recordDecision({
-      decision_type: "learned_router_active_fallback",
+      decision_type:
+        mode === "learned_shadow"
+          ? "learned_router_shadow_fallback"
+          : "learned_router_active_fallback",
       run_id: run.run_id,
       reason: "planner_error",
       ts: clock.now(),
