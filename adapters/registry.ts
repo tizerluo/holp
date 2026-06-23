@@ -17,7 +17,7 @@ import type {
   AgentProbeResult,
   TransportClass,
 } from "./agent-backend.js";
-import { createClaudeCodeBackendFactory, probeClaudeCode } from "./claude-code.js";
+import { createClaudeCodeBackendFactory, probeClaudeCode, READ_ONLY_ALLOWED_TOOLS } from "./claude-code.js";
 import { createCodexAppServerBackendFactory, probeCodexAppServer } from "./codex-app-server.js";
 import { createAcpBackendFactory } from "./acp-client.js";
 import { createDirectTmuxBackendFactory } from "./direct-tmux.js";
@@ -253,7 +253,21 @@ export function createAdapterRegistry(
 export function createDefaultAdapterRegistry(): AdapterRegistry {
   return createAdapterRegistry(
     {
-      "native-claude": createClaudeCodeBackendFactory(),
+      "native-claude": {
+        headless: createClaudeCodeBackendFactory(),
+        direct_user_session: createDirectTmuxBackendFactory({
+          transport: "native-claude",
+          agentCommand: "claude",
+          agentArgsForPrompt: (prompt) => [
+            "-p",
+            prompt,
+            "--output-format",
+            "json",
+            "--allowedTools",
+            READ_ONLY_ALLOWED_TOOLS,
+          ],
+        }),
+      },
       "mcp-codex": {
         headless: createCodexAppServerBackendFactory(),
         acp: createAcpBackendFactory({ transport: "mcp-codex", command: "codex-acp" }),

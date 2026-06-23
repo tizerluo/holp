@@ -416,6 +416,30 @@ describe("adapter registry runtime surface resolution", () => {
     expect(runtime.actual_fidelity).toBe("streaming_controlled");
   });
 
+  it("native-claude headless resolves to claude factory after per-surface map wiring", () => {
+    const registry = createDefaultAdapterRegistry();
+    const headlessFactory = registry.resolve("native-claude");
+    const headlessFactoryExplicit = registry.resolve("native-claude", "headless");
+    expect(headlessFactory).toBeDefined();
+    expect(headlessFactory).toBe(headlessFactoryExplicit);
+  });
+
+  it("native-claude explicit acp returns undefined and does not fall back to headless", () => {
+    const registry = createDefaultAdapterRegistry();
+    const headlessFactory = registry.resolve("native-claude", "headless");
+    const acpFactory = registry.resolve("native-claude", "acp");
+    expect(headlessFactory).toBeDefined();
+    expect(acpFactory).toBeUndefined();
+  });
+
+  it("native-claude explicit direct_user_session resolves to direct factory distinct from headless", () => {
+    const registry = createDefaultAdapterRegistry();
+    const headlessFactory = registry.resolve("native-claude", "headless");
+    const directFactory = registry.resolve("native-claude", "direct_user_session");
+    expect(directFactory).toBeDefined();
+    expect(directFactory).not.toBe(headlessFactory);
+  });
+
   it("mcp-codex headless still resolves to app-server factory after per-surface map wiring", () => {
     const registry = createDefaultAdapterRegistry();
     const headlessFactory = registry.resolve("mcp-codex");
