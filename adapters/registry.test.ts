@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach } from "vitest";
 import { describe, expect, it } from "vitest";
-import { createAdapterRegistry, createFakeRegistry, createStubFactory } from "./registry.js";
+import { createAdapterRegistry, createDefaultAdapterRegistry, createFakeRegistry, createStubFactory } from "./registry.js";
 import {
   FIRST_BATCH_HARNESSES,
   firstBatchAdapterFactories,
@@ -414,6 +414,26 @@ describe("adapter registry runtime surface resolution", () => {
     const runtime = (started.payload as { runtime: Record<string, unknown> }).runtime;
     expect(runtime.runtime_surface).toBe("acp");
     expect(runtime.actual_fidelity).toBe("streaming_controlled");
+  });
+
+  it("mcp-codex headless still resolves to app-server factory after per-surface map wiring", () => {
+    const registry = createDefaultAdapterRegistry();
+    const headlessFactory = registry.resolve("mcp-codex");
+    const headlessFactoryExplicit = registry.resolve("mcp-codex", "headless");
+    expect(headlessFactory).toBeDefined();
+    expect(headlessFactoryExplicit).toBeDefined();
+    expect(headlessFactory).toBe(headlessFactoryExplicit);
+  });
+
+  it("mcp-codex explicit acp and direct_user_session resolution does not fall back to headless", () => {
+    const registry = createDefaultAdapterRegistry();
+    const headlessFactory = registry.resolve("mcp-codex", "headless");
+    const acpFactory = registry.resolve("mcp-codex", "acp");
+    const directFactory = registry.resolve("mcp-codex", "direct_user_session");
+    expect(acpFactory).toBeDefined();
+    expect(directFactory).toBeDefined();
+    expect(acpFactory).not.toBe(headlessFactory);
+    expect(directFactory).not.toBe(headlessFactory);
   });
 });
 

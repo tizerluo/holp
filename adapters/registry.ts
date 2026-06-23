@@ -19,6 +19,8 @@ import type {
 } from "./agent-backend.js";
 import { createClaudeCodeBackendFactory, probeClaudeCode } from "./claude-code.js";
 import { createCodexAppServerBackendFactory, probeCodexAppServer } from "./codex-app-server.js";
+import { createAcpBackendFactory } from "./acp-client.js";
+import { createDirectTmuxBackendFactory } from "./direct-tmux.js";
 import { createFakeBackendFactory } from "./fake-backend.js";
 import {
   firstBatchAdapterFactories,
@@ -252,7 +254,25 @@ export function createDefaultAdapterRegistry(): AdapterRegistry {
   return createAdapterRegistry(
     {
       "native-claude": createClaudeCodeBackendFactory(),
-      "mcp-codex": createCodexAppServerBackendFactory(),
+      "mcp-codex": {
+        headless: createCodexAppServerBackendFactory(),
+        acp: createAcpBackendFactory({ transport: "mcp-codex", command: "codex-acp" }),
+        direct_user_session: createDirectTmuxBackendFactory({
+          transport: "mcp-codex",
+          agentCommand: "codex",
+          agentArgsForPrompt: (prompt) => [
+            "exec",
+            "--sandbox",
+            "workspace-write",
+            "-c",
+            'approval_policy="never"',
+            "--skip-git-repo-check",
+            "-c",
+            "notify=[]",
+            prompt,
+          ],
+        }),
+      },
       acp: createStubFactory("acp"),
       "learned-router": createStubFactory("learned-router"),
       ...firstBatchAdapterFactories(),
