@@ -124,7 +124,7 @@ if (args[0] === "send-keys") {
   const command = args[args.indexOf("-t") + 2];
   const marker = command.match(/__(?:HOLP_DONE|HOLP_OWNER_VERIFIED)_[A-Za-z0-9_]+__/)?.[0] || "__HOLP_DONE_missing__";
   const state = readState();
-  state.pane = "direct output\\n" + marker + "\\n";
+  state.pane = command + "\\ndirect output\\n" + marker + "\\n";
   writeState(state);
   process.exit(0);
 }

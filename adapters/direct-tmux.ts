@@ -204,11 +204,19 @@ async function waitForMarker(args: {
     if (capture.code !== 0 || capture.timedOut) {
       throw new Error(capture.timedOut ? "direct_tmux_capture_timeout" : "direct_tmux_capture_failed");
     }
-    const markerIndex = capture.stdout.indexOf(args.marker);
-    if (markerIndex >= 0) return capture.stdout.slice(0, markerIndex).trim();
+    const markerIndex = capture.stdout.lastIndexOf(args.marker);
+    if (markerIndex >= 0) return stripEchoedMarkerCommand(capture.stdout.slice(0, markerIndex), args.marker);
     await new Promise((resolve) => setTimeout(resolve, args.pollIntervalMs));
   }
   throw new Error("direct_tmux_terminal_timeout");
+}
+
+function stripEchoedMarkerCommand(output: string, marker: string): string {
+  const echoedMarkerIndex = output.indexOf(marker);
+  if (echoedMarkerIndex < 0) return output.trim();
+  const echoedLineEnd = output.indexOf("\n", echoedMarkerIndex);
+  if (echoedLineEnd < 0) return "";
+  return output.slice(echoedLineEnd + 1).trim();
 }
 
 function shellCommand(parts: readonly string[]): string {

@@ -765,16 +765,9 @@ function resolveRuntimeSelection(
     });
   }
 
-  if (resolved.profile.readiness === "rejected") {
+  if (resolved.profile.readiness !== "ready") {
     throw isolationError(agent, role, runtimeSurface, isolationProfile, {
       reason: resolved.profile.reason ?? "isolation_profile_rejected",
-      missing: resolved.profile.missing,
-      warnings: resolved.profile.warnings,
-    });
-  }
-  if (runtimeSurface === "direct_user_session" && resolved.profile.readiness !== "ready") {
-    throw isolationError(agent, role, runtimeSurface, isolationProfile, {
-      reason: resolved.profile.reason ?? "direct_user_session_not_owner_verified",
       missing: resolved.profile.missing,
       warnings: resolved.profile.warnings,
     });

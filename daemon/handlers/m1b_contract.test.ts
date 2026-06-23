@@ -770,7 +770,7 @@ describe("3. orchestrate.run error ordering (spec §6.2 — fixed 4-stage order)
     await dispatch("task.cancel", { run_id });
   });
 
-  it("degraded isolation profile is accepted and emitted in run_started metadata", async () => {
+  it("degraded isolation profile is rejected and does not create a run", async () => {
     const profiles = withProfile(
       rejectedProfiles("unsupported_isolation_profile"),
       "coder_worktree",
@@ -800,23 +800,21 @@ describe("3. orchestrate.run error ordering (spec §6.2 — fixed 4-stage order)
         }),
       },
     );
-    const { dispatch, events } = await freshDispatcher({ registry });
+    const { dispatch, ctx } = await freshDispatcher({ registry });
     ok(await dispatch("flock.declare", { agents: [{ id: "iso", transport: "iso", roles: ["coder"] }] }));
-    const { run_id } = ok<{ run_id: string }>(
-      await dispatch("orchestrate.run", { goal: "x", roles: { coder: { agent: "iso" } } }),
-    );
-    ok(await dispatch("events.subscribe", { run_id, after_seq: 0 }));
-    await pollUntil(() => events.some((e) => e.name === "run_started"));
 
-    const started = events.find((e) => e.name === "run_started")!;
-    const runtime = (started.payload as Record<string, unknown>).runtime as Record<string, unknown>;
-    expect(runtime.runtime_kind).toBe("test-degraded");
-    expect(runtime.actual_fidelity).toBe("one_shot");
-    expect(runtime.isolation_status).toBe("degraded");
-    expect(runtime.isolation_missing).toEqual(["state_override"]);
-    expect(runtime.declared_not_enforced).toBe(true);
+    const e = err(await dispatch("orchestrate.run", {
+      goal: "x",
+      roles: { coder: { agent: "iso" } },
+    }));
 
-    await dispatch("task.cancel", { run_id });
+    expect(e.code).toBe(HOLP_ERROR_CODES.isolation_profile_rejected);
+    expect(e.data).toMatchObject({
+      runtime_surface: "headless",
+      reason: "readiness_gap",
+      missing: ["state_override"],
+    });
+    expect(ctx.runs.size).toBe(0);
   });
 
   it("fallback coder selection skips ready agents without coder role or profile", async () => {
