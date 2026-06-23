@@ -23,7 +23,7 @@ const DEFAULT_MODEL = "claude-opus-4-8";
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_PROBE_TIMEOUT_MS = 20_000;
 const DEFAULT_MAX_BUDGET_USD = "1.00";
-const READ_ONLY_ALLOWED_TOOLS = [
+export const READ_ONLY_ALLOWED_TOOLS = [
   "Read",
   "Grep",
   "Glob",
@@ -52,6 +52,7 @@ export interface ClaudeCodeBackendOptions {
   readonly maxBudgetUsd?: string;
   readonly timeoutMs?: number;
   readonly probeTimeoutMs?: number;
+  readonly directSmokeRunner?: () => Promise<"ok" | "fail" | "skip">;
 }
 
 interface ClaudeJsonResult {
@@ -88,6 +89,7 @@ export async function probeClaudeCode(
       version: cleanVersion(version.stdout, version.stderr),
       loggedIn: false,
       missing: ["binary:claude", ...input.roles.map((role) => `role:${role}`)],
+      directSmokeResult: "skip",
     });
   }
 
@@ -107,10 +109,17 @@ export async function probeClaudeCode(
       version: cleanVersion(version.stdout, version.stderr),
       loggedIn: false,
       missing: ["auth_or_quota:claude", "capability_probe"],
+      directSmokeResult: "skip",
     });
   }
 
-  const enforcement = await runEnforcementProbe(input.cwd, options, timeoutMs);
+  // Run direct smoke in parallel with enforcement probe only when opted in.
+  const shouldRunDirectSmoke = process.env["HOLP_REAL_CLAUDE_SMOKE"] === "1" || options.directSmokeRunner !== undefined;
+  const [enforcement, directSmokeResult] = await Promise.all([
+    runEnforcementProbe(input.cwd, options, timeoutMs),
+    shouldRunDirectSmoke ? runDirectSmoke(input.cwd, options, timeoutMs) : Promise.resolve<"ok" | "fail" | "skip">("skip"),
+  ]);
+
   const enforcementParsed = parseClaudeJsonOutput(enforcement.result.stdout);
   const enforcementReady = enforcement.result.code === 0 &&
     enforcementParsed.ok &&
@@ -118,12 +127,16 @@ export async function probeClaudeCode(
     hasWriteDenialEvidence(enforcement.result.stdout);
 
   if (!enforcementReady) {
-    return claudeProbeResult(input, "degraded", "read_only_enforcement_not_proven", {
+    // Direct smoke may still have succeeded; top-level status promotes to ready,
+    // but headless surface stays degraded (enforcement not proven).
+    return claudeProbeResult(input, directSmokeResult === "ok" ? "ready" : "degraded", "read_only_enforcement_not_proven", {
       version: cleanVersion(version.stdout, version.stderr),
       loggedIn: true,
       globalMutationRequired: usesGlobalSettings(options.settingSources),
       missing: ["read_only_enforcement"],
       warnings: ["inherits:oauth_keychain", "inherits:provider_quota"],
+      directSmokeResult,
+      headlessStatus: "degraded",
     });
   }
 
@@ -132,7 +145,47 @@ export async function probeClaudeCode(
     loggedIn: true,
     globalMutationRequired: usesGlobalSettings(options.settingSources),
     warnings: ["inherits:oauth_keychain", "inherits:provider_quota"],
+    directSmokeResult,
   });
+}
+
+async function runDirectSmoke(
+  cwd: string,
+  options: ClaudeCodeBackendOptions,
+  timeoutMs: number,
+): Promise<"ok" | "fail" | "skip"> {
+  if (options.directSmokeRunner !== undefined) {
+    return options.directSmokeRunner();
+  }
+  const { probeDirectTmux, createDirectTmuxBackendFactory } = await import("./direct-tmux.js");
+  const command = options.command ?? DEFAULT_CLAUDE_COMMAND;
+  const probe = await probeDirectTmux({ agentCommand: command, cwd, verifyCapabilities: true, timeoutMs: 5_000 });
+  if (!probe.ready) return "fail";
+
+  const factory = createDirectTmuxBackendFactory({
+    transport: "direct_tmux",
+    agentCommand: command,
+    agentArgsForPrompt: (prompt) => [
+      "-p", prompt,
+      "--output-format", "json",
+      "--allowedTools", options.allowedTools ?? READ_ONLY_ALLOWED_TOOLS,
+    ],
+    timeoutMs,
+  });
+  const backend = factory({ cwd });
+  try {
+    const { sessionId } = await backend.startSession();
+    let captured = "";
+    backend.onMessage((msg) => {
+      if (msg.type === "model-output" && msg.fullText != null) captured = msg.fullText;
+    });
+    await backend.sendPrompt(sessionId, "Print exactly: HOLP_OK");
+    return captured.includes("HOLP_OK") ? "ok" : "fail";
+  } catch {
+    return "fail";
+  } finally {
+    await backend.dispose().catch(() => undefined);
+  }
 }
 
 export class ClaudeCodeBackend implements AgentBackend {
@@ -215,14 +268,17 @@ function claudeProbeResult(
     readonly globalMutationRequired?: boolean;
     readonly missing?: readonly string[];
     readonly warnings?: readonly string[];
+    readonly directSmokeResult?: "ok" | "fail" | "skip";
+    readonly headlessStatus?: "ready" | "degraded" | "rejected";
   } = {},
 ): AgentProbeResult {
+  const headlessStatus = details.headlessStatus ?? status;
   return {
     status,
     harness_id: "claude-code",
     vendor: "Anthropic",
     transport_class: input.transport,
-    runtime_surfaces: claudeRuntimeSurfaces(status, reason, details),
+    runtime_surfaces: claudeRuntimeSurfaces(headlessStatus, reason, details),
     state_declaration_ref: "harness-state:claude-code",
     global_mutation_required: details.globalMutationRequired ?? false,
     version: details.version,
@@ -245,6 +301,7 @@ function claudeRuntimeSurfaces(
     readonly globalMutationRequired?: boolean;
     readonly missing?: readonly string[];
     readonly warnings?: readonly string[];
+    readonly directSmokeResult?: "ok" | "fail" | "skip";
   },
 ): readonly RuntimeSurfaceDeclaration[] {
   const readOnly: IsolationProfileReadiness = status === "ready"
@@ -270,6 +327,27 @@ function claudeRuntimeSurfaces(
     ? { readiness: "rejected", reason: reason ?? "claude_unavailable", missing: details.missing }
     : { readiness: "ready", warnings: details.warnings });
 
+  const directSmoke = details.directSmokeResult ?? "skip";
+  const coderWorktreeProfile: IsolationProfileReadiness = directSmoke === "ok"
+    ? { readiness: "ready", warnings: details.warnings }
+    : directSmoke === "fail"
+      ? { readiness: "degraded", reason: "claude_direct_smoke_failed", missing: ["direct_smoke:HOLP_OK"] }
+      : { readiness: "degraded", reason: "claude_direct_smoke_not_enabled", missing: ["env:HOLP_REAL_CLAUDE_SMOKE"] };
+
+  const directChannel: DirectChannelDeclaration = {
+    channel_type: "tmux",
+    attach: "supported",
+    observe: "supported",
+    read: "supported",
+    inject: "supported",
+    interrupt: "supported",
+    cancel: "supported",
+    owner_scope: "supported",
+    session_origin: "holp_created",
+    session_id_namespace: "holp-*",
+    ...(directSmoke === "ok" ? { capability_bitmask: ["one_shot", "read_only", "holp_ok_verified"] } : {}),
+  };
+
   return [
     {
       runtime_surface: "headless",
@@ -286,37 +364,37 @@ function claudeRuntimeSurfaces(
       runtime_kind: "claude_code_no_acp",
       actual_fidelity: "one_shot",
       surface_support: "unsupported",
-      isolation_profiles: rejectedProfiles("claude_code_has_no_official_acp"),
+      isolation_profiles: rejectedProfiles("claude_no_native_acp"),
       state_declaration_ref: "harness-state:claude-code:acp",
       global_mutation_required: false,
       declared_not_enforced: true,
     },
     {
       runtime_surface: "direct_user_session",
-      runtime_kind: "claude_code_direct_session_unwired",
+      runtime_kind: "claude_code_direct_tmux",
       actual_fidelity: "one_shot",
-      surface_support: "unknown",
-      isolation_profiles: rejectedProfiles("direct_user_session_not_declared"),
-      direct_channel: unknownDirectChannel(),
+      surface_support: "supported",
+      isolation_profiles: withProfile(
+        withProfile(
+          rejectedProfiles("unsupported_isolation_profile"),
+          "coder_worktree",
+          coderWorktreeProfile,
+        ),
+        "read_only_review",
+        {
+          readiness: "degraded",
+          reason: "claude_direct_read_only_review_not_wired",
+          missing: ["direct_reviewer_execution_config"],
+        },
+      ),
+      direct_channel: directChannel,
       state_declaration_ref: "harness-state:claude-code:direct_user_session",
       global_mutation_required: false,
-      declared_not_enforced: true,
+      declared_not_enforced: directSmoke !== "ok",
     },
   ];
 }
 
-function unknownDirectChannel(): DirectChannelDeclaration {
-  return {
-    channel_type: "terminal_app",
-    attach: "unknown",
-    observe: "unknown",
-    read: "unknown",
-    inject: "unknown",
-    interrupt: "unknown",
-    cancel: "unknown",
-    owner_scope: "unknown",
-  };
-}
 
 function parseClaudeJsonOutput(stdout: string): ClaudeJsonParseResult {
   const trimmed = stdout.trim();

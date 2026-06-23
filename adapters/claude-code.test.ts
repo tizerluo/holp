@@ -85,8 +85,24 @@ describe("probeClaudeCode", () => {
     expect(headless?.isolation_profiles.read_only_review.readiness).toBe("ready");
     expect(result.runtime_surfaces?.find((surface) => surface.runtime_surface === "acp")?.surface_support)
       .toBe("unsupported");
-    expect(result.runtime_surfaces?.find((surface) => surface.runtime_surface === "direct_user_session")?.surface_support)
-      .toBe("unknown");
+    const direct = result.runtime_surfaces?.find((surface) => surface.runtime_surface === "direct_user_session");
+    expect(direct?.surface_support).toBe("supported");
+    expect(direct?.runtime_kind).toBe("claude_code_direct_tmux");
+    expect(direct?.actual_fidelity).toBe("one_shot");
+    expect(direct?.isolation_profiles.coder_worktree).toMatchObject({
+      readiness: "degraded",
+      reason: "claude_direct_smoke_not_enabled",
+      missing: ["env:HOLP_REAL_CLAUDE_SMOKE"],
+    });
+    expect(direct?.isolation_profiles.read_only_review).toMatchObject({
+      readiness: "degraded",
+      reason: "claude_direct_read_only_review_not_wired",
+    });
+    expect(direct?.direct_channel).toMatchObject({
+      channel_type: "tmux",
+      session_origin: "holp_created",
+      session_id_namespace: "holp-*",
+    });
   });
 
   it("keeps read_only_review degraded when deny-write evidence is missing", async () => {
@@ -244,6 +260,155 @@ describe("Claude Code reviewer executor integration", () => {
         max_severity: "NONE",
       }),
     ]);
+  });
+
+  it("native-claude acp surface is unsupported and never claims native ACP ready", async () => {
+    const script = makeFakeClaudeScript();
+    const result = await probeClaudeCode({
+      id: "claude-reviewer",
+      transport: "native-claude",
+      roles: ["reviewer"],
+      cwd: process.cwd(),
+    }, {
+      command: process.execPath,
+      argsPrefix: [script],
+      model: "fake-claude",
+      probeTimeoutMs: 1_000,
+    });
+
+    const acp = result.runtime_surfaces?.find((s) => s.runtime_surface === "acp");
+    expect(acp?.surface_support).toBe("unsupported");
+    expect(acp?.runtime_kind).toBe("claude_code_no_acp");
+    expect(acp?.isolation_profiles.coder_worktree.readiness).toBe("rejected");
+    expect(acp?.isolation_profiles.read_only_review.readiness).toBe("rejected");
+  });
+
+  it("native-claude direct_user_session surface is supported with coder_worktree degraded by default", async () => {
+    const script = makeFakeClaudeScript();
+    const result = await probeClaudeCode({
+      id: "claude-reviewer",
+      transport: "native-claude",
+      roles: ["reviewer"],
+      cwd: process.cwd(),
+    }, {
+      command: process.execPath,
+      argsPrefix: [script],
+      model: "fake-claude",
+      probeTimeoutMs: 1_000,
+    });
+
+    const direct = result.runtime_surfaces?.find((s) => s.runtime_surface === "direct_user_session");
+    expect(direct?.surface_support).toBe("supported");
+    expect(direct?.actual_fidelity).toBe("one_shot");
+    expect(direct?.isolation_profiles.coder_worktree).toMatchObject({
+      readiness: "degraded",
+      reason: "claude_direct_smoke_not_enabled",
+      missing: ["env:HOLP_REAL_CLAUDE_SMOKE"],
+    });
+    expect(direct?.isolation_profiles.read_only_review).toMatchObject({
+      readiness: "degraded",
+      reason: "claude_direct_read_only_review_not_wired",
+    });
+  });
+
+  it("default (no env, no directSmokeRunner) keeps direct degraded and never calls a runner", async () => {
+    const script = makeFakeClaudeScript();
+    let runnerCalled = false;
+    const result = await probeClaudeCode({
+      id: "claude-reviewer",
+      transport: "native-claude",
+      roles: ["reviewer"],
+      cwd: process.cwd(),
+    }, {
+      command: process.execPath,
+      argsPrefix: [script],
+      model: "fake-claude",
+      probeTimeoutMs: 1_000,
+      // No directSmokeRunner provided; HOLP_REAL_CLAUDE_SMOKE not set in test env.
+    });
+
+    expect(runnerCalled).toBe(false);
+    const direct = result.runtime_surfaces?.find((s) => s.runtime_surface === "direct_user_session");
+    expect(direct?.isolation_profiles.coder_worktree).toMatchObject({
+      readiness: "degraded",
+      reason: "claude_direct_smoke_not_enabled",
+    });
+    expect(direct?.direct_channel?.capability_bitmask).toBeUndefined();
+  });
+
+  it("injected directSmokeRunner returning ok promotes coder_worktree ready with bitmask", async () => {
+    const script = makeFakeClaudeScript();
+    const result = await probeClaudeCode({
+      id: "claude-reviewer",
+      transport: "native-claude",
+      roles: ["reviewer"],
+      cwd: process.cwd(),
+    }, {
+      command: process.execPath,
+      argsPrefix: [script],
+      model: "fake-claude",
+      probeTimeoutMs: 1_000,
+      directSmokeRunner: () => Promise.resolve("ok"),
+    });
+
+    expect(result.status).toBe("ready");
+    const direct = result.runtime_surfaces?.find((s) => s.runtime_surface === "direct_user_session");
+    expect(direct?.actual_fidelity).toBe("one_shot");
+    expect(direct?.isolation_profiles.coder_worktree).toMatchObject({ readiness: "ready" });
+    expect(direct?.direct_channel?.capability_bitmask).toEqual(
+      expect.arrayContaining(["one_shot", "read_only", "holp_ok_verified"]),
+    );
+    expect(direct?.declared_not_enforced).toBe(false);
+  });
+
+  it("injected directSmokeRunner returning fail reports claude_direct_smoke_failed", async () => {
+    const script = makeFakeClaudeScript();
+    const result = await probeClaudeCode({
+      id: "claude-reviewer",
+      transport: "native-claude",
+      roles: ["reviewer"],
+      cwd: process.cwd(),
+    }, {
+      command: process.execPath,
+      argsPrefix: [script],
+      model: "fake-claude",
+      probeTimeoutMs: 1_000,
+      directSmokeRunner: () => Promise.resolve("fail"),
+    });
+
+    const direct = result.runtime_surfaces?.find((s) => s.runtime_surface === "direct_user_session");
+    expect(direct?.isolation_profiles.coder_worktree).toMatchObject({
+      readiness: "degraded",
+      reason: "claude_direct_smoke_failed",
+      missing: ["direct_smoke:HOLP_OK"],
+    });
+    expect(direct?.direct_channel?.capability_bitmask).toBeUndefined();
+  });
+
+  it("headless enforcement failure + injected direct ok makes top-level status ready; headless read_only_review stays degraded", async () => {
+    const script = makeFakeClaudeScript("no-denial");
+    const result = await probeClaudeCode({
+      id: "claude-reviewer",
+      transport: "native-claude",
+      roles: ["reviewer"],
+      cwd: process.cwd(),
+    }, {
+      command: process.execPath,
+      argsPrefix: [script],
+      model: "fake-claude",
+      probeTimeoutMs: 1_000,
+      directSmokeRunner: () => Promise.resolve("ok"),
+    });
+
+    // Top-level: promoted to ready by direct smoke.
+    expect(result.status).toBe("ready");
+    // Headless: still degraded — enforcement was not proven.
+    const headless = result.runtime_surfaces?.find((s) => s.runtime_surface === "headless");
+    expect(headless?.isolation_profiles.read_only_review.readiness).toBe("degraded");
+    expect(headless?.declared_not_enforced).toBe(true);
+    // Direct: coder_worktree ready.
+    const direct = result.runtime_surfaces?.find((s) => s.runtime_surface === "direct_user_session");
+    expect(direct?.isolation_profiles.coder_worktree.readiness).toBe("ready");
   });
 });
 
