@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-**v0.1.6 (draft)** — 见 `spec.md`。
+**v0.1.7 (draft)** — 见 `spec.md`。
 
 ## 版本号
 
@@ -14,13 +14,15 @@
 
 `initialize` 时双方报 `protocol_version`(比 `MAJOR.MINOR`),major 不匹配 → 拒绝(`protocol_version_mismatch`)。
 
-## v0.1.6 范围
+## v0.1.7 范围
 
 **协议层(draft)**:spec 全章有定义——握手+能力(descriptor) / flock(declare+discover) / orchestrate.run(含 §4.2 agent 引用绑定 flock + role 校验) / events.subscribe(categories 白名单语义 + seq 从 1 起) / consensus(两段式 quorum + artifact_refs 降级 findings) / approval(单通道状态机 + artifact_refs 降级 details) / task.cancel / artifact(强制 content + provenance artifact_id 例外) / 版本化 / 错误模型 / unattended policy / 实现边界。
 
 **v0.1.6 基准修订**:Issue #11 的 harness isolation baseline 已进入协议主干。`flock.declare`/`flock.discover` 必须能表达 runtime surface / isolation readiness matrix,覆盖 `headless`、`acp`、`direct_user_session` 三类运行面、runtime kind、actual fidelity、direct channel、isolation profile readiness、state declaration ref、global mutation risk。`ready` 只表示某个 runtime surface + isolation profile 下可调度,不表示 agent 整体可用。当前实现可以返回 unknown/unsupported/rejected,但不能省略该语义。
 
 **v0.1.6 runtime selection 修订**:`orchestrate.run.roles.<role>.preferred_runtime_surface` 可选,取值 `headless` / `acp` / `direct_user_session`。缺省保持 legacy headless;显式请求 ACP/direct 失败时不得 fallback headless。runtime declaration 和 runtime selection metadata 必须携带 `actual_fidelity`=`one_shot` 或 `streaming_controlled`,该值来自实际 backend/runtime kind,不是 surface 名称。
+
+**v0.1.7 stable gate surface 修订**:`gate_report` capability、`gate` event category、唯一 event name `gate_report`、`GateReport.v1` projection 进入协议。consumer 使用 latest `gate_report.decision_surface` 作为 summary truth;`consensus_snapshot` 只作 evidence。`approval.resolve` 对 `semantic_decision` 要求 audit fields,未知 approval kind fail-closed。`policy.on_consensus_blocking` 支持 quorum-met blocking consensus 先进入 `waiting_approval`。
 
 **当前仓已落地**:
 - protocol draft + adapter 契约桩。
@@ -35,15 +37,24 @@
 - M6a fake consumer CLI partial:`npm run demo:cli` / `demo:cli:inline` / `demo:cli:degraded` 使用 fake path 真走 stdio JSON-RPC daemon wire,渲染 run/approval/terminal/consensus/artifact report 和 raw/debug frames。`real-reviewer` path 指向 PR9 opt-in smoke。
 - M6b second real provider adapter partial:`"native-claude"` 接 Claude Code headless `-p --output-format json` reviewer path。外层 Claude CLI JSON 失败即 fail-closed;内层 reviewer output 复用 PR9 strict parser/attestation gate。`headless + read_only_review` 只有在 read-only tool whitelist enforcement probe 给出证据时才 ready;否则 degraded/rejected。真实 Claude reviewer smoke 默认 SKIP,需 `HOLP_REAL_CLAUDE_REVIEWER_SMOKE=1`。
 - M6c runtime/session matrix foundation:consumer CLI 从 `flock.declare`/`flock.discover` public wire response 渲染 `runtime_surfaces` 矩阵,展示 headless/acp/direct_user_session、direct channel observation/control 能力、isolation readiness、global mutation risk、declared_not_enforced 和 state_declaration_ref。该 report 是 descriptive projection,不是 scheduling authority;真实调度仍由 `orchestrate.run` eligibility / isolation gate 决定。
+- M9 stable gate surface partial:`gate_report` capability + `GateReport.v1` projection + CLI default human summary / `--report=json` path for fake consumer scenarios。
 
 **参考 daemon 下一步 milestone**:
-- M7 foundation loop:WorkPlanner / multiround / L0 workflow / step-level JSONL exporter。
-- M8-M12:真实 ACP/direct path、stable gate surface、learned router safe lane、dynamic workflow、Remote/distributed HOLP。
-- **未做(不声称)**:acp 真接线、direct user session、12 个 agent 的三类运行面完整支持、Web 传输。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
+- M10 learned router safe lane:replay / eval / shadow mode / opt-in active canary。
+- M11 dynamic workflow:L1 bounded dynamic insertion,then L2 after replay/shadow evidence。
+- M12 Remote/distributed HOLP:remote runner surface,artifact/event/approval relay。
+- **未做(不声称)**:12 个 agent 的三类运行面完整支持、Web 传输、Remote。PR14/M8 已落第一批真实 runtime surface pilot,但不表示所有 headless/ACP/direct paths 全覆盖。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
 
-> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter(含基础 runtime recovery) + v0.1.5 runtime surface/isolation baseline + M4a governance data/state/decision skeleton partial + M4b consensus kernel partial + M5 deterministic unanimous-approve fake+fake demo + M5b real reviewer execution pilot + M6a fake consumer CLI partial + M6b native-claude headless reviewer partial + M6c runtime/session matrix foundation」,不声称已接 acp 真 agent/direct user session,也不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实 provider dissent/timeout demo、或稳定 gate protocol surface 已完成。
+> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter(含基础 runtime recovery) + v0.1.5 runtime surface/isolation baseline + M4a governance data/state/decision skeleton partial + M4b consensus kernel partial + M5 deterministic unanimous-approve fake+fake demo + M5b real reviewer execution pilot + M6a fake consumer CLI partial + M6b native-claude headless reviewer partial + M6c runtime/session matrix foundation + M8 first real runtime surface pilot + M9 stable gate surface partial」,不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实 provider dissent/timeout demo 已执行。
 
 ## 变更记录
+
+### v0.1.7 (draft) — Consumer stable gate surface
+- P1:新增 `gate_report` capability 和 `gate.gate_report` event;未协商时不发送任何 `GateReport.v1`。
+- P1:定义 `GateReport.v1.decision_surface.review_outcome` 与 `gate_disposition`,将 consumer summary truth 从 legacy consensus/run 猜测提升为稳定 projection。
+- P1:`approval.resolve` 对 `semantic_decision` 增加必填 audit fields;`merge_approval` 保持旧行为;未知 approval kind fail-closed。
+- P1:新增 `policy.on_consensus_blocking`,默认 `reject`,可选 `ask_human` 让 quorum-met `request_changes`/`reject` 先进入 approval 单通道。
+- P2:明确 `task.cancel` 是 run abort,不是 gate override;cancel 不产生 overridden disposition。
 
 ### v0.1.6 (draft) — Runtime surface selection + fidelity amendment
 - P1:`orchestrate.run.roles.<role>.preferred_runtime_surface` 进入协议,缺省 headless,未知值 invalid_request,显式 ACP/direct 不回退 headless。

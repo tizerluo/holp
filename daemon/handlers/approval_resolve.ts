@@ -20,6 +20,15 @@ import type { JsonRpcRequest } from "../runtime/jsonrpc.js";
 import type { ConnectionContext } from "../core/context.js";
 import { clearApprovalTimer, resumeWaitingRun } from "../core/approvalLifecycle.js";
 import { systemClock, type Clock } from "../core/clock.js";
+import { emitGateReport } from "../core/gateReport.js";
+
+const APPROVAL_KINDS = new Set([
+  "merge_approval",
+  "force_push_approval",
+  "semantic_decision",
+  "low_confidence",
+  "budget_exceeded",
+]);
 
 export function handleApprovalResolve(
   req: JsonRpcRequest,
@@ -65,6 +74,23 @@ export function handleApprovalResolve(
     );
   }
 
+  if (!APPROVAL_KINDS.has(approval.kind)) {
+    throw new HolpRpcError(
+      invalidRequest(`approval.resolve: unknown approval kind '${approval.kind}'`),
+    );
+  }
+
+  const semanticAudit = approval.kind === "semantic_decision"
+    ? semanticDecisionAudit(params)
+    : undefined;
+
+  const run = ctx.runs.get(approval.run_id);
+  if (run && approval.kind === "semantic_decision" && run.status !== "active") {
+    throw new HolpRpcError(
+      invalidRequest("approval.resolve: semantic_decision approval cannot resolve a terminal run"),
+    );
+  }
+
   // Mark terminal.
   clearApprovalTimer(approval);
   approval.state = "resolved";
@@ -72,7 +98,6 @@ export function handleApprovalResolve(
   approval.by = by;
 
   // Remove from run's pending set.
-  const run = ctx.runs.get(approval.run_id);
   if (run) {
     run.pendingApprovals.delete(approvalId);
     resumeWaitingRun(ctx, run, clock, "approval_resolved");
@@ -80,9 +105,9 @@ export function handleApprovalResolve(
       decision_type: "approval_resolved",
       run_id: run.run_id,
       approval_id: approvalId,
-      reason: "user_decision",
+      reason: semanticAudit?.reason ?? "user_decision",
       ts: clock.now(),
-      data: { decision, by },
+      data: { decision, by, kind: approval.kind, ...(semanticAudit ?? {}) },
     });
 
     // Emit approval_resolved event (spec §7).
@@ -90,9 +115,15 @@ export function handleApprovalResolve(
       approval_id: approvalId,
       state: "resolved",
       decision,
-      reason: "user_decision",
+      reason: semanticAudit?.reason ?? "user_decision",
       by,
+      ...(approval.kind === "semantic_decision"
+        ? { kind: "semantic_decision", ...semanticAudit }
+        : {}),
     });
+    if (approval.kind === "semantic_decision") {
+      emitGateReport(run, ctx, clock);
+    }
   }
 
   // Resume the backend (resolve its pending permissionHandler Promise).
@@ -103,4 +134,42 @@ export function handleApprovalResolve(
   approval.resumeBackend(backendDecision);
 
   return { approval_id: approvalId, accepted: true };
+}
+
+function semanticDecisionAudit(params: Record<string, unknown>): {
+  readonly reason: string;
+  readonly previous_gate_outcome: string;
+  readonly new_gate_outcome: string;
+  readonly artifact_refs: readonly string[];
+} {
+  const reason = params.reason;
+  const previous = params.previous_gate_outcome;
+  const next = params.new_gate_outcome;
+  const artifactRefs = params.artifact_refs;
+  if (typeof reason !== "string" || !reason) {
+    throw new HolpRpcError(
+      invalidRequest("approval.resolve: semantic_decision params.reason (string) required"),
+    );
+  }
+  if (typeof previous !== "string" || !previous) {
+    throw new HolpRpcError(
+      invalidRequest("approval.resolve: semantic_decision params.previous_gate_outcome (string) required"),
+    );
+  }
+  if (typeof next !== "string" || !next) {
+    throw new HolpRpcError(
+      invalidRequest("approval.resolve: semantic_decision params.new_gate_outcome (string) required"),
+    );
+  }
+  if (!Array.isArray(artifactRefs) || !artifactRefs.every((item) => typeof item === "string")) {
+    throw new HolpRpcError(
+      invalidRequest("approval.resolve: semantic_decision params.artifact_refs (string[]) required"),
+    );
+  }
+  return {
+    reason,
+    previous_gate_outcome: previous,
+    new_gate_outcome: next,
+    artifact_refs: [...artifactRefs].sort(),
+  };
 }

@@ -14,6 +14,7 @@ import type { JsonRpcRequest } from "../runtime/jsonrpc.js";
 import type { ConnectionContext } from "../core/context.js";
 import { clearApprovalTimer } from "../core/approvalLifecycle.js";
 import { systemClock, type Clock } from "../core/clock.js";
+import { emitGateReport } from "../core/gateReport.js";
 import { claimTerminal } from "../core/terminalRun.js";
 
 export function handleTaskCancel(
@@ -76,12 +77,14 @@ export function handleTaskCancel(
   run.pendingApprovals.clear();
 
   // Emit terminal run_gave_up.
-  claimTerminal(run, ctx, clock, {
+  if (claimTerminal(run, ctx, clock, {
     state: "cancelled",
     reason: "cancelled",
     eventName: "run_gave_up",
     payload: { reason: "cancelled" },
-  });
+  })) {
+    emitGateReport(run, ctx, clock);
+  }
 
   return { run_id: runId, cancelling: true };
 }

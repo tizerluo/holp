@@ -3,6 +3,7 @@ import {
   RunRenderer,
   renderArtifact,
   renderConsensusDegraded,
+  renderGateReport,
   renderRuntimeMatrix,
   renderReviewFinding,
 } from "../../../consumers/cli/renderer.js";
@@ -36,6 +37,32 @@ describe("consumer CLI renderer", () => {
     expect(renderer.summary("run_1")).toMatchObject({ seq_ok: true, seen_events: 1 });
   });
 
+  it("prefers the latest gate report in the run summary", () => {
+    const renderer = new RunRenderer();
+    renderer.recordEvent({
+      run_id: "run_1",
+      seq: 1,
+      category: "gate",
+      name: "gate_report",
+      payload: {
+        decision_surface: { review_outcome: "reject", gate_disposition: "blocked" },
+      },
+    });
+    renderer.recordEvent({
+      run_id: "run_1",
+      seq: 2,
+      category: "gate",
+      name: "gate_report",
+      payload: {
+        decision_surface: { review_outcome: "reject", gate_disposition: "overridden" },
+      },
+    });
+
+    expect(renderer.summary("run_1").gate_report?.payload).toMatchObject({
+      decision_surface: { gate_disposition: "overridden" },
+    });
+  });
+
   it("detects non-contiguous event seq values per run", () => {
     const renderer = new RunRenderer();
     renderer.recordEvent({ run_id: "run_1", seq: 1, category: "run", name: "run_started", payload: {} });
@@ -43,6 +70,18 @@ describe("consumer CLI renderer", () => {
 
     expect(renderer.summary("run_1")).toMatchObject({ seq_ok: false, seen_events: 2 });
     expect(renderer.diagnostics()[0]).toContain("expected seq 2, got 3");
+  });
+
+  it("renders run_gave_up cancellation as a cancelled abort", () => {
+    const renderer = new RunRenderer();
+
+    expect(renderer.recordEvent({
+      run_id: "run_1",
+      seq: 1,
+      category: "run",
+      name: "run_gave_up",
+      payload: { reason: "cancelled" },
+    })).toEqual(["run cancelled: reason=cancelled"]);
   });
 
   it("renders consensus verdict details, inline findings, and artifact findings", () => {
@@ -110,6 +149,26 @@ describe("consumer CLI renderer", () => {
     })).toEqual([
       "consensus degraded: outcome=reject reason=quorum_unsatisfiable_after_author_exclusion",
       "  quorum: required=2 eligible=1 met=false",
+    ]);
+  });
+
+  it("renders gate reports without provider blobs", () => {
+    expect(renderGateReport({
+      decision_surface: { review_outcome: "request_changes", gate_disposition: "overridden" },
+      quorum: { required: 2, eligible: 2, met: true },
+      blocking_reason: "consensus_request_changes",
+      override: {
+        approval_id: "ap_1",
+        by: "user:test",
+        new_gate_outcome: "approved",
+      },
+      terminal: { event: "run_merged", reason: "run completed" },
+    })).toEqual([
+      "gate report: disposition=overridden review=request_changes",
+      "  quorum: required=2 eligible=2 met=true",
+      "  blocking: consensus_request_changes",
+      "  override: approval=ap_1 by=user:test new=approved",
+      "  terminal: run_merged reason=run completed",
     ]);
   });
 

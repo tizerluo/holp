@@ -14,6 +14,7 @@ export interface RenderedRunSummary {
   readonly terminal?: EventFrame;
   readonly consensus?: EventFrame;
   readonly degraded?: EventFrame;
+  readonly gate_report?: EventFrame;
   readonly seq_ok: boolean;
   readonly seen_events: number;
 }
@@ -45,6 +46,7 @@ export class RunRenderer {
       terminal: runEvents.find((event) => isTerminalEvent(event.name)),
       consensus: runEvents.find((event) => event.name === "consensus_verdict"),
       degraded: runEvents.find((event) => event.name === "consensus_degraded"),
+      gate_report: [...runEvents].reverse().find((event) => event.name === "gate_report"),
       seq_ok: this.seqErrors.length === 0,
       seen_events: runEvents.length,
     };
@@ -67,6 +69,9 @@ export function renderEvent(event: EventFrame): string[] {
     case "run_cancelled":
       return [`run cancelled: reason=${stringField(payload, "reason") ?? "unknown"}`];
     case "run_gave_up":
+      if (stringField(payload, "reason") === "cancelled") {
+        return ["run cancelled: reason=cancelled"];
+      }
       return [`run gave up: reason=${stringField(payload, "reason") ?? "unknown"}`];
     case "tool_called":
       return [`tool called: ${stringField(payload, "tool_name") ?? "unknown"}`];
@@ -90,6 +95,8 @@ export function renderEvent(event: EventFrame): string[] {
       return renderConsensusVerdict(payload);
     case "consensus_degraded":
       return renderConsensusDegraded(payload);
+    case "gate_report":
+      return renderGateReport(payload);
     default:
       return [`[${event.category}] ${event.name}: ${preview(event.payload)}`];
   }
@@ -167,6 +174,32 @@ export function renderConsensusDegraded(payload: Record<string, unknown>): strin
     `consensus degraded: outcome=${stringField(payload, "outcome") ?? "unknown"} reason=${stringField(payload, "reason") ?? "unknown"}`,
     `  quorum: required=${quorum.required ?? "?"} eligible=${quorum.eligible ?? "?"} met=${quorum.met ?? "?"}`,
   ];
+}
+
+export function renderGateReport(payload: Record<string, unknown>): string[] {
+  const decision = objectPayload(payload.decision_surface);
+  const quorum = objectPayload(payload.quorum);
+  const terminal = objectPayload(payload.terminal);
+  const override = objectPayload(payload.override);
+  const lines = [
+    `gate report: disposition=${stringField(decision, "gate_disposition") ?? "unknown"} review=${stringField(decision, "review_outcome") ?? "unknown"}`,
+  ];
+  if (Object.keys(quorum).length > 0) {
+    lines.push(`  quorum: required=${quorum.required ?? "?"} eligible=${quorum.eligible ?? "?"} met=${quorum.met ?? "?"}`);
+  }
+  const blocking = stringField(payload, "blocking_reason");
+  if (blocking) lines.push(`  blocking: ${blocking}`);
+  if (Object.keys(override).length > 0) {
+    lines.push(
+      `  override: approval=${stringField(override, "approval_id") ?? "unknown"} ` +
+        `by=${stringField(override, "by") ?? "unknown"} ` +
+        `new=${stringField(override, "new_gate_outcome") ?? "unknown"}`,
+    );
+  }
+  if (Object.keys(terminal).length > 0) {
+    lines.push(`  terminal: ${stringField(terminal, "event") ?? "unknown"} reason=${stringField(terminal, "reason") ?? "unknown"}`);
+  }
+  return lines;
 }
 
 export function renderReviewFinding(review: Record<string, unknown>, artifact?: ArtifactView): string[] {

@@ -27,6 +27,7 @@ describe("initialize: capability negotiation (spec §2)", () => {
           approval: { supported: true, kinds: ["merge_approval"] },
           unattended_loop: { supported: true, required: true },
           artifact_refs: { supported: true },
+          gate_report: { supported: true },
         },
       }),
     )) as JsonRpcSuccessResponse;
@@ -43,12 +44,14 @@ describe("initialize: capability negotiation (spec §2)", () => {
     expect(result.capabilities.consensus.supported).toBe(true);
     expect(result.capabilities.unattended_loop.supported).toBe(true);
     expect(result.capabilities.artifact_refs.supported).toBe(true);
+    expect(result.capabilities.gate_report.supported).toBe(true);
     // approval.kinds intersection: client ["merge_approval"] ∩ server full set
     expect(result.capabilities.approval.supported).toBe(true);
     expect(result.capabilities.approval.kinds).toEqual(["merge_approval"]);
     // state persisted on the connection
     expect(ctx.initialized?.clientName).toBe("cmux");
     expect(ctx.initialized?.negotiated.consensus.supported).toBe(true);
+    expect(ctx.initialized?.negotiated.gate_report.supported).toBe(true);
   });
 
   it("absent client capability negotiates to supported:false (intersection)", async () => {
@@ -62,10 +65,11 @@ describe("initialize: capability negotiation (spec §2)", () => {
     )) as JsonRpcSuccessResponse;
     const caps = (res.result as { capabilities: Record<string, { supported: boolean }> }).capabilities;
     expect(caps.consensus.supported).toBe(true);
-    // approval/unattended_loop/artifact_refs absent on client → false
+    // approval/unattended_loop/artifact_refs/gate_report absent on client → false
     expect(caps.approval.supported).toBe(false);
     expect(caps.unattended_loop.supported).toBe(false);
     expect(caps.artifact_refs.supported).toBe(false);
+    expect(caps.gate_report.supported).toBe(false);
   });
 
   it("client requires a capability the server does not support → capability_required_but_unsupported", async () => {
@@ -117,7 +121,7 @@ describe("initialize: capability negotiation (spec §2)", () => {
     const res = (await d.dispatch(
       initReq({
         client: { name: "x", version: "1.0" },
-        protocol_version: "0.1.3", // same major.minor (0.1) as server 0.1.4
+        protocol_version: "0.1.3", // same major.minor (0.1) as server
         capabilities: {},
       }),
     )) as JsonRpcSuccessResponse;

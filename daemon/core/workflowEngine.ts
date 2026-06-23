@@ -11,6 +11,7 @@ import type { ApprovalRecord, RunRecord } from "./stores.js";
 import type { Scheduler } from "./scheduler.js";
 import { evidencePayload } from "./evidence.js";
 import { expireApproval } from "./approvalLifecycle.js";
+import { emitGateReport } from "./gateReport.js";
 import { runConsensusGate } from "./runEngine.js";
 import { claimTerminal } from "./terminalRun.js";
 import {
@@ -530,7 +531,7 @@ function completeRun(
   reason: string,
 ): void {
   clearWorkflowStep(run);
-  claimTerminal(run, ctx, clock, {
+  if (claimTerminal(run, ctx, clock, {
     state: "merged",
     reason,
     eventName: "run_merged",
@@ -539,7 +540,9 @@ function completeRun(
       ...(artifactId ? { artifact_id: artifactId } : {}),
       reason,
     },
-  });
+  })) {
+    emitGateReport(run, ctx, clock);
+  }
 }
 
 function blockRun(
@@ -549,22 +552,26 @@ function blockRun(
   reason: string,
 ): void {
   clearWorkflowStep(run);
-  claimTerminal(run, ctx, clock, {
+  if (claimTerminal(run, ctx, clock, {
     state: "blocked",
     reason,
     eventName: "run_blocked",
     payload: { reason },
-  });
+  })) {
+    emitGateReport(run, ctx, clock);
+  }
 }
 
 function failRun(run: RunRecord, ctx: ConnectionContext, clock: Clock, reason: string): void {
   clearWorkflowStep(run);
-  claimTerminal(run, ctx, clock, {
+  if (claimTerminal(run, ctx, clock, {
     state: "gave_up",
     reason,
     eventName: "run_gave_up",
     payload: { reason },
-  });
+  })) {
+    emitGateReport(run, ctx, clock);
+  }
 }
 
 function clearWorkflowStep(run: RunRecord): void {

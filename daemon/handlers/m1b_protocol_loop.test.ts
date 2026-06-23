@@ -22,6 +22,7 @@ import { ConnectionContext } from "../core/context.js";
 import { EventSink } from "../core/eventSink.js";
 import { FakeClock } from "../core/clock.js";
 import { createFakeRegistry } from "../../adapters/registry.js";
+import { SERVER_PROTOCOL_VERSION } from "./initialize.js";
 import type { EventNotificationParams } from "../core/eventSink.js";
 
 /** Collect emitted event notification frames synchronously during the test. */
@@ -66,7 +67,7 @@ describe("M1b closed-loop protocol smoke test", () => {
       }),
     );
     expect(initResult.server.name).toBe("holp-reference-daemon");
-    expect(initResult.protocol_version).toBe("0.1.4");
+    expect(initResult.protocol_version).toBe(SERVER_PROTOCOL_VERSION);
 
     // 2. flock.declare — declare one fake agent
     const flockResult = result<{ agents: Array<Record<string, unknown>> }>(

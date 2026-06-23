@@ -44,6 +44,7 @@ import {
 import type {
   ConsensusPolicy,
   ConsensusReviewerSelection,
+  OnConsensusBlocking,
   OnQuorumUnsatisfiable,
   AuthorProvenance,
 } from "../core/consensus.js";
@@ -713,6 +714,7 @@ function parseConsensusPolicy(value: unknown): ConsensusPolicy {
   const policy = isObject(value) ? value : {};
   const authorProvenance = policy.author_provenance;
   const onQuorumUnsatisfiable = policy.on_quorum_unsatisfiable;
+  const onConsensusBlocking = policy.on_consensus_blocking;
 
   return {
     exclude_author: policy.exclude_author !== false,
@@ -721,6 +723,9 @@ function parseConsensusPolicy(value: unknown): ConsensusPolicy {
       : "produced_by_agent_id",
     on_quorum_unsatisfiable: isOnQuorumUnsatisfiable(onQuorumUnsatisfiable)
       ? onQuorumUnsatisfiable
+      : "reject",
+    on_consensus_blocking: isOnConsensusBlocking(onConsensusBlocking)
+      ? onConsensusBlocking
       : "reject",
   };
 }
@@ -731,6 +736,10 @@ function isAuthorProvenance(value: unknown): value is AuthorProvenance {
 
 function isOnQuorumUnsatisfiable(value: unknown): value is OnQuorumUnsatisfiable {
   return value === "ask_human" || value === "reject" || value === "degrade_quorum";
+}
+
+function isOnConsensusBlocking(value: unknown): value is OnConsensusBlocking {
+  return value === "ask_human" || value === "reject";
 }
 
 function defaultIsolationProfileForRole(role: string): IsolationProfile {

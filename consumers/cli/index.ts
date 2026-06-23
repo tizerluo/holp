@@ -5,6 +5,7 @@ import path from "path";
 import { DaemonClient, RpcError, formatRawFrame, type EventFrame } from "./wire.js";
 import {
   RunRenderer,
+  type RenderedRunSummary,
   arrayPayload,
   isTerminalEvent,
   objectPayload,
@@ -29,6 +30,7 @@ interface CliOptions {
   readonly artifactRefs: boolean;
   readonly raw: boolean;
   readonly debug: boolean;
+  readonly report: "human" | "json";
   readonly interactive: boolean;
   readonly decision?: Decision;
   readonly quorum: number;
@@ -55,6 +57,15 @@ interface ArtifactResponse {
 }
 
 const TERMINAL_TIMEOUT_MS = 20000;
+const GATE_REPORT_DRAIN_TIMEOUT_MS = 500;
+
+interface EventWaiter {
+  waitForEvent(
+    predicate: (event: EventFrame) => boolean,
+    label: string,
+    timeoutMs?: number,
+  ): Promise<EventFrame>;
+}
 
 export function parseArgs(argv: readonly string[]): CliOptions {
   const args = [...argv];
@@ -82,6 +93,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     artifactRefs: optionBool(values, "artifact-refs", true),
     raw: optionBool(values, "raw", false),
     debug: optionBool(values, "debug", false),
+    report: optionReport(values.get("report")),
     interactive: optionBool(values, "interactive", false),
     decision: optionDecision(values.get("decision")),
     quorum: optionInt(values, "quorum", scenario === "single" ? 0 : 2),
@@ -132,6 +144,7 @@ export async function runCli(options: CliOptions): Promise<number> {
       capabilities: {
         approval: { supported: true, kinds: ["merge_approval", "semantic_decision"] },
         consensus: { supported: true },
+        gate_report: { supported: true },
         ...(options.artifactRefs ? { artifact_refs: { supported: true } } : {}),
       },
     });
@@ -168,6 +181,7 @@ export async function runCli(options: CliOptions): Promise<number> {
           approval_id: approval.approval_id,
           decision,
           by: options.interactive ? "user:cli" : "user:cli-auto",
+          ...approvalResolveAudit(approvalEvent, decision),
         });
         console.log(`approval.resolve accepted=${resolved.accepted} decision=${decision}`);
       } catch (error) {
@@ -193,18 +207,20 @@ export async function runCli(options: CliOptions): Promise<number> {
           approval_id: approval.approval_id,
           decision: "approved",
           by: "user:cli-late",
+          ...approvalResolveAudit(approvalEvent, "approved"),
         });
       } catch (error) {
         reportRpcError("late approval.resolve", error);
       }
     }
 
+    await waitForPostTerminalGateReport(events, client, run.run_id, terminal, {
+      enabled: initialized.capabilities.gate_report?.supported === true,
+    });
+
     const summary = renderer.summary(run.run_id);
     console.log("summary:");
-    console.log(`  terminal=${summary.terminal?.name ?? "none"}`);
-    console.log(`  consensus=${summary.consensus?.name ?? summary.degraded?.name ?? "none"}`);
-    console.log(`  events=${summary.seen_events}`);
-    console.log(`  seq=${summary.seq_ok ? "contiguous" : "BROKEN"}`);
+    for (const line of renderSummaryReport(summary, options.report)) console.log(line);
     for (const diagnostic of renderer.diagnostics()) console.log(`  seq diagnostic: ${diagnostic}`);
     return summary.terminal ? 0 : 1;
   } finally {
@@ -228,6 +244,45 @@ export async function chooseDecision(
   if (options.decision) return options.decision;
   if (!options.interactive) return "approved";
   return ask(approval);
+}
+
+export async function waitForPostTerminalGateReport(
+  events: readonly EventFrame[],
+  waiter: EventWaiter,
+  runId: string,
+  terminal: EventFrame,
+  options: { readonly enabled: boolean; readonly timeoutMs?: number },
+): Promise<EventFrame | undefined> {
+  if (!options.enabled) return undefined;
+  const isPostTerminalGateReport = (event: EventFrame) =>
+    event.run_id === runId && event.name === "gate_report" && event.seq > terminal.seq;
+  const existing = [...events].reverse().find(isPostTerminalGateReport);
+  if (existing) return existing;
+
+  try {
+    return await waiter.waitForEvent(
+      isPostTerminalGateReport,
+      "post-terminal gate_report",
+      options.timeoutMs ?? GATE_REPORT_DRAIN_TIMEOUT_MS,
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+export function renderSummaryReport(summary: RenderedRunSummary, report: CliOptions["report"]): string[] {
+  if (report === "json") return [JSON.stringify(summary.gate_report?.payload ?? summary, null, 2)];
+
+  const gatePayload = objectPayload(summary.gate_report?.payload);
+  const decision = objectPayload(gatePayload.decision_surface);
+  return [
+    `  terminal=${summary.terminal?.name ?? "none"}`,
+    `  gate=${stringField(decision, "gate_disposition") ?? "none"}`,
+    `  review=${stringField(decision, "review_outcome") ?? "none"}`,
+    `  consensus=${summary.consensus?.name ?? summary.degraded?.name ?? "none"}`,
+    `  events=${summary.seen_events}`,
+    `  seq=${summary.seq_ok ? "contiguous" : "BROKEN"}`,
+  ];
 }
 
 async function promptApproval(approval: Pick<ApprovalPayload, "approval_id" | "kind">): Promise<Decision> {
@@ -363,6 +418,27 @@ function optionDecision(value: string | boolean | undefined): Decision | undefin
     throw new Error("--decision must be approved or rejected");
   }
   return value;
+}
+
+function optionReport(value: string | boolean | undefined): "human" | "json" {
+  if (value === undefined) return "human";
+  if (value !== "human" && value !== "json") {
+    throw new Error("--report must be human or json");
+  }
+  return value;
+}
+
+function approvalResolveAudit(event: EventFrame, decision: Decision): Record<string, unknown> {
+  const payload = objectPayload(event.payload);
+  if (stringField(payload, "kind") !== "semantic_decision") return {};
+  const provenance = objectPayload(payload.provenance);
+  const artifactId = stringField(provenance, "artifact_id");
+  return {
+    reason: decision === "approved" ? "cli semantic override" : "cli semantic rejection",
+    previous_gate_outcome: "ask_human",
+    new_gate_outcome: decision === "approved" ? "approved" : "blocked",
+    artifact_refs: artifactId ? [artifactId] : [],
+  };
 }
 
 function defaultGoal(scenario: Scenario): string {

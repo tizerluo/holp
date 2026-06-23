@@ -173,6 +173,7 @@ describe("driveRun real-backend event forwarding", () => {
         approval: { supported: true, kinds: ["merge_approval"] },
         artifact_refs: { supported: false },
         unattended_loop: { supported: false },
+        gate_report: { supported: false },
       },
     };
     const bus = new EventBus("run_consensus", clock);
@@ -190,6 +191,7 @@ describe("driveRun real-backend event forwarding", () => {
           exclude_author: true,
           author_provenance: "produced_by_agent_id",
           on_quorum_unsatisfiable: "reject",
+          on_consensus_blocking: "reject",
         },
         producer_agent_id: "author",
       },
@@ -235,6 +237,88 @@ describe("driveRun real-backend event forwarding", () => {
       excluded: [{ agent: "author", reason: "produced_by_agent_id (author)" }],
       reviews: [{ agent: "r1", status: "completed" }],
       quorum: { required: 1, eligible: 1, met: true },
+    });
+  });
+
+  it("reports completed reviews below quorum as degraded instead of approved", async () => {
+    const clock = new FakeClock();
+    const scheduler = new FakeScheduler();
+    const ctx = new ConnectionContext();
+    ctx.initialized = {
+      protocolVersion: "0.1.4",
+      clientName: "run-engine-test",
+      clientVersion: "0",
+      negotiated: {
+        consensus: { supported: true },
+        approval: { supported: true, kinds: ["merge_approval"] },
+        artifact_refs: { supported: false },
+        unattended_loop: { supported: false },
+        gate_report: { supported: true },
+      },
+    };
+    const bus = new EventBus("run_below_quorum", clock);
+    const run: RunRecord = {
+      run_id: "run_below_quorum",
+      goal: "produce a diff",
+      trigger: "manual",
+      status: "active",
+      bus,
+      consensus: {
+        panel: [{ agent_id: "r1" }, { agent_id: "r2" }],
+        quorum: 2,
+        policy: {
+          exclude_author: true,
+          author_provenance: "produced_by_agent_id",
+          on_quorum_unsatisfiable: "reject",
+          on_consensus_blocking: "reject",
+        },
+        producer_agent_id: "coder",
+      },
+      reviewerExecutor: async () => [
+        {
+          agent: "r1",
+          status: "completed" as const,
+          verdict: "approve" as const,
+          max_severity: "NONE" as const,
+        },
+        {
+          agent: "r2",
+          status: "timeout" as const,
+          reason: "reviewer_timeout",
+        },
+      ],
+      pendingApprovals: new Set(),
+      approvalSeq: 0,
+    };
+    const backend = new MessageBackend([
+      {
+        type: "fs-edit",
+        description: "diff",
+        diff: "--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n",
+      },
+    ]);
+
+    await driveRun(run, backend, ctx, clock, scheduler);
+
+    const degraded = bus.allEvents().find((event) => event.name === "consensus_degraded");
+    expect(degraded?.payload).toMatchObject({
+      outcome: "approve",
+      reason: "completed_reviews_below_quorum",
+      quorum: { required: 2, eligible: 2, met: false },
+    });
+    expect(run.status).toBe("blocked");
+    const latestReport = [...bus.allEvents()].reverse().find((event) => event.name === "gate_report");
+    expect(latestReport?.payload).toMatchObject({
+      decision_surface: {
+        review_outcome: "none",
+        gate_disposition: "blocked",
+      },
+      blocking_reason: "completed_reviews_below_quorum",
+      terminal: {
+        state: "blocked",
+        event: "run_blocked",
+        reason: "completed_reviews_below_quorum",
+      },
     });
   });
 });

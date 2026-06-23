@@ -8,11 +8,13 @@ export type ConsensusDegradedOutcome = ConsensusOutcome | "degrade_quorum";
 export type ConsensusSeverity = "P0" | "P1" | "P2" | "NONE";
 export type AuthorProvenance = "produced_by_agent_id" | "commit_author" | "run_initiator";
 export type OnQuorumUnsatisfiable = "ask_human" | "reject" | "degrade_quorum";
+export type OnConsensusBlocking = "reject" | "ask_human";
 
 export interface ConsensusPolicy {
   readonly exclude_author: boolean;
   readonly author_provenance: AuthorProvenance;
   readonly on_quorum_unsatisfiable: OnQuorumUnsatisfiable;
+  readonly on_consensus_blocking: OnConsensusBlocking;
 }
 
 export interface ConsensusReviewerSelection {

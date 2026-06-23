@@ -18,12 +18,13 @@
 import { holpError } from "./errors.js";
 import type { JsonRpcError } from "../runtime/jsonrpc.js";
 
-/** The four negotiated capabilities (§2 / catalog (d)). */
+/** Negotiated capabilities (§2 / catalog (d)). */
 export const CAPABILITY_NAMES = [
   "consensus",
   "approval",
   "unattended_loop",
   "artifact_refs",
+  "gate_report",
 ] as const;
 
 export type CapabilityName = (typeof CAPABILITY_NAMES)[number];
