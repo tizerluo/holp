@@ -5,6 +5,8 @@ import {
   createPromotionEvidence,
   dispatchStateStreamHash,
   evaluateReplay,
+  exportStopDecisionSamples,
+  exportStopDecisionSamplesJsonl,
   exportTrainingSamples,
   exportTrainingSamplesJsonl,
   promotionEvidenceFresh,
@@ -20,6 +22,12 @@ const action: WorkPlanV1 = {
   action: "implement",
   agent_id: "coder",
   role: "coder",
+};
+
+const terminalAction: WorkPlanV1 = {
+  version: "WorkPlan.v1",
+  kind: "terminal",
+  reason: "workflow_complete",
 };
 
 const state: DispatchStateV1 = {
@@ -46,6 +54,11 @@ describe("training sample export and reward attribution", () => {
         state,
         action,
       }),
+      decision("stop_decision_sample_recorded", "run_1", {
+        sample_id: "run_1:stop:1",
+        state: { ...state, step_index: 1 },
+        action: terminalAction,
+      }),
       decision("run_terminal", "run_1", { state: "merged" }, "run completed"),
     ];
 
@@ -58,6 +71,78 @@ describe("training sample export and reward attribution", () => {
       reward_policy_version: REWARD_POLICY_VERSION,
     });
     expect(exportTrainingSamplesJsonl(decisions)).toContain('"sample_id":"run_1:step:0"');
+  });
+
+  it("exports dedicated stop-decision samples from synthetic governance decisions", () => {
+    const decisions: DecisionRecord[] = [
+      decision("stop_decision_sample_recorded", "run_1", {
+        sample_id: "run_1:stop:2",
+        state: { ...state, step_index: 2 },
+        action: terminalAction,
+      }),
+      decision("run_terminal", "run_1", { state: "merged" }, "run completed"),
+      decision("stop_decision_sample_recorded", "blocked", {
+        state: { ...state, run_id: "blocked", step_index: 3 },
+        action: terminalAction,
+      }),
+      decision("run_terminal", "blocked", { state: "blocked" }, "consensus_reject"),
+      decision("stop_decision_sample_recorded", "gave_up", {
+        state: { ...state, run_id: "gave_up", step_index: 4 },
+        action: terminalAction,
+      }),
+      decision("run_terminal", "gave_up", { state: "gave_up" }, "backend_error"),
+      decision("stop_decision_sample_recorded", "cancelled", {
+        state: { ...state, run_id: "cancelled", step_index: 5 },
+        action: terminalAction,
+      }),
+      decision("run_terminal", "cancelled", { state: "cancelled" }, "cancelled"),
+      decision("stop_decision_sample_recorded", "missing", {
+        state: { ...state, run_id: "missing", step_index: 6 },
+        action: terminalAction,
+      }),
+    ];
+
+    const samples = exportStopDecisionSamples(decisions);
+    expect(samples).toHaveLength(5);
+    expect(samples[0]).toMatchObject({
+      version: "StopDecisionSample.v1",
+      sample_id: "run_1:stop:2",
+      run_id: "run_1",
+      step_index: 2,
+      action: terminalAction,
+      reward: 1,
+      reward_basis: "terminal_merged",
+      reward_policy_version: REWARD_POLICY_VERSION,
+    });
+    expect(samples.map((sample) => sample.reward)).toEqual([1, -1, -1, null, null]);
+    expect(samples.map((sample) => sample.reward_basis)).toEqual([
+      "terminal_merged",
+      "terminal_failed",
+      "terminal_failed",
+      "cancelled",
+      "terminal_missing",
+    ]);
+    expect(samples.map((sample) => sample.sample_id)).toEqual([
+      "run_1:stop:2",
+      "blocked:stop:3",
+      "gave_up:stop:4",
+      "cancelled:stop:5",
+      "missing:stop:6",
+    ]);
+    expect(exportStopDecisionSamplesJsonl(decisions)).toContain('"version":"StopDecisionSample.v1"');
+  });
+
+  it("ignores non-terminal actions in stop-decision exporter", () => {
+    const decisions: DecisionRecord[] = [
+      decision("stop_decision_sample_recorded", "run_1", {
+        sample_id: "run_1:stop:0",
+        state,
+        action,
+      }),
+      decision("run_terminal", "run_1", { state: "merged" }, "run completed"),
+    ];
+
+    expect(exportStopDecisionSamples(decisions)).toEqual([]);
   });
 
   it("attributes each sample from its own run terminal", () => {

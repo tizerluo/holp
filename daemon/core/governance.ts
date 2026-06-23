@@ -28,6 +28,7 @@ export type DecisionType =
   | "workflow_step_failed"
   | "dispatch_snapshot_recorded"
   | "training_sample_recorded"
+  | "stop_decision_sample_recorded"
   | "learned_router_shadow_prediction"
   | "learned_router_shadow_fallback"
   | "learned_router_active_fallback"

@@ -689,11 +689,14 @@ describe("M7 workflow foundation loop", () => {
 
     expect(h.events.some((event) => event.category === "consensus")).toBe(false);
     expect(h.ctx.runs.get(run_id)?.step_history).toHaveLength(1);
-    expect(
-      h.ctx.governance.decisions.filter((decision) =>
-        decision.decision_type === "dispatch_snapshot_recorded"
-      ),
-    ).toHaveLength(1);
+    const snapshots = h.ctx.governance.decisions.filter((decision) =>
+      decision.decision_type === "dispatch_snapshot_recorded"
+    );
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]?.data).toMatchObject({
+      decision_kind: "next_step",
+      step_index: 0,
+    });
   });
 
   it("blocks spec-driven workflow on non-executable plan action", async () => {
