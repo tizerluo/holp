@@ -17,6 +17,8 @@ import {
   type IsolationProfileReadiness,
   type RuntimeSurfaceDeclaration,
 } from "./harness-declaration.js";
+import { AcpClient } from "./acp-client.js";
+import { probeDirectTmux, createDirectTmuxBackendFactory } from "./direct-tmux.js";
 
 const DEFAULT_PROBE_TIMEOUT_MS = 4_000;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -68,6 +70,8 @@ interface CodexTurnFailureClassification {
   readonly retryable: boolean;
 }
 
+export type SmokeRunnerResult = "ok" | "fail" | "skip";
+
 export interface CodexAppServerBackendOptions {
   readonly command?: string;
   readonly args?: readonly string[];
@@ -77,6 +81,10 @@ export interface CodexAppServerBackendOptions {
   readonly turnRecoveryBackoffMs?: number;
   readonly usageLimitBackoffMs?: number;
   readonly recoverySleep?: (ms: number) => Promise<void>;
+  /** Injectable ACP smoke runner for testing opt-in path. Real runner runs only when HOLP_REAL_CODEX_SMOKE=1. */
+  readonly acpSmokeRunner?: () => Promise<SmokeRunnerResult>;
+  /** Injectable direct smoke runner for testing opt-in path. Real runner runs only when HOLP_REAL_CODEX_SMOKE=1. */
+  readonly directSmokeRunner?: () => Promise<SmokeRunnerResult>;
 }
 
 export function createCodexAppServerBackendFactory(
@@ -91,128 +99,270 @@ export async function probeCodexAppServer(
 ): Promise<AgentProbeResult> {
   const command = options.command ?? DEFAULT_CODEX_COMMAND;
   const timeoutMs = options.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+  const realSmokeEnabled = process.env["HOLP_REAL_CODEX_SMOKE"] === "1";
+  const hasSmokeRunners = !!(options.acpSmokeRunner ?? options.directSmokeRunner) || realSmokeEnabled;
+
+  // Capture headless status into variables so smoke can still run when runners are present.
+  let headlessStatus: "ready" | "degraded" | "rejected" = "rejected";
+  let headlessReason: string | undefined;
+  let headlessVersion: string | undefined;
+  let headlessLoggedIn: boolean | undefined;
+  let headlessResolvedRoles: readonly string[] = [];
+  let headlessMissing: string[] = [];
+  let headlessUserAgent: string | undefined;
+  let earlyExitResult: AgentProbeResult | undefined;
+
   const version = await runBounded(command, ["--version"], {
     cwd: input.cwd,
     timeoutMs: Math.min(Math.max(1_000, timeoutMs), 5_000),
   });
   if (version.code !== 0) {
-    return {
+    headlessStatus = "rejected";
+    headlessReason = version.timedOut ? "codex_version_probe_timeout" : "missing_binary_codex";
+    headlessMissing = ["binary:codex", ...input.roles.map((role) => `role:${role}`)];
+    earlyExitResult = {
       status: "rejected",
       harness_id: "codex",
       vendor: "OpenAI",
       transport_class: input.transport,
-      runtime_surfaces: codexRuntimeSurfaces("rejected", "missing_binary_codex"),
+      runtime_surfaces: codexRuntimeSurfaces("rejected", headlessReason),
       state_declaration_ref: "harness-state:codex",
       global_mutation_required: false,
       resolved_roles: [],
       logged_in: false,
-      missing: ["binary:codex", ...input.roles.map((role) => `role:${role}`)],
-      reason: version.timedOut ? "codex_version_probe_timeout" : "missing_binary_codex",
+      missing: headlessMissing,
+      reason: headlessReason,
     };
+  } else {
+    headlessVersion = cleanVersion(version.stdout, version.stderr);
+
+    const doctor = await runBounded(command, ["doctor"], {
+      cwd: input.cwd,
+      timeoutMs: Math.max(1_000, timeoutMs - 1_000),
+    });
+    const doctorText = `${doctor.stdout}\n${doctor.stderr}`;
+    const loggedIn = /auth\s+is configured/i.test(doctorText);
+    const mentionsAuth = /auth/i.test(doctorText);
+    if (!loggedIn) {
+      headlessStatus = mentionsAuth ? "rejected" : "degraded";
+      headlessReason = mentionsAuth ? "codex_auth_not_configured" : "codex_auth_status_unknown";
+      headlessMissing = ["auth:codex", ...input.roles.map((role) => `role:${role}`)];
+      earlyExitResult = {
+        status: headlessStatus,
+        harness_id: "codex",
+        vendor: "OpenAI",
+        transport_class: input.transport,
+        runtime_surfaces: codexRuntimeSurfaces(headlessStatus, headlessReason),
+        state_declaration_ref: "harness-state:codex",
+        global_mutation_required: false,
+        version: headlessVersion,
+        logged_in: false,
+        resolved_roles: [],
+        missing: headlessMissing,
+        reason: headlessReason,
+      };
+    } else {
+      headlessLoggedIn = true;
+      const init = await probeInitialize(input.cwd, 1_500, options);
+      if (!init.ok) {
+        headlessStatus = "degraded";
+        headlessReason = init.reason;
+        headlessMissing = input.roles.map((role) => `role:${role}`);
+        earlyExitResult = {
+          status: "degraded",
+          harness_id: "codex",
+          vendor: "OpenAI",
+          transport_class: input.transport,
+          runtime_surfaces: codexRuntimeSurfaces("degraded", headlessReason),
+          state_declaration_ref: "harness-state:codex",
+          global_mutation_required: false,
+          version: headlessVersion,
+          logged_in: headlessLoggedIn || undefined,
+          resolved_roles: [],
+          missing: headlessMissing,
+          reason: headlessReason,
+        };
+      } else {
+        headlessStatus = "ready";
+        headlessUserAgent = init.userAgent;
+        headlessResolvedRoles = input.roles.length > 0 ? input.roles : ["coder", "reviewer", "tester"];
+      }
+    }
   }
 
-  const doctor = await runBounded(command, ["doctor"], {
-    cwd: input.cwd,
-    timeoutMs: Math.max(1_000, timeoutMs - 1_000),
-  });
-  const doctorText = `${doctor.stdout}\n${doctor.stderr}`;
-  const loggedIn = /auth\s+is configured/i.test(doctorText);
-  const mentionsAuth = /auth/i.test(doctorText);
-  if (!loggedIn) {
-    return {
-      status: mentionsAuth ? "rejected" : "degraded",
-      harness_id: "codex",
-      vendor: "OpenAI",
-      transport_class: input.transport,
-      runtime_surfaces: codexRuntimeSurfaces(
-        mentionsAuth ? "rejected" : "degraded",
-        mentionsAuth ? "codex_auth_not_configured" : "codex_auth_status_unknown",
-      ),
-      state_declaration_ref: "harness-state:codex",
-      global_mutation_required: false,
-      version: cleanVersion(version.stdout, version.stderr),
-      logged_in: false,
-      resolved_roles: [],
-      missing: ["auth:codex", ...input.roles.map((role) => `role:${role}`)],
-      reason: mentionsAuth ? "codex_auth_not_configured" : "codex_auth_status_unknown",
-    };
+  // If headless failed and no smoke runners are present, return the early exit result immediately.
+  if (headlessStatus !== "ready" && !hasSmokeRunners) {
+    return earlyExitResult!;
   }
 
-  const init = await probeInitialize(input.cwd, 1_500, options);
-  if (!init.ok) {
-    return {
-      status: "degraded",
-      harness_id: "codex",
-      vendor: "OpenAI",
-      transport_class: input.transport,
-      runtime_surfaces: codexRuntimeSurfaces("degraded", init.reason),
-      state_declaration_ref: "harness-state:codex",
-      global_mutation_required: false,
-      version: cleanVersion(version.stdout, version.stderr),
-      logged_in: loggedIn || undefined,
-      resolved_roles: [],
-      missing: input.roles.map((role) => `role:${role}`),
-      reason: init.reason,
-    };
+  // Run opt-in smoke if runners are provided or HOLP_REAL_CODEX_SMOKE=1 env is set.
+  // Default: no runners, no env → smoke skipped → ACP/direct stay degraded.
+  let smokeResults: { acp: SmokeRunnerResult; direct: SmokeRunnerResult } | undefined;
+  if (hasSmokeRunners) {
+    // injected runners override real ones (tests); real runners only when env opt-in
+    const acpResult = options.acpSmokeRunner
+      ? await options.acpSmokeRunner()
+      : realSmokeEnabled
+        ? await runRealAcpSmoke(input.cwd)
+        : ("skip" as SmokeRunnerResult);
+    const directResult = options.directSmokeRunner
+      ? await options.directSmokeRunner()
+      : realSmokeEnabled
+        ? await runRealDirectSmoke(input.cwd)
+        : ("skip" as SmokeRunnerResult);
+    smokeResults = { acp: acpResult, direct: directResult };
   }
 
+  // Top-level status is ready if headless passed OR any ACP/direct coder_worktree surface is ready.
+  const acpReady = smokeResults?.acp === "ok";
+  const directReady = smokeResults?.direct === "ok";
+  const anyReady = headlessStatus === "ready" || acpReady || directReady;
+
+  if (!anyReady) {
+    // Headless failed and no smoke surface proved ready — return original headless failure.
+    return earlyExitResult!;
+  }
+
+  const resolvedVersion = headlessUserAgent ?? headlessVersion;
   return {
     status: "ready",
     harness_id: "codex",
     vendor: "OpenAI",
     transport_class: input.transport,
-    runtime_surfaces: codexRuntimeSurfaces("ready"),
+    runtime_surfaces: codexRuntimeSurfaces(headlessStatus, headlessReason, smokeResults),
     state_declaration_ref: "harness-state:codex",
     global_mutation_required: false,
-    version: init.userAgent ?? cleanVersion(version.stdout, version.stderr),
-    logged_in: loggedIn || undefined,
-    resolved_roles: input.roles.length > 0 ? input.roles : ["coder", "reviewer", "tester"],
+    version: resolvedVersion,
+    logged_in: headlessLoggedIn || undefined,
+    resolved_roles: headlessStatus === "ready"
+      ? headlessResolvedRoles
+      : input.roles.length > 0 ? input.roles : ["coder", "reviewer", "tester"],
   };
 }
 
+async function runRealAcpSmoke(cwd: string): Promise<SmokeRunnerResult> {
+  const client = new AcpClient({ command: "codex-acp", cwd, requestTimeoutMs: 10_000, terminalTimeoutMs: 30_000 });
+  try {
+    const { sessionId } = await client.startSession();
+    const output = await client.sendPrompt(sessionId, "Reply with exactly the token HOLP_OK and nothing else.");
+    return output.includes("HOLP_OK") ? "ok" : "fail";
+  } catch {
+    return "fail";
+  } finally {
+    await client.dispose();
+  }
+}
+
+async function runRealDirectSmoke(cwd: string): Promise<SmokeRunnerResult> {
+  const probe = await probeDirectTmux({ agentCommand: "codex", cwd, verifyCapabilities: true });
+  if (!probe.ready) return "fail";
+  const factory = createDirectTmuxBackendFactory({
+    transport: "direct_tmux",
+    agentCommand: "codex",
+    agentArgsForPrompt: (prompt) => [
+      "exec", "--sandbox", "workspace-write",
+      "-c", 'approval_policy="never"',
+      "--skip-git-repo-check",
+      "-c", "notify=[]",
+      prompt,
+    ],
+    timeoutMs: 30_000,
+  });
+  const backend = factory({ cwd });
+  try {
+    const { sessionId } = await backend.startSession();
+    let fullText = "";
+    backend.onMessage((msg) => { if (msg.type === "model-output" && msg.fullText) fullText = msg.fullText; });
+    await backend.sendPrompt(sessionId, "Reply with exactly the token HOLP_OK and nothing else.");
+    return fullText.includes("HOLP_OK") ? "ok" : "fail";
+  } catch {
+    return "fail";
+  } finally {
+    await backend.dispose();
+  }
+}
+
 function codexRuntimeSurfaces(
-  status: "ready" | "degraded" | "rejected",
-  reason?: string,
+  headlessStatus: "ready" | "degraded" | "rejected",
+  headlessReason?: string,
+  smokeResults?: { acp: SmokeRunnerResult; direct: SmokeRunnerResult },
 ): readonly RuntimeSurfaceDeclaration[] {
   const baseReadiness: IsolationProfileReadiness =
-    status === "ready"
+    headlessStatus === "ready"
       ? { readiness: "ready", warnings: ["declared_not_enforced"] }
-      : status === "degraded"
+      : headlessStatus === "degraded"
         ? {
             readiness: "degraded",
-            reason,
-            missing: reason ? [reason] : undefined,
+            reason: headlessReason,
+            missing: headlessReason ? [headlessReason] : undefined,
             warnings: ["declared_not_enforced"],
           }
         : {
             readiness: "rejected",
-            reason: reason ?? "codex_unavailable",
-            missing: reason ? [reason] : undefined,
+            reason: headlessReason ?? "codex_unavailable",
+            missing: headlessReason ? [headlessReason] : undefined,
           };
 
   let appServerProfiles = rejectedProfiles("unsupported_isolation_profile");
   appServerProfiles = withProfile(appServerProfiles, "coder_worktree", baseReadiness);
   appServerProfiles = withProfile(appServerProfiles, "read_only_review", {
-    readiness: status === "rejected" ? "rejected" : "degraded",
-    reason: status === "rejected" ? reason : "read_only_not_enforced",
-    missing: status === "rejected" && reason ? [reason] : ["read_only_enforcement"],
-    warnings: status === "rejected" ? undefined : ["declared_not_enforced"],
+    readiness: headlessStatus === "rejected" ? "rejected" : "degraded",
+    reason: headlessStatus === "rejected" ? headlessReason : "read_only_not_enforced",
+    missing: headlessStatus === "rejected" && headlessReason ? [headlessReason] : ["read_only_enforcement"],
+    warnings: headlessStatus === "rejected" ? undefined : ["declared_not_enforced"],
   });
   appServerProfiles = withProfile(appServerProfiles, "real_provider_smoke", {
-    readiness: status === "rejected" ? "rejected" : "ready",
-    reason: status === "rejected" ? reason : undefined,
-    missing: status === "rejected" && reason ? [reason] : undefined,
-    warnings: status === "rejected"
+    readiness: headlessStatus === "rejected" ? "rejected" : "ready",
+    reason: headlessStatus === "rejected" ? headlessReason : undefined,
+    missing: headlessStatus === "rejected" && headlessReason ? [headlessReason] : undefined,
+    warnings: headlessStatus === "rejected"
       ? undefined
       : ["inherits:network", "inherits:provider_quota", "declared_not_enforced"],
   });
   appServerProfiles = withProfile(appServerProfiles, "high_isolation", {
-    readiness: status === "rejected" ? "rejected" : "degraded",
-    reason: status === "rejected" ? reason : "high_isolation_not_proven",
-    missing: status === "rejected" && reason
-      ? [reason]
+    readiness: headlessStatus === "rejected" ? "rejected" : "degraded",
+    reason: headlessStatus === "rejected" ? headlessReason : "high_isolation_not_proven",
+    missing: headlessStatus === "rejected" && headlessReason
+      ? [headlessReason]
       : ["full_env_filter", "keychain_isolation"],
-    warnings: status === "rejected" ? undefined : ["declared_not_enforced"],
+    warnings: headlessStatus === "rejected" ? undefined : ["declared_not_enforced"],
+  });
+
+  // ACP/direct default to degraded without opt-in smoke; opt-in via HOLP_REAL_CODEX_SMOKE=1 or injected runner.
+  const acpSmokeOk = smokeResults?.acp === "ok";
+  const acpSmokeFailed = smokeResults?.acp === "fail";
+  let acpProfiles = rejectedProfiles("unsupported_isolation_profile");
+  acpProfiles = withProfile(acpProfiles, "coder_worktree", acpSmokeOk
+    ? { readiness: "ready", warnings: ["declared_not_enforced"] }
+    : {
+        readiness: "degraded",
+        reason: acpSmokeFailed ? "codex_acp_smoke_failed" : "codex_acp_smoke_not_enabled",
+        missing: acpSmokeFailed ? ["acp:smoke_ok"] : ["env:HOLP_REAL_CODEX_SMOKE"],
+        warnings: ["declared_not_enforced"],
+      });
+  acpProfiles = withProfile(acpProfiles, "read_only_review", {
+    readiness: "degraded",
+    reason: "codex_acp_reviewer_not_wired",
+    missing: ["read_only_enforcement", "reviewer_execution_config"],
+    warnings: ["declared_not_enforced"],
+  });
+
+  const directSmokeOk = smokeResults?.direct === "ok";
+  const directSmokeFailed = smokeResults?.direct === "fail";
+  let directProfiles = rejectedProfiles("unsupported_isolation_profile");
+  directProfiles = withProfile(directProfiles, "coder_worktree", directSmokeOk
+    ? { readiness: "ready", warnings: ["declared_not_enforced"] }
+    : {
+        readiness: "degraded",
+        reason: directSmokeFailed ? "codex_direct_smoke_failed" : "codex_direct_smoke_not_enabled",
+        missing: directSmokeFailed ? ["direct:smoke_ok"] : ["env:HOLP_REAL_CODEX_SMOKE"],
+        warnings: ["declared_not_enforced"],
+      });
+  directProfiles = withProfile(directProfiles, "read_only_review", {
+    readiness: "degraded",
+    reason: "codex_direct_reviewer_not_wired",
+    missing: ["read_only_enforcement", "reviewer_execution_config"],
+    warnings: ["declared_not_enforced"],
   });
 
   return [
@@ -220,7 +370,7 @@ function codexRuntimeSurfaces(
       runtime_surface: "headless",
       runtime_kind: "app_server",
       actual_fidelity: "streaming_controlled",
-      surface_support: status === "rejected" ? "unsupported" : "supported",
+      surface_support: headlessStatus === "rejected" ? "unsupported" : "supported",
       isolation_profiles: appServerProfiles,
       state_declaration_ref: "harness-state:codex",
       global_mutation_required: false,
@@ -228,38 +378,41 @@ function codexRuntimeSurfaces(
     },
     {
       runtime_surface: "acp",
-      runtime_kind: "codex_acp_unwired",
-      actual_fidelity: "one_shot",
-      surface_support: "unsupported",
-      isolation_profiles: rejectedProfiles("codex_acp_not_wired"),
+      runtime_kind: "codex_acp",
+      actual_fidelity: "streaming_controlled",
+      surface_support: "supported",
+      isolation_profiles: acpProfiles,
       state_declaration_ref: "harness-state:codex:acp",
       global_mutation_required: false,
       declared_not_enforced: true,
     },
     {
       runtime_surface: "direct_user_session",
-      runtime_kind: "unknown",
-      actual_fidelity: "one_shot",
-      surface_support: "unknown",
-      isolation_profiles: rejectedProfiles("direct_user_session_not_declared"),
-      direct_channel: unknownDirectChannel(),
-      state_declaration_ref: "harness-state:codex",
+      runtime_kind: "codex_direct_tmux",
+      actual_fidelity: "streaming_controlled",
+      surface_support: "supported",
+      isolation_profiles: directProfiles,
+      direct_channel: codexDirectChannel(directSmokeOk),
+      state_declaration_ref: "harness-state:codex:direct",
       global_mutation_required: false,
       declared_not_enforced: true,
     },
   ];
 }
 
-function unknownDirectChannel(): DirectChannelDeclaration {
+function codexDirectChannel(smokeProven = false): DirectChannelDeclaration {
   return {
     channel_type: "terminal_app",
-    attach: "unknown",
-    observe: "unknown",
-    read: "unknown",
-    inject: "unknown",
-    interrupt: "unknown",
-    cancel: "unknown",
-    owner_scope: "unknown",
+    attach: "supported",
+    observe: "supported",
+    read: "supported",
+    inject: "supported",
+    interrupt: "supported",
+    cancel: "supported",
+    owner_scope: "supported",
+    session_origin: "holp_created",
+    session_id_namespace: "holp-*",
+    capability_bitmask: smokeProven ? ["exec", "observe", "read", "inject", "interrupt", "cancel", "owner_verified"] : [],
   };
 }
 

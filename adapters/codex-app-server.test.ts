@@ -502,6 +502,252 @@ describe("CodexAppServerBackend", () => {
     expect(headless?.runtime_kind).toBe("app_server");
     expect(headless?.actual_fidelity).toBe("streaming_controlled");
   });
+
+  it("AC1: three independent surfaces declared even when headless is ready", async () => {
+    const dir = makeTempDir();
+    const command = fakeCodexCommand(dir, "ready");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      { command, probeTimeoutMs: 10_000 },
+    );
+
+    const surfaces = result.runtime_surfaces ?? [];
+    const headless = surfaces.find((s) => s.runtime_surface === "headless");
+    const acp = surfaces.find((s) => s.runtime_surface === "acp");
+    const direct = surfaces.find((s) => s.runtime_surface === "direct_user_session");
+
+    expect(headless).toBeDefined();
+    expect(acp).toBeDefined();
+    expect(direct).toBeDefined();
+
+    // Headless ready does NOT make ACP/direct ready
+    expect(headless?.surface_support).toBe("supported");
+    const acpWorktree = acp?.isolation_profiles?.["coder_worktree"];
+    expect(acpWorktree?.readiness).toBe("degraded");
+    expect(acpWorktree?.reason).toBe("codex_acp_smoke_not_enabled");
+    const directWorktree = direct?.isolation_profiles?.["coder_worktree"];
+    expect(directWorktree?.readiness).toBe("degraded");
+    expect(directWorktree?.reason).toBe("codex_direct_smoke_not_enabled");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("AC1: acp surface declares codex_acp kind and direct declares codex_direct_tmux kind", async () => {
+    const dir = makeTempDir();
+    const command = fakeCodexCommand(dir, "ready");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      { command, probeTimeoutMs: 10_000 },
+    );
+
+    const acp = result.runtime_surfaces?.find((s) => s.runtime_surface === "acp");
+    const direct = result.runtime_surfaces?.find((s) => s.runtime_surface === "direct_user_session");
+
+    expect(acp?.runtime_kind).toBe("codex_acp");
+    expect(acp?.actual_fidelity).toBe("streaming_controlled");
+    expect(direct?.runtime_kind).toBe("codex_direct_tmux");
+    expect(direct?.actual_fidelity).toBe("streaming_controlled");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("AC4/AC5: direct surface declares supported attach/scope with holp_created origin and holp-* namespace", async () => {
+    const dir = makeTempDir();
+    const command = fakeCodexCommand(dir, "ready");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      { command, probeTimeoutMs: 10_000 },
+    );
+
+    const direct = result.runtime_surfaces?.find((s) => s.runtime_surface === "direct_user_session");
+    expect(direct?.direct_channel?.attach).toBe("supported");
+    expect(direct?.direct_channel?.owner_scope).toBe("supported");
+    expect(direct?.direct_channel?.session_origin).toBe("holp_created");
+    expect(direct?.direct_channel?.session_id_namespace).toBe("holp-*");
+    expect(direct?.direct_channel?.observe).toBe("supported");
+    expect(direct?.direct_channel?.inject).toBe("supported");
+    // capability_bitmask empty without smoke
+    expect(direct?.direct_channel?.capability_bitmask).toEqual([]);
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("opt-in: default env (no HOLP_REAL_CODEX_SMOKE, no runners) keeps ACP/direct degraded", async () => {
+    const dir = makeTempDir();
+    const command = fakeCodexCommand(dir, "ready");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      { command, probeTimeoutMs: 10_000 },
+    );
+
+    const acp = result.runtime_surfaces?.find((s) => s.runtime_surface === "acp");
+    const direct = result.runtime_surfaces?.find((s) => s.runtime_surface === "direct_user_session");
+    expect(acp?.isolation_profiles?.["coder_worktree"]?.readiness).toBe("degraded");
+    expect(direct?.isolation_profiles?.["coder_worktree"]?.readiness).toBe("degraded");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("opt-in: fake ACP smoke returning ok promotes coder_worktree to ready", async () => {
+    const dir = makeTempDir();
+    const command = fakeCodexCommand(dir, "ready");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      {
+        command, probeTimeoutMs: 10_000,
+        acpSmokeRunner: async () => "ok",
+      },
+    );
+
+    const acp = result.runtime_surfaces?.find((s) => s.runtime_surface === "acp");
+    expect(acp?.isolation_profiles?.["coder_worktree"]?.readiness).toBe("ready");
+    // read_only_review must stay degraded regardless
+    expect(acp?.isolation_profiles?.["read_only_review"]?.readiness).toBe("degraded");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("opt-in: fake ACP smoke returning fail keeps coder_worktree degraded", async () => {
+    const dir = makeTempDir();
+    const command = fakeCodexCommand(dir, "ready");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      {
+        command, probeTimeoutMs: 10_000,
+        acpSmokeRunner: async () => "fail",
+      },
+    );
+
+    const acp = result.runtime_surfaces?.find((s) => s.runtime_surface === "acp");
+    expect(acp?.isolation_profiles?.["coder_worktree"]?.readiness).toBe("degraded");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("opt-in: fake direct smoke returning ok promotes coder_worktree to ready with capability_bitmask", async () => {
+    const dir = makeTempDir();
+    const command = fakeCodexCommand(dir, "ready");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      {
+        command, probeTimeoutMs: 10_000,
+        directSmokeRunner: async () => "ok",
+      },
+    );
+
+    const direct = result.runtime_surfaces?.find((s) => s.runtime_surface === "direct_user_session");
+    expect(direct?.isolation_profiles?.["coder_worktree"]?.readiness).toBe("ready");
+    expect(direct?.direct_channel?.capability_bitmask).toContain("exec");
+    // read_only_review must stay degraded
+    expect(direct?.isolation_profiles?.["read_only_review"]?.readiness).toBe("degraded");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("opt-in: fake direct smoke returning fail keeps coder_worktree degraded", async () => {
+    const dir = makeTempDir();
+    const command = fakeCodexCommand(dir, "ready");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      {
+        command, probeTimeoutMs: 10_000,
+        directSmokeRunner: async () => "fail",
+      },
+    );
+
+    const direct = result.runtime_surfaces?.find((s) => s.runtime_surface === "direct_user_session");
+    expect(direct?.isolation_profiles?.["coder_worktree"]?.readiness).toBe("degraded");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("opt-in: fake ACP smoke returning fail reports smoke_failed reason, not smoke_not_enabled", async () => {
+    const dir = makeTempDir();
+    const command = fakeCodexCommand(dir, "ready");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      { command, probeTimeoutMs: 10_000, acpSmokeRunner: async () => "fail" },
+    );
+    const acp = result.runtime_surfaces?.find((s) => s.runtime_surface === "acp");
+    expect(acp?.isolation_profiles?.["coder_worktree"]?.readiness).toBe("degraded");
+    expect(acp?.isolation_profiles?.["coder_worktree"]?.reason).toBe("codex_acp_smoke_failed");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("opt-in: fake direct smoke returning fail reports smoke_failed reason, not smoke_not_enabled", async () => {
+    const dir = makeTempDir();
+    const command = fakeCodexCommand(dir, "ready");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      { command, probeTimeoutMs: 10_000, directSmokeRunner: async () => "fail" },
+    );
+    const direct = result.runtime_surfaces?.find((s) => s.runtime_surface === "direct_user_session");
+    expect(direct?.isolation_profiles?.["coder_worktree"]?.readiness).toBe("degraded");
+    expect(direct?.isolation_profiles?.["coder_worktree"]?.reason).toBe("codex_direct_smoke_failed");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("AC3: acp degraded lists missing env when headless rejected", async () => {
+    const dir = makeTempDir();
+    const command = fakeCodexCommand(dir, "auth-missing");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      { command, probeTimeoutMs: 10_000 },
+    );
+
+    const acp = result.runtime_surfaces?.find((s) => s.runtime_surface === "acp");
+    const acpWorktree = acp?.isolation_profiles?.["coder_worktree"];
+    // ACP default is degraded regardless of headless status
+    expect(acpWorktree?.readiness).toBe("degraded");
+    expect(acpWorktree?.missing).toContain("env:HOLP_REAL_CODEX_SMOKE");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("AC7: read_only_review is not upgraded by headless readiness", async () => {
+    const dir = makeTempDir();
+    const command = fakeCodexCommand(dir, "ready");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["reviewer"], cwd: dir },
+      { command, probeTimeoutMs: 10_000 },
+    );
+
+    const acp = result.runtime_surfaces?.find((s) => s.runtime_surface === "acp");
+    const acpReviewer = acp?.isolation_profiles?.["read_only_review"];
+    const direct = result.runtime_surfaces?.find((s) => s.runtime_surface === "direct_user_session");
+    const directReviewer = direct?.isolation_profiles?.["read_only_review"];
+
+    expect(acpReviewer?.readiness).toBe("degraded");
+    expect(directReviewer?.readiness).toBe("degraded");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("P2: headless init failure + injected ACP smoke ok → top-level ready, headless degraded, ACP coder_worktree ready", async () => {
+    const dir = makeTempDir();
+    // init-fails: --version ok, doctor ok (auth configured), app-server exits non-zero
+    const command = fakeCodexCommand(dir, "init-fails");
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      { command, probeTimeoutMs: 10_000, acpSmokeRunner: async () => "ok" },
+    );
+
+    expect(result.status).toBe("ready");
+    const headless = result.runtime_surfaces?.find((s) => s.runtime_surface === "headless");
+    expect(headless?.isolation_profiles?.["coder_worktree"]?.readiness).toBe("degraded");
+    const acp = result.runtime_surfaces?.find((s) => s.runtime_surface === "acp");
+    expect(acp?.isolation_profiles?.["coder_worktree"]?.readiness).toBe("ready");
+    expect(result.resolved_roles).toContain("coder");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("P2: missing binary + injected ACP smoke ok → top-level ready, headless rejected/unsupported, ACP coder_worktree ready", async () => {
+    const dir = makeTempDir();
+    // nonexistent binary → --version returns code !== 0
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      { command: join(dir, "no-such-codex"), probeTimeoutMs: 10_000, acpSmokeRunner: async () => "ok" },
+    );
+
+    expect(result.status).toBe("ready");
+    const headless = result.runtime_surfaces?.find((s) => s.runtime_surface === "headless");
+    expect(headless?.surface_support).toBe("unsupported");
+    const acp = result.runtime_surfaces?.find((s) => s.runtime_surface === "acp");
+    expect(acp?.isolation_profiles?.["coder_worktree"]?.readiness).toBe("ready");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("P2: no-env/no-runner + missing binary → rejects, no smoke attempted", async () => {
+    const dir = makeTempDir();
+    const result = await probeCodexAppServer(
+      { id: "codex-agent", transport: "mcp-codex", roles: ["coder"], cwd: dir },
+      {
+        command: join(dir, "no-such-codex"),
+        probeTimeoutMs: 10_000,
+        acpSmokeRunner: undefined,
+        directSmokeRunner: undefined,
+      },
+    );
+
+    expect(result.status).toBe("rejected");
+    expect(result.reason).toBe("missing_binary_codex");
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 });
 
 function makeTempDir(): string {

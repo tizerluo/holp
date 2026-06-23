@@ -20,7 +20,8 @@
     "smoke:codex:adapter": "tsx scripts/smoke/codex-approval-patch.adapter.ts",
     "smoke:reviewer:codex": "tsx scripts/smoke/codex-reviewer.adapter.ts",
     "smoke:reviewer:claude": "tsx scripts/smoke/claude-reviewer.adapter.ts",
-    "smoke:harnesses": "tsx scripts/smoke/harnesses.ts"
+    "smoke:harnesses": "tsx scripts/smoke/harnesses.ts",
+    "smoke:codex:surfaces": "tsx scripts/smoke/codex-surfaces.ts"
   },
   "devDependencies": {
     "@types/node": "^22",
