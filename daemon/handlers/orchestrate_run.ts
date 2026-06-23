@@ -679,15 +679,30 @@ function parsePlannerRequest(value: unknown): PlannerRequest {
       invalidRequest("orchestrate.run.planner.mode must be rule, learned_shadow, learned_active, or canary"),
     );
   }
-  const canary = isObject(value.canary)
-    ? {
-        seed: typeof value.canary.seed === "string" ? value.canary.seed : "holp-canary-v1",
-        ratio: typeof value.canary.ratio === "number" ? value.canary.ratio : 0,
-        allowlist: Array.isArray(value.canary.allowlist)
-          ? value.canary.allowlist.filter((item): item is string => typeof item === "string")
-          : undefined,
-      }
-    : undefined;
+  let canary: PlannerRequest["canary"];
+  if (value.canary !== undefined) {
+    if (!isObject(value.canary)) {
+      throw new HolpRpcError(invalidRequest("orchestrate.run.planner.canary must be an object"));
+    }
+    if (value.canary.seed !== undefined && typeof value.canary.seed !== "string") {
+      throw new HolpRpcError(invalidRequest("orchestrate.run.planner.canary.seed must be a string"));
+    }
+    if (value.canary.ratio !== undefined && typeof value.canary.ratio !== "number") {
+      throw new HolpRpcError(invalidRequest("orchestrate.run.planner.canary.ratio must be a number"));
+    }
+    if (
+      value.canary.allowlist !== undefined &&
+      (!Array.isArray(value.canary.allowlist) ||
+        !value.canary.allowlist.every((item) => typeof item === "string"))
+    ) {
+      throw new HolpRpcError(invalidRequest("orchestrate.run.planner.canary.allowlist must be string[]"));
+    }
+    canary = {
+      seed: value.canary.seed ?? "holp-canary-v1",
+      ratio: value.canary.ratio ?? 0,
+      allowlist: value.canary.allowlist,
+    };
+  }
   if (canary && (canary.ratio < 0 || canary.ratio > 1)) {
     throw new HolpRpcError(invalidRequest("orchestrate.run.planner.canary.ratio must be between 0 and 1"));
   }

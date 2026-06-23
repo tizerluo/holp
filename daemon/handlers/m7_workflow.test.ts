@@ -176,6 +176,26 @@ describe("M7 workflow foundation loop", () => {
     }
   });
 
+  it("rejects malformed canary planner values instead of defaulting them", async () => {
+    const h = await freshHarness();
+
+    for (const canary of [
+      null,
+      "bad",
+      { seed: 1 },
+      { ratio: "1" },
+      { allowlist: ["run_1", 2] },
+    ]) {
+      const error = err(await h.dispatch("orchestrate.run", {
+        goal: "bad canary",
+        roles: {},
+        planner: { mode: "canary", canary },
+      }));
+      expect(error.code).toBe(-32600);
+      expect(error.message).toContain("planner.canary");
+    }
+  });
+
   it("rejects work_planner when referenced as an executor role", async () => {
     const h = await freshHarness();
     ok(await h.dispatch("flock.declare", {
