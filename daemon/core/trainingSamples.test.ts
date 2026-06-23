@@ -122,6 +122,13 @@ describe("training sample export and reward attribution", () => {
       "cancelled",
       "terminal_missing",
     ]);
+    expect(samples.map((sample) => sample.sample_id)).toEqual([
+      "run_1:stop:2",
+      "blocked:stop:3",
+      "gave_up:stop:4",
+      "cancelled:stop:5",
+      "missing:stop:6",
+    ]);
     expect(exportStopDecisionSamplesJsonl(decisions)).toContain('"version":"StopDecisionSample.v1"');
   });
 
