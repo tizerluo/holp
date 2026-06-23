@@ -5,6 +5,7 @@ import path from "path";
 import { DaemonClient, RpcError, formatRawFrame, type EventFrame } from "./wire.js";
 import {
   RunRenderer,
+  type RenderedRunSummary,
   arrayPayload,
   isTerminalEvent,
   objectPayload,
@@ -56,6 +57,15 @@ interface ArtifactResponse {
 }
 
 const TERMINAL_TIMEOUT_MS = 20000;
+const GATE_REPORT_DRAIN_TIMEOUT_MS = 500;
+
+interface EventWaiter {
+  waitForEvent(
+    predicate: (event: EventFrame) => boolean,
+    label: string,
+    timeoutMs?: number,
+  ): Promise<EventFrame>;
+}
 
 export function parseArgs(argv: readonly string[]): CliOptions {
   const args = [...argv];
@@ -204,20 +214,13 @@ export async function runCli(options: CliOptions): Promise<number> {
       }
     }
 
+    await waitForPostTerminalGateReport(events, client, run.run_id, terminal, {
+      enabled: initialized.capabilities.gate_report?.supported === true,
+    });
+
     const summary = renderer.summary(run.run_id);
     console.log("summary:");
-    if (options.report === "json") {
-      console.log(JSON.stringify(summary.gate_report?.payload ?? summary, null, 2));
-    } else {
-      const gatePayload = objectPayload(summary.gate_report?.payload);
-      const decision = objectPayload(gatePayload.decision_surface);
-      console.log(`  terminal=${summary.terminal?.name ?? "none"}`);
-      console.log(`  gate=${stringField(decision, "gate_disposition") ?? "none"}`);
-      console.log(`  review=${stringField(decision, "review_outcome") ?? "none"}`);
-      console.log(`  consensus=${summary.consensus?.name ?? summary.degraded?.name ?? "none"}`);
-      console.log(`  events=${summary.seen_events}`);
-      console.log(`  seq=${summary.seq_ok ? "contiguous" : "BROKEN"}`);
-    }
+    for (const line of renderSummaryReport(summary, options.report)) console.log(line);
     for (const diagnostic of renderer.diagnostics()) console.log(`  seq diagnostic: ${diagnostic}`);
     return summary.terminal ? 0 : 1;
   } finally {
@@ -241,6 +244,45 @@ export async function chooseDecision(
   if (options.decision) return options.decision;
   if (!options.interactive) return "approved";
   return ask(approval);
+}
+
+export async function waitForPostTerminalGateReport(
+  events: readonly EventFrame[],
+  waiter: EventWaiter,
+  runId: string,
+  terminal: EventFrame,
+  options: { readonly enabled: boolean; readonly timeoutMs?: number },
+): Promise<EventFrame | undefined> {
+  if (!options.enabled) return undefined;
+  const isPostTerminalGateReport = (event: EventFrame) =>
+    event.run_id === runId && event.name === "gate_report" && event.seq > terminal.seq;
+  const existing = [...events].reverse().find(isPostTerminalGateReport);
+  if (existing) return existing;
+
+  try {
+    return await waiter.waitForEvent(
+      isPostTerminalGateReport,
+      "post-terminal gate_report",
+      options.timeoutMs ?? GATE_REPORT_DRAIN_TIMEOUT_MS,
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+export function renderSummaryReport(summary: RenderedRunSummary, report: CliOptions["report"]): string[] {
+  if (report === "json") return [JSON.stringify(summary.gate_report?.payload ?? summary, null, 2)];
+
+  const gatePayload = objectPayload(summary.gate_report?.payload);
+  const decision = objectPayload(gatePayload.decision_surface);
+  return [
+    `  terminal=${summary.terminal?.name ?? "none"}`,
+    `  gate=${stringField(decision, "gate_disposition") ?? "none"}`,
+    `  review=${stringField(decision, "review_outcome") ?? "none"}`,
+    `  consensus=${summary.consensus?.name ?? summary.degraded?.name ?? "none"}`,
+    `  events=${summary.seen_events}`,
+    `  seq=${summary.seq_ok ? "contiguous" : "BROKEN"}`,
+  ];
 }
 
 async function promptApproval(approval: Pick<ApprovalPayload, "approval_id" | "kind">): Promise<Decision> {
