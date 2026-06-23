@@ -1,6 +1,7 @@
 import type { Clock } from "./clock.js";
 import type { ConnectionContext } from "./context.js";
 import type { ApprovalRecord, RunRecord } from "./stores.js";
+import { emitGateReport } from "./gateReport.js";
 import { claimTerminal } from "./terminalRun.js";
 
 export function clearApprovalTimer(approval: ApprovalRecord): void {
@@ -36,7 +37,7 @@ export function expireApproval(
       ts: clock.now(),
       data: { kind: approval.kind },
     });
-    claimTerminal(run, ctx, clock, {
+    if (claimTerminal(run, ctx, clock, {
       state: "blocked",
       reason: "approval_timeout_auto_reject",
       eventName: "run_blocked",
@@ -44,7 +45,9 @@ export function expireApproval(
       payload: {
         reason: "approval_timeout_auto_reject",
       },
-    });
+    })) {
+      emitGateReport(run, ctx, clock);
+    }
   }
 
   approval.resumeBackend("deny");

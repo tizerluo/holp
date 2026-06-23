@@ -293,7 +293,11 @@ export async function runConsensusGate(
   });
 
   if (!verdict.quorum.met) {
-    publishConsensusDegraded(run, ctx, clock, verdict, "completed_reviews_below_quorum");
+    const degraded: ConsensusDegradedPayload = {
+      ...verdict,
+      reason: "completed_reviews_below_quorum",
+    };
+    publishConsensusDegraded(run, ctx, clock, degraded, "completed_reviews_below_quorum");
     blockRun(run, ctx, clock, "completed_reviews_below_quorum");
     return false;
   }

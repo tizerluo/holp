@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ConnectionContext } from "../core/context.js";
 import { EventBus } from "../core/eventBus.js";
 import { FakeClock } from "../core/clock.js";
+import { expireApproval } from "../core/approvalLifecycle.js";
+import { emitGateReport } from "../core/gateReport.js";
 import { handleApprovalResolve } from "./approval_resolve.js";
 import type { ApprovalRecord, RunRecord } from "../core/stores.js";
 
@@ -108,6 +110,69 @@ describe("approval.resolve gate audit handling", () => {
     });
   });
 
+  it("emits a terminal gate report when semantic approval expires", () => {
+    const clock = new FakeClock();
+    const ctx = newContextWithGateReport();
+    const run: RunRecord = {
+      ...makeRun("run_semantic_expired", clock),
+      consensus: {
+        panel: [{ agent_id: "r1" }],
+        quorum: 1,
+        producer_agent_id: "coder",
+        policy: {
+          exclude_author: true,
+          author_provenance: "produced_by_agent_id",
+          on_quorum_unsatisfiable: "reject",
+          on_consensus_blocking: "ask_human",
+        },
+      },
+    };
+    run.bus.publish("consensus", "consensus_verdict", {
+      target: { artifact_id: "art_diff", produced_by_agent_id: "coder" },
+      outcome: "reject",
+      max_severity: "P1",
+      quorum: { required: 1, eligible: 1, met: true },
+      rule: "majority-non-author",
+      reviews: [],
+      excluded: [],
+      errors: [],
+    });
+    const record = approval("ap_expired", run.run_id, "semantic_decision");
+    ctx.runs.set(run.run_id, run);
+    ctx.approvals.set(record.approval_id, record);
+    run.pendingApprovals.add(record.approval_id);
+    ctx.governance.ensureRunState(run.run_id, "running", clock.now());
+    ctx.governance.transitionRun(run.run_id, "waiting_approval", clock.now(), "approval_requested");
+
+    emitGateReport(run, ctx, clock);
+    expect(latestGateReport(run).payload).toMatchObject({
+      decision_surface: {
+        gate_disposition: "waiting_approval",
+      },
+      pending_approval: {
+        approval_id: "ap_expired",
+      },
+    });
+
+    expect(expireApproval(ctx, record.approval_id, clock)).toBe(true);
+
+    const reports = run.bus.allEvents().filter((event) => event.name === "gate_report");
+    expect(reports).toHaveLength(2);
+    expect(reports.at(-1)?.payload).toMatchObject({
+      decision_surface: {
+        review_outcome: "reject",
+        gate_disposition: "blocked",
+      },
+      terminal: {
+        state: "blocked",
+        event: "run_blocked",
+        reason: "approval_timeout_auto_reject",
+      },
+      blocking_reason: "approval_timeout_auto_reject",
+    });
+    expect((reports.at(-1)?.payload as Record<string, unknown>).pending_approval).toBeUndefined();
+  });
+
   it("fails closed for unknown approval kinds before resolving", () => {
     const clock = new FakeClock();
     const ctx = newContextWithGateReport();
@@ -143,6 +208,12 @@ function newContextWithGateReport(): ConnectionContext {
     },
   };
   return ctx;
+}
+
+function latestGateReport(run: RunRecord) {
+  const report = [...run.bus.allEvents()].reverse().find((event) => event.name === "gate_report");
+  if (!report) throw new Error("missing gate_report");
+  return report;
 }
 
 function makeRun(runId: string, clock: FakeClock): RunRecord {
