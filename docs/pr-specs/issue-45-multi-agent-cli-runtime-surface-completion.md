@@ -8,7 +8,8 @@ harness pilot, but it did not prove full `headless` + ACP/native-or-bridge +
 
 This phase exists to keep learned-router data readiness honest: #41 may build
 recording/export/artifact foundations, but it cannot claim training data
-sufficiency for #36 until the runtime candidate space is broad enough to audit.
+sufficiency for #36 until the runtime candidate space is broad enough to audit
+and an external terminal-style consumer can use HOLP public wire.
 
 ## Dependency Rule
 
@@ -62,10 +63,11 @@ explicit HOLP-owned stream-json bridge with declared fidelity
 5. #50 - First-batch direct session parity
 6. #51 - First-batch ACP readiness hardening
 7. #52 - User validation matrix and gate for multi-agent CLI surfaces
+8. #54 - Terminal consumer integration smoke before #41 data sufficiency
 
 Per-PR specs for these child issues should be written when each issue starts,
 using the then-current main branch. Do not pre-write detailed implementation
-specs for all seven children in this master spec.
+specs for all eight children in this master spec.
 
 ## Completion Criteria
 
@@ -75,8 +77,13 @@ specs for all seven children in this master spec.
 - Degraded/rejected/unsupported states include actionable reasons.
 - User validation records the local CLI versions, env flags, commands, outcomes,
   skipped paths, and hard stops.
-- #41 can explicitly distinguish narrow plumbing data from runtime-surface
-  sufficient learned-router training data.
+- A terminal-consumer smoke proves an external terminal-style consumer can use
+  HOLP public wire without reading daemon internals.
+- The validation gate distinguishes `terminal-consumer-integration-ready`,
+  `cmux-ready`, and `cmux-pending-user-validation`. It must not claim
+  `cmux-ready` without real cmux automation or user validation.
+- #41 can explicitly distinguish narrow plumbing data from runtime-surface and
+  terminal-consumer sufficient learned-router training data.
 
 ## Non-Goals
 
@@ -84,4 +91,5 @@ specs for all seven children in this master spec.
 - Do not connect learned-active execution.
 - Do not claim #36 active/canary readiness.
 - Do not start PR17 Remote work.
+- Do not implement full cmux, Warp, or terminal-product UI.
 - Do not claim 12-agent full coverage.

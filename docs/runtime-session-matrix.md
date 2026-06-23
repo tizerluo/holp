@@ -84,5 +84,6 @@ path, version, or commit that defines its event model before mapping it to HOLP
 report must not invent attach, observe, inject, interrupt, or cancel behavior.
 
 PR14 later proved a first-batch harness pilot, not complete runtime-surface
-parity. Issue #45 tracks the bounded CLI cohort phase required before #41 can
-claim learned-router data sufficiency.
+parity and not cmux readiness. Issue #45 tracks the bounded CLI cohort plus
+terminal-consumer smoke phase required before #41 can claim learned-router data
+sufficiency.
