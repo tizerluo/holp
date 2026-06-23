@@ -82,11 +82,58 @@ describe("driveWorkflowRun learned router revisions", () => {
       agent_id: "coder",
     });
   });
+
+  it.each(["throw", "reject"] as const)(
+    "falls back from learned_active planner %s without double terminal",
+    async (failureMode) => {
+      const result = await driveWithPlanner({
+        dynamicWorkflow: true,
+        learnedPlanner: failingPlanner(failureMode),
+      });
+
+      expect(result.ctx.governance.decisions).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          decision_type: "learned_router_active_fallback",
+          reason: "planner_error",
+        }),
+      ]));
+      expect(result.ctx.governance.decisions.some((decision) =>
+        decision.decision_type === "learned_router_active_selected"
+      )).toBe(false);
+      expect(terminalEvents(result.run)).toEqual(["run_merged"]);
+      expect(result.run.step_history?.[0]?.action).toMatchObject({
+        kind: "step",
+        action: "implement",
+        agent_id: "coder",
+      });
+    },
+  );
+
+  it("isolates learned_shadow planner errors while the rule planner completes the run", async () => {
+    const result = await driveWithPlanner({
+      dynamicWorkflow: true,
+      learnedPlanner: failingPlanner("throw"),
+      plannerMode: "learned_shadow",
+    });
+
+    expect(result.ctx.governance.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        decision_type: "learned_router_active_fallback",
+        reason: "planner_error",
+      }),
+    ]));
+    expect(result.ctx.governance.decisions.some((decision) =>
+      decision.decision_type === "learned_router_shadow_prediction" ||
+      decision.decision_type === "learned_router_active_selected"
+    )).toBe(false);
+    expect(terminalEvents(result.run)).toEqual(["run_merged"]);
+  });
 });
 
 async function driveWithPlanner(args: {
   readonly dynamicWorkflow: boolean;
   readonly learnedPlanner: LearnedWorkPlanner;
+  readonly plannerMode?: "learned_active" | "learned_shadow";
   readonly seedDuplicateRejection?: string;
 }): Promise<{ readonly ctx: ConnectionContext; readonly run: RunRecord }> {
   const ctx = new ConnectionContext();
@@ -129,7 +176,7 @@ async function driveWithPlanner(args: {
     workflowId: "linear",
     maxSteps: 1,
     planner: new RuleWorkPlanner(),
-    plannerMode: "learned_active",
+    plannerMode: args.plannerMode ?? "learned_active",
     learnedPlanner: args.learnedPlanner,
     candidates: [candidate("coder", "coder", "coder_worktree")],
     coder: {
@@ -141,6 +188,16 @@ async function driveWithPlanner(args: {
     reviewerPanelPresent: false,
   }, ctx, clock, scheduler);
   return { ctx, run };
+}
+
+function terminalEvents(run: RunRecord): readonly string[] {
+  return run.bus.allEvents()
+    .filter((event) =>
+      event.name === "run_merged" ||
+      event.name === "run_blocked" ||
+      event.name === "run_gave_up"
+    )
+    .map((event) => event.name);
 }
 
 function invalidRevisionPlanner(revisionId: string): LearnedWorkPlanner {
@@ -163,6 +220,17 @@ function invalidRevisionPlanner(revisionId: string): LearnedWorkPlanner {
           },
         },
       };
+    },
+  };
+}
+
+function failingPlanner(failureMode: "throw" | "reject"): LearnedWorkPlanner {
+  return {
+    predict(): LearnedPlannerDecisionV1 | Promise<LearnedPlannerDecisionV1> {
+      if (failureMode === "reject") {
+        return Promise.reject(new Error("planner unavailable"));
+      }
+      throw new Error("planner unavailable");
     },
   };
 }
