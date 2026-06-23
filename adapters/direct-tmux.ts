@@ -68,13 +68,17 @@ export async function probeDirectTmux(args: {
       if (injected.code !== 0 || injected.timedOut) {
         return { ready: false, reason: "tmux_inject_probe_failed", missing: ["tmux:send-keys"] };
       }
-      const captured = await runCommand(
-        tmuxCommand,
-        ["capture-pane", "-pt", sessionId],
-        args.cwd,
-        args.timeoutMs ?? 2_000,
-      );
-      if (captured.code !== 0 || captured.timedOut || !captured.stdout.includes(marker)) {
+      try {
+        await waitForMarker({
+          tmuxCommand,
+          sessionId,
+          marker,
+          cwd: args.cwd,
+          timeoutMs: args.timeoutMs ?? 2_000,
+          pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
+          shouldStop: () => false,
+        });
+      } catch {
         return { ready: false, reason: "tmux_read_probe_failed", missing: ["tmux:capture-pane"] };
       }
       await runCommand(tmuxCommand, ["send-keys", "-t", sessionId, "C-c"], args.cwd, args.timeoutMs ?? 2_000)
@@ -204,11 +208,19 @@ async function waitForMarker(args: {
     if (capture.code !== 0 || capture.timedOut) {
       throw new Error(capture.timedOut ? "direct_tmux_capture_timeout" : "direct_tmux_capture_failed");
     }
-    const markerIndex = capture.stdout.lastIndexOf(args.marker);
-    if (markerIndex >= 0) return stripEchoedMarkerCommand(capture.stdout.slice(0, markerIndex), args.marker);
+    const terminal = outputBeforeStandaloneMarker(capture.stdout, args.marker);
+    if (terminal !== undefined) return stripEchoedMarkerCommand(terminal, args.marker);
     await new Promise((resolve) => setTimeout(resolve, args.pollIntervalMs));
   }
   throw new Error("direct_tmux_terminal_timeout");
+}
+
+function outputBeforeStandaloneMarker(output: string, marker: string): string | undefined {
+  const lines = output.split(/\r?\n/);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (lines[index].trim() === marker) return lines.slice(0, index).join("\n");
+  }
+  return undefined;
 }
 
 function stripEchoedMarkerCommand(output: string, marker: string): string {

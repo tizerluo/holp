@@ -124,12 +124,18 @@ if (args[0] === "send-keys") {
   const command = args[args.indexOf("-t") + 2];
   const marker = command.match(/__(?:HOLP_DONE|HOLP_OWNER_VERIFIED)_[A-Za-z0-9_]+__/)?.[0] || "__HOLP_DONE_missing__";
   const state = readState();
+  state.echo = command;
   state.pane = command + "\\ndirect output\\n" + marker + "\\n";
+  state.captureCount = 0;
   writeState(state);
   process.exit(0);
 }
 if (args[0] === "capture-pane") {
-  process.stdout.write(readState().pane || "");
+  const state = readState();
+  const pane = state.captureCount === 0 ? state.echo : state.pane;
+  state.captureCount = (state.captureCount || 0) + 1;
+  writeState(state);
+  process.stdout.write(pane || "");
   process.exit(0);
 }
 if (args[0] === "kill-session") process.exit(killFails ? 9 : 0);
