@@ -66,10 +66,12 @@ for (const result of results) {
 console.log(`INCONCLUSIVE reasonix_acp ${reasonixAcpReason || "not_reported"}`);
 const schedulable = nonReasonixAcpReadyTransport
   ? await acpSelectionSchedulable(nonReasonixAcpReadyTransport, probeResults.get(nonReasonixAcpReadyTransport)!)
-  : { status: "INCONCLUSIVE" as const, detail: "no_non_reasonix_acp_ready_surface" };
+  : { status: "FAIL" as const, detail: "no_non_reasonix_acp_ready_surface" };
 console.log(`${schedulable.status} non_reasonix_acp_ready_schedulable ${schedulable.detail}`);
 
-if (results.some((result) => result.status === "FAIL")) process.exit(1);
+if (results.some((result) => result.status === "FAIL") || schedulable.status !== "PASS") {
+  process.exit(1);
+}
 
 async function acpSelectionSchedulable(
   transport: string,

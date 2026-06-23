@@ -112,7 +112,7 @@ describe("adapter registry runtime surface resolution", () => {
     });
   });
 
-  it("keeps Reasonix ACP degraded when full terminal prompt succeeds by policy", async () => {
+  it("keeps Reasonix ACP degraded when full terminal prompt verifies HOLP_OK by policy", async () => {
     const dir = makeTempDir();
     const definition = reasonixDefinition(dir, "ok");
     const registry = createAdapterRegistry(
@@ -130,8 +130,49 @@ describe("adapter registry runtime surface resolution", () => {
     const acp = result.runtime_surfaces?.find((surface) => surface.runtime_surface === "acp");
     expect(acp?.isolation_profiles.coder_worktree).toMatchObject({
       readiness: "degraded",
-      reason: "reasonix_acp_prompt_terminal_verified_policy_degraded",
+      reason: "reasonix_acp_prompt_terminal_token_verified_policy_degraded",
     });
+  });
+
+  it("keeps ACP degraded when terminal output lacks HOLP_OK", async () => {
+    const dir = makeTempDir();
+    const definition = opencodeDefinition(dir, "wrong-output");
+    const registry = createAdapterRegistry(
+      firstBatchAdapterFactories([definition]),
+      firstBatchAdapterProbes([definition]),
+    );
+
+    const result = await registry.probe({
+      id: "opencode",
+      transport: "opencode",
+      roles: ["coder"],
+      cwd: dir,
+    });
+
+    const acp = result.runtime_surfaces?.find((surface) => surface.runtime_surface === "acp");
+    expect(acp?.isolation_profiles.coder_worktree).toMatchObject({
+      readiness: "degraded",
+      reason: "acp_smoke_not_enabled_or_failed",
+    });
+  });
+
+  it("marks ACP ready when terminal output includes HOLP_OK", async () => {
+    const dir = makeTempDir();
+    const definition = opencodeDefinition(dir, "ok");
+    const registry = createAdapterRegistry(
+      firstBatchAdapterFactories([definition]),
+      firstBatchAdapterProbes([definition]),
+    );
+
+    const result = await registry.probe({
+      id: "opencode",
+      transport: "opencode",
+      roles: ["coder"],
+      cwd: dir,
+    });
+
+    const acp = result.runtime_surfaces?.find((surface) => surface.runtime_surface === "acp");
+    expect(acp?.isolation_profiles.coder_worktree.readiness).toBe("ready");
   });
 
   it("requires HOLP_OK in headless smoke output", async () => {
@@ -272,7 +313,10 @@ describe("adapter registry runtime surface resolution", () => {
   });
 });
 
-function opencodeDefinition(dir: string): FirstBatchHarnessDefinition {
+function opencodeDefinition(
+  dir: string,
+  acpMode: "ok" | "session-new-error" | "wrong-output" = "ok",
+): FirstBatchHarnessDefinition {
   return {
     transport: "opencode",
     harnessId: "opencode",
@@ -286,7 +330,7 @@ function opencodeDefinition(dir: string): FirstBatchHarnessDefinition {
     },
     acp: {
       transport: "opencode",
-      command: fakeAcp(dir, "ok"),
+      command: fakeAcp(dir, acpMode),
       requestTimeoutMs: 5_000,
       terminalTimeoutMs: 5_000,
     },
@@ -360,7 +404,7 @@ console.log(${JSON.stringify(output)});
   return script;
 }
 
-function fakeAcp(dir: string, mode: "ok" | "session-new-error"): string {
+function fakeAcp(dir: string, mode: "ok" | "session-new-error" | "wrong-output"): string {
   const script = join(dir, `fake-acp-${mode}.mjs`);
   writeFileSync(script, `#!/usr/bin/env node
 import readline from "node:readline";
@@ -382,7 +426,8 @@ rl.on("line", (line) => {
       ? frame.params.prompt.map((block) => block.text || "").join("")
       : frame.params.prompt;
     send({ id: frame.id, result: { accepted: true } });
-    send({ method: "session/update", params: { sessionId: "s1", finalText: "done:" + prompt, type: "completed" } });
+    const output = mode === "wrong-output" ? "NO_TOKEN" : "HOLP_OK";
+    send({ method: "session/update", params: { sessionId: "s1", finalText: output, type: "completed" } });
   }
 });
 `, "utf8");

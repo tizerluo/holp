@@ -675,6 +675,101 @@ describe("3. orchestrate.run error ordering (spec §6.2 — fixed 4-stage order)
     expect(ctx.runs.size).toBe(0);
   });
 
+  it("explicit direct_user_session rejects degraded owner/control proof", async () => {
+    const directProfiles = withProfile(
+      rejectedProfiles("unsupported_isolation_profile"),
+      "coder_worktree",
+      {
+        readiness: "degraded",
+        reason: "direct_tmux_capability_not_proven",
+        missing: ["owner_verified"],
+        warnings: ["declared_not_enforced"],
+      },
+    );
+    const registry = createAdapterRegistry(
+      { direct: { direct_user_session: createFakeBackendFactory() } },
+      {
+        direct: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "direct_user_session",
+            runtime_kind: "tmux",
+            actual_fidelity: "streaming_controlled",
+            surface_support: "experimental",
+            isolation_profiles: directProfiles,
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+      },
+    );
+    const { dispatch, ctx } = await freshDispatcher({ registry });
+    ok(await dispatch("flock.declare", {
+      agents: [{ id: "direct", transport: "direct", roles: ["coder"] }],
+    }));
+
+    const e = err(await dispatch("orchestrate.run", {
+      goal: "direct degraded",
+      roles: {
+        coder: { agent: "direct", preferred_runtime_surface: "direct_user_session" },
+      },
+    }));
+
+    expect(e.code).toBe(HOLP_ERROR_CODES.isolation_profile_rejected);
+    expect(e.data).toMatchObject({
+      runtime_surface: "direct_user_session",
+      reason: "direct_tmux_capability_not_proven",
+    });
+    expect(ctx.runs.size).toBe(0);
+  });
+
+  it("explicit direct_user_session accepts ready owner/control proof", async () => {
+    const directProfiles = withProfile(
+      rejectedProfiles("unsupported_isolation_profile"),
+      "coder_worktree",
+      { readiness: "ready" },
+    );
+    const registry = createAdapterRegistry(
+      { direct: { direct_user_session: createFakeBackendFactory() } },
+      {
+        direct: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "direct_user_session",
+            runtime_kind: "tmux",
+            actual_fidelity: "streaming_controlled",
+            surface_support: "experimental",
+            isolation_profiles: directProfiles,
+            global_mutation_required: false,
+            declared_not_enforced: false,
+          }],
+        }),
+      },
+    );
+    const { dispatch, events } = await freshDispatcher({ registry });
+    ok(await dispatch("flock.declare", {
+      agents: [{ id: "direct", transport: "direct", roles: ["coder"] }],
+    }));
+
+    const { run_id } = ok<{ run_id: string }>(await dispatch("orchestrate.run", {
+      goal: "direct ready",
+      roles: {
+        coder: { agent: "direct", preferred_runtime_surface: "direct_user_session" },
+      },
+    }));
+    ok(await dispatch("events.subscribe", { run_id, after_seq: 0 }));
+    await pollUntil(() => events.some((e) => e.name === "run_started"));
+
+    const started = events.find((e) => e.name === "run_started")!;
+    const runtime = (started.payload as Record<string, unknown>).runtime as Record<string, unknown>;
+    expect(runtime.runtime_surface).toBe("direct_user_session");
+    expect(runtime.runtime_kind).toBe("tmux");
+
+    await dispatch("task.cancel", { run_id });
+  });
+
   it("degraded isolation profile is accepted and emitted in run_started metadata", async () => {
     const profiles = withProfile(
       rejectedProfiles("unsupported_isolation_profile"),

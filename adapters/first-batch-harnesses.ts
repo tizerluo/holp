@@ -286,8 +286,8 @@ async function acpSmokeReady(
       terminalTimeoutMs: definition.acp.terminalTimeoutMs ?? 20_000,
     });
     const session = await client.startSession();
-    await client.sendPrompt(session.sessionId, "HOLP ACP smoke. Reply with HOLP_OK.");
-    return true;
+    const output = await client.sendPrompt(session.sessionId, "HOLP ACP smoke. Reply with HOLP_OK.");
+    return output.includes("HOLP_OK");
   } catch {
     return false;
   } finally {
@@ -312,8 +312,10 @@ async function reasonixAcpDegradedReason(
   try {
     const session = await client.startSession();
     stage = "prompt_terminal";
-    await client.sendPrompt(session.sessionId, "HOLP Reasonix ACP smoke. Reply with HOLP_OK.");
-    return "reasonix_acp_prompt_terminal_verified_policy_degraded";
+    const output = await client.sendPrompt(session.sessionId, "HOLP Reasonix ACP smoke. Reply with HOLP_OK.");
+    return output.includes("HOLP_OK")
+      ? "reasonix_acp_prompt_terminal_token_verified_policy_degraded"
+      : "reasonix_acp_session_new_succeeded_prompt_terminal_without_holp_ok";
   } catch (error) {
     return stage === "session_new"
       ? `reasonix_acp_session_new_failed:${error instanceof Error ? error.message : String(error)}`
