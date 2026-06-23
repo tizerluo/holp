@@ -29,9 +29,3 @@ export type KnownEventName = (typeof EVENT_NAME_CONTRACT)[EventCategory][number]
 export function isKnownEventName(category: EventCategory, name: string): name is KnownEventName {
   return (EVENT_NAME_CONTRACT[category] as readonly string[]).includes(name);
 }
-
-export function assertDefaultSingleStepEventAllowed(name: string): void {
-  if (name.startsWith("workflow_")) {
-    throw new Error(`workflow event '${name}' is not allowed on the default single-step path`);
-  }
-}

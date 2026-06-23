@@ -4,6 +4,7 @@ import { EventBus } from "./eventBus.js";
 import { FakeClock } from "./clock.js";
 import { FakeScheduler } from "./scheduler.js";
 import { driveRun } from "./runEngine.js";
+import { claimTerminal } from "./terminalRun.js";
 import { reviewerResultFromRawOutput } from "./reviewer.js";
 import type { RunRecord } from "./stores.js";
 import type {
@@ -11,6 +12,39 @@ import type {
   AgentMessage,
   AgentMessageHandler,
 } from "../../adapters/agent-backend.js";
+
+describe("claimTerminal", () => {
+  it("lets the first same-tick terminal claim win and makes later claims no-ops", () => {
+    const clock = new FakeClock();
+    const ctx = new ConnectionContext();
+    const bus = new EventBus("run_terminal_claim", clock);
+    const run = makeRun("run_terminal_claim", "terminal helper", bus);
+    ctx.governance.ensureRunState(run.run_id, "queued", clock.now());
+    ctx.governance.transitionRun(run.run_id, "running", clock.now(), "test_start");
+
+    const firstClaim = claimTerminal(run, ctx, clock, {
+      state: "merged",
+      reason: "first",
+      eventName: "run_merged",
+      payload: { reason: "first" },
+    });
+    const secondClaim = claimTerminal(run, ctx, clock, {
+      state: "blocked",
+      reason: "second",
+      eventName: "run_blocked",
+      payload: { reason: "second" },
+    });
+
+    expect(firstClaim).toBe(true);
+    expect(secondClaim).toBe(false);
+    expect(run.status).toBe("merged");
+    expect(bus.latestSeq).toBe(1);
+    expect(bus.allEvents().map((event) => event.name)).toEqual(["run_merged"]);
+    expect(
+      ctx.governance.decisions.filter((decision) => decision.decision_type === "run_terminal"),
+    ).toHaveLength(1);
+  });
+});
 
 describe("driveRun real-backend event forwarding", () => {
   it("forwards model/generic events and does not synthesize a fake artifact without fs-edit diff", async () => {
@@ -92,6 +126,38 @@ describe("driveRun real-backend event forwarding", () => {
       "waiting_approval",
       "merged",
     ]);
+  });
+
+  it("does not emit run_merged when an external terminal claim wins while sendPrompt is pending", async () => {
+    const clock = new FakeClock();
+    const scheduler = new FakeScheduler();
+    const ctx = new ConnectionContext();
+    const bus = new EventBus("run_late_completion", clock);
+    const run = makeRun("run_late_completion", "late backend completion", bus);
+    const backend = new PendingPromptBackend();
+
+    const drive = driveRun(run, backend, ctx, clock, scheduler);
+    await backend.waitForPrompt();
+
+    expect(claimTerminal(run, ctx, clock, {
+      state: "blocked",
+      reason: "approval_timeout_auto_reject",
+      eventName: "run_blocked",
+      payload: { reason: "approval_timeout_auto_reject" },
+    })).toBe(true);
+
+    backend.completePrompt();
+    await expect(drive).resolves.toBeUndefined();
+
+    expect(run.status).toBe("blocked");
+    expect(bus.allEvents().map((event) => event.name)).toEqual(["run_started", "run_blocked"]);
+    expect(bus.latestSeq).toBe(2);
+    expect(
+      ctx.governance.decisions.filter((decision) => decision.decision_type === "run_terminal"),
+    ).toHaveLength(1);
+    expect(
+      ctx.governance.decisions.find((decision) => decision.decision_type === "run_terminal")?.reason,
+    ).toBe("approval_timeout_auto_reject");
   });
 
   it("executes reviewer votes only after author exclusion", async () => {
@@ -224,6 +290,47 @@ class LifecycleBackend implements AgentBackend {
 
   async sendPrompt(): Promise<void> {
     await this.onSendPrompt();
+  }
+
+  onMessage(handler: AgentMessageHandler): void {
+    this.handlers.push(handler);
+  }
+
+  offMessage(handler: AgentMessageHandler): void {
+    this.handlers = this.handlers.filter((candidate) => candidate !== handler);
+  }
+
+  async cancel(): Promise<void> {}
+
+  async dispose(): Promise<void> {}
+}
+
+class PendingPromptBackend implements AgentBackend {
+  private handlers: AgentMessageHandler[] = [];
+  private promptStartedResolve!: () => void;
+  private promptCompleteResolve!: () => void;
+  private readonly promptStarted = new Promise<void>((resolve) => {
+    this.promptStartedResolve = resolve;
+  });
+  private readonly promptComplete = new Promise<void>((resolve) => {
+    this.promptCompleteResolve = resolve;
+  });
+
+  async startSession(): Promise<{ sessionId: string }> {
+    return { sessionId: "pending-session" };
+  }
+
+  async sendPrompt(): Promise<void> {
+    this.promptStartedResolve();
+    await this.promptComplete;
+  }
+
+  waitForPrompt(): Promise<void> {
+    return this.promptStarted;
+  }
+
+  completePrompt(): void {
+    this.promptCompleteResolve();
   }
 
   onMessage(handler: AgentMessageHandler): void {

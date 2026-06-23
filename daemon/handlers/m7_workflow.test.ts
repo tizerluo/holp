@@ -252,6 +252,84 @@ describe("M7 workflow foundation loop", () => {
       role: "coder",
     });
     expect(JSON.parse(JSON.stringify(implement.state))).toEqual(implement.state);
+
+    const snapshots = h.ctx.governance.decisions.filter((decision) =>
+      decision.decision_type === "dispatch_snapshot_recorded"
+    );
+    expect(snapshots).toHaveLength(2);
+    const expectedCandidates = [
+      {
+        agent_id: "coder",
+        role: "coder",
+        transport: "fake",
+        status: "ready",
+        runtime: {
+          agent_id: "coder",
+          transport: "fake",
+          runtime_surface: "headless",
+          runtime_kind: "fake",
+          isolation_profile: "coder_worktree",
+          isolation_status: "ready",
+          global_mutation_required: false,
+          declared_not_enforced: true,
+        },
+      },
+      {
+        agent_id: "r1",
+        role: "reviewer",
+        transport: "fake",
+        status: "ready",
+        runtime: {
+          agent_id: "r1",
+          transport: "fake",
+          runtime_surface: "headless",
+          runtime_kind: "fake",
+          isolation_profile: "read_only_review",
+          isolation_status: "ready",
+          global_mutation_required: false,
+          declared_not_enforced: true,
+        },
+      },
+      {
+        agent_id: "r2",
+        role: "reviewer",
+        transport: "fake",
+        status: "ready",
+        runtime: {
+          agent_id: "r2",
+          transport: "fake",
+          runtime_surface: "headless",
+          runtime_kind: "fake",
+          isolation_profile: "read_only_review",
+          isolation_status: "ready",
+          global_mutation_required: false,
+          declared_not_enforced: true,
+        },
+      },
+    ];
+    for (const snapshot of snapshots) {
+      const state = snapshot.data as { candidates: Array<Record<string, unknown>> };
+      expect(state.candidates.map((candidate) => {
+        const runtime = candidate.runtime as Record<string, unknown>;
+        return {
+          agent_id: candidate.agent_id,
+          role: candidate.role,
+          transport: candidate.transport,
+          status: candidate.status,
+          runtime: {
+            agent_id: runtime.agent_id,
+            transport: runtime.transport,
+            runtime_surface: runtime.runtime_surface,
+            runtime_kind: runtime.runtime_kind,
+            isolation_profile: runtime.isolation_profile,
+            isolation_status: runtime.isolation_status,
+            global_mutation_required: runtime.global_mutation_required,
+            declared_not_enforced: runtime.declared_not_enforced,
+          },
+        };
+      })).toEqual(expectedCandidates);
+      expect(JSON.parse(JSON.stringify(state.candidates))).toEqual(state.candidates);
+    }
   });
 
   it("blocks once and exports negative reward when consensus rejects the review step", async () => {
@@ -331,6 +409,11 @@ describe("M7 workflow foundation loop", () => {
 
     expect(h.events.some((event) => event.category === "consensus")).toBe(false);
     expect(h.ctx.runs.get(run_id)?.step_history).toHaveLength(1);
+    expect(
+      h.ctx.governance.decisions.filter((decision) =>
+        decision.decision_type === "dispatch_snapshot_recorded"
+      ),
+    ).toHaveLength(1);
   });
 
   it("blocks spec-driven workflow on non-executable plan action", async () => {
@@ -427,5 +510,61 @@ describe("M7 workflow foundation loop", () => {
     await pollUntil(() => h.events.some((event) => event.name === "run_gave_up"), "cancelled");
 
     expect(terminalEvents(h.events)).toHaveLength(1);
+  });
+
+  it("records a cancelled review step when task.cancel wins during review", async () => {
+    const h = await freshHarness();
+    await declareCoderAndReviewers(h);
+    const { run_id } = ok<{ run_id: string }>(await h.dispatch("orchestrate.run", {
+      goal: "cancel during review",
+      workflow: "linear",
+      max_steps: 3,
+      roles: {
+        coder: { agent: "coder" },
+        reviewer: { panel: ["r1", "r2"], quorum: 1 },
+      },
+    }));
+    ok(await h.dispatch("events.subscribe", { run_id, after_seq: 0 }));
+
+    const run = h.ctx.runs.get(run_id)!;
+    const cancellingReviewer: ReviewerExecutor = async ({ agents }) => {
+      ok(await h.dispatch("task.cancel", { run_id }));
+      return agents.map((agent) => ({
+        agent,
+        status: "completed" as const,
+        verdict: "reject" as const,
+        max_severity: "P1" as const,
+      }));
+    };
+    (run as { reviewerExecutor?: ReviewerExecutor }).reviewerExecutor = cancellingReviewer;
+
+    await approveFirstMergeApproval(h);
+    await pollUntil(() => h.events.some((event) => event.name === "run_gave_up"), "cancelled");
+    await pollUntil(() => (run.step_history?.length ?? 0) === 2, "cancelled review history");
+
+    expect(terminalEvents(h.events)).toHaveLength(1);
+    expect(h.events.some((event) => event.name === "consensus_verdict")).toBe(false);
+    expect(run.step_history?.map((entry) => ({
+      action: entry.action.kind === "step" ? entry.action.action : entry.action.kind,
+      outcome: entry.outcome,
+      reason: entry.reason,
+    }))).toEqual([
+      { action: "implement", outcome: "completed", reason: undefined },
+      { action: "review", outcome: "cancelled", reason: "cancelled" },
+    ]);
+    expect(run.per_step?.map((step) => ({
+      action: step.action,
+      outcome: step.outcome,
+      reason: step.reason,
+    }))).toEqual([
+      { action: "implement", outcome: "completed", reason: undefined },
+      { action: "review", outcome: "cancelled", reason: "cancelled" },
+    ]);
+    expect(
+      h.ctx.governance.decisions.filter((decision) =>
+        decision.decision_type === "workflow_step_failed" &&
+        (decision.data as { step_index?: number } | undefined)?.step_index === 1
+      ),
+    ).toHaveLength(0);
   });
 });

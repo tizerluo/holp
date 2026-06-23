@@ -1355,7 +1355,7 @@ describe("7. events seq / replay / multi-sub (spec §5)", () => {
     // Now publish a new event directly on the bus
     const run = ctx.runs.get(run_id)!;
     const countBefore = sinkEvents.length;
-    run.bus.publish("lifecycle", "test_event_after_unsub", { marker: true });
+    run.bus.publish("lifecycle", "workflow_step_completed", { marker: true });
 
     // Drain microtasks — the unsubscribed sink must NOT receive the new event
     for (let i = 0; i < 20; i++) await Promise.resolve();
