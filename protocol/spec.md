@@ -1,6 +1,6 @@
 # HOLP — Human On Loop Protocol
 
-> **版本**:v0.1.6 (draft)
+> **版本**:v0.1.7 (draft)
 > **状态**:草稿,参考实现进行中
 > **定位**:见 `docs/positioning.md`。开源、免费、本地优先的 multi-agent 编排协议。
 
@@ -44,9 +44,10 @@ client 连上后第一条。双方报身份与**细粒度能力**。每个 capab
       "consensus":    { "supported": true },
       "approval":     { "supported": true, "kinds": ["merge_approval"] },
       "unattended_loop": { "supported": true, "required": true },
-      "artifact_refs":{ "supported": true }
+      "artifact_refs":{ "supported": true },
+      "gate_report":  { "supported": true }
     },
-    "protocol_version": "0.1.6"
+    "protocol_version": "0.1.7"
   }
 }
 ```
@@ -56,14 +57,15 @@ client 连上后第一条。双方报身份与**细粒度能力**。每个 capab
 {
   "jsonrpc": "2.0", "id": 1,
   "result": {
-    "server": { "name": "holp-reference-daemon", "version": "0.1.6" },
+    "server": { "name": "holp-reference-daemon", "version": "0.1.7" },
     "capabilities": {
       "consensus":    { "supported": true },
       "approval":     { "supported": true, "kinds": ["merge_approval","force_push_approval","budget_exceeded"] },
       "unattended_loop": { "supported": true },
-      "artifact_refs":{ "supported": true }
+      "artifact_refs":{ "supported": true },
+      "gate_report":  { "supported": true }
     },
-    "protocol_version": "0.1.6"
+    "protocol_version": "0.1.7"
   }
 }
 ```
@@ -75,6 +77,7 @@ client 连上后第一条。双方报身份与**细粒度能力**。每个 capab
 - `approval` 不可用 → server 不得发起会触发 approval 的 run;若 run 的 unattended_policy.require_human_gates 非空且 client 不支持 approval → 受理前 reject(`approval_required_but_unsupported`)。
 - `approval.kinds` 取交集;**任一方 `approval.required:true` 且 kinds 交集为空** → `initialize` 拒绝;**双方都非 required 但 kinds 空交集** → 不拒绝连接,run 触发该 kind 时按 §7/§11 降级或 escalate。
 - `artifact_refs` 不可用 → server 不得用 artifact envelope 承载**大 payload/evidence**;凡 spec 中放 evidence envelope 的位置(consensus `reviews[].findings`、approval `details`)改放**内联降级形态**(见 §6.1、§7)。`artifact_refs` 不控制 provenance/identity 字段里的裸 `artifact_id`(如 `target.artifact_id`、`provenance.artifact_id`),这些 id 只是关联已知产物,不要求 consumer 再取大 payload。
+- `gate_report` 不可用 → server **不得**发 `gate.gate_report`。旧 consumer 继续只收 `consensus_*` / `approval_*` / `run_*` 事件。
 
 ---
 
@@ -281,10 +284,10 @@ M4a 内部 governance registry 还预留 `permission_surface` / `observability_s
 ```jsonc
 { "jsonrpc": "2.0", "id": 5, "method": "events.subscribe",
   "params": { "run_id": "run_abc", "after_seq": 0,
-              "categories": ["run","agent","consensus","approval","lifecycle"], "include_heartbeats": true } }
+              "categories": ["run","agent","consensus","approval","gate","lifecycle"], "include_heartbeats": true } }
 ```
 
-**`categories` 语义**:可选的**订阅白名单**。给出 → 只推列出 category 的事件;**省略或 `null` → 订阅全部 category**(不是不推)。空数组 `[]` 或含未知 category 字符串 → error `invalid_event_category`(§10)。`categories` 是**封闭枚举**,合法值仅 §5 末列出的五个:`run` | `agent` | `consensus` | `approval` | `lifecycle`。心跳不受 `categories` 过滤,由 `include_heartbeats` 单独控制。
+**`categories` 语义**:可选的**订阅白名单**。给出 → 只推列出 category 的事件;**省略或 `null` → 订阅全部 category**(不是不推)。空数组 `[]` 或含未知 category 字符串 → error `invalid_event_category`(§10)。`categories` 是**封闭枚举**,合法值:`run` | `agent` | `consensus` | `approval` | `gate` | `lifecycle`。心跳不受 `categories` 过滤,由 `include_heartbeats` 单独控制。
 
 **`after_seq` 与 seq 起点**:seq 从 **1** 起,单调递增,run 内唯一。`after_seq:0` = 从头 replay(第一个事件 seq=1 > 0);`after_seq:N` = 只要 seq > N 的事件。新建 run 未产事件时 `latest_seq:0`(尚无 seq=0 的事件,0 是「空」哨兵)。
 
@@ -320,6 +323,7 @@ M4a 内部 governance registry 还预留 `permission_surface` / `observability_s
 - `agent`:`agent_selected`/`step_started`/`tool_called`/`tool_result`/`fs_edited`/`agent_failed`
 - `consensus`:`consensus_verdict`(见 §6)/`consensus_degraded`
 - `approval`:`approval_requested`/`approval_resolved`/`approval_expired`/`approval_cancelled`(见 §7,单通道状态机,每态一事件)
+- `gate`:`gate_report`(见 §6.4;仅在 `gate_report` capability 协商成功时发送)
 - `lifecycle`:`escalated`/`lease_stolen`/`circuit_open`
 
 每事件带 `subscription_id`、`seq`(单调、可重放)、`ts`、`run_id`、`category`、`name`、`payload`。
@@ -395,6 +399,49 @@ M4a 内部 governance registry 还预留 `permission_surface` / `observability_s
 
 wire 层只表达 provenance:`target.produced_by_agent_id` / `target.artifact_id`。「排除作者」是 `policy.exclude_author` + `policy.author_provenance` 决定的 orchestrator 行为,wire 不假设「author」是单一全局身份——多步骤 run 不同 artifact 可能有不同 producer。
 
+### 6.4 Stable gate report surface
+
+`GateReport.v1` 是 consumer-facing gate snapshot projection,作为 `events.event` 发送:
+
+```jsonc
+{ "method": "events.event", "params": { "seq": 50, "category":"gate",
+  "name":"gate_report", "run_id":"run_abc",
+  "payload": {
+    "version": "GateReport.v1",
+    "run_id": "run_abc",
+    "generated_at": 1718600200,
+    "target": { "artifact_id": "art_diff_1", "produced_by_agent_id": "codex" },
+    "policy": {
+      "exclude_author": true,
+      "author_provenance": "produced_by_agent_id",
+      "on_quorum_unsatisfiable": "reject",
+      "on_consensus_blocking": "ask_human"
+    },
+    "quorum": { "required": 2, "eligible": 2, "met": true },
+    "decision_surface": {
+      "review_outcome": "request_changes",
+      "gate_disposition": "waiting_approval"
+    },
+    "consensus_snapshot": { "...": "latest consensus_verdict or consensus_degraded payload" },
+    "reviews": [],
+    "findings": [],
+    "pending_approval": { "approval_id": "ap_1", "kind": "semantic_decision", "reason": "..." },
+    "blocking_reason": "consensus_request_changes",
+    "audit_refs": [{ "kind": "event", "ref": "seq:49", "name": "consensus_verdict" }]
+  } } }
+```
+
+Rules:
+- Sent only when `initialize.capabilities.gate_report.supported` is negotiated true by both sides. If not negotiated, zero `gate.gate_report` events are sent.
+- Append-only: consumers use the latest `gate_report` for current UI state and may keep earlier reports as timeline evidence.
+- `decision_surface` is the summary truth. `consensus_snapshot` is evidence only and must not be used by consumers as an alternate state machine.
+- `decision_surface.review_outcome` is `approve | request_changes | reject | none`.
+- `decision_surface.gate_disposition` is `approved | waiting_approval | blocked | overridden | degraded | no_gate`.
+- `ask_human` and `degrade_quorum` remain policy-action evidence; they are not flat terminal gate states by themselves.
+- `reviews`, `findings`, `audit_refs`, and reviewer runtime entries are sorted deterministically. Any truncated inline evidence must carry `truncated:true` and a truncation reason.
+- `artifact_refs:true/false` must preserve `decision_surface`, target, quorum, blocking, override, and audit fields. Evidence bytes may differ between artifact envelopes and inline fallback.
+- `task.cancel` is run abort, not gate override. It may produce a final report with terminal `run_gave_up`/cancel reason, but never an `overridden` disposition.
+
 ---
 
 ## 7. 人工介入(approval):单通道状态机
@@ -423,6 +470,21 @@ wire 层只表达 provenance:`target.produced_by_agent_id` / `target.artifact_id
   "params": { "approval_id": "ap_1", "decision": "approved", "by": "user:tizer" } }
 ```
 
+`semantic_decision` approval 是 gate override / semantic gate decision 的单通道。`approval.resolve` 对该 kind 必须额外带 audit fields:
+```jsonc
+{ "jsonrpc": "2.0", "id": 6, "method": "approval.resolve",
+  "params": {
+    "approval_id": "ap_semantic_1",
+    "decision": "approved",
+    "by": "user:tizer",
+    "reason": "accepted known P2 risk",
+    "previous_gate_outcome": "request_changes",
+    "new_gate_outcome": "approved",
+    "artifact_refs": ["art_diff_1"]
+  } }
+```
+这些 audit fields 对 `semantic_decision` **必填**,对 `merge_approval` 等其他 kind 不要求且不得改变旧 merge approval 行为。未知 approval kind fail-closed。
+
 server 回执 + 发终态事件(三条终态共享 payload,`state` 区分):
 ```jsonc
 { "jsonrpc": "2.0", "id": 6, "result": { "approval_id": "ap_1", "accepted": true } }
@@ -440,7 +502,7 @@ server 回执 + 发终态事件(三条终态共享 payload,`state` 区分):
   "payload": { "approval_id":"ap_1", "state":"cancelled", "reason":"run_cancelled" } } }
 ```
 
-终态 payload 必有:`approval_id`、`state`(`resolved`|`expired`|`cancelled`)、`reason`。`state=resolved` 额外带 `decision`(`approved`|`rejected`)、`by`。
+终态 payload 必有:`approval_id`、`state`(`resolved`|`expired`|`cancelled`)、`reason`。`state=resolved` 额外带 `decision`(`approved`|`rejected`)、`by`。`semantic_decision` resolved 事件还带 `kind:"semantic_decision"` 以及上述 audit fields。`approval.resolve` 不直接 mutate `GateReport.v1`;server 只发 approval audit event 并恢复 backend,新的 `gate_report` 由事件/状态投影派生。
 
 **`artifact_refs` 不可用时的 details 降级**:`approval_requested.payload.details` 改放内联对象 `{ "inline": true, "type": "approval_details", "mime": "application/json", "content": "...", "truncated": false }`(同 §6.1 findings 降级),不放 envelope。
 
@@ -587,22 +649,24 @@ JSON-RPC error object:`{ "code": <int>, "message": <string>, "data": {...} }`。
   "require_human_gates": ["merge_approval"],
   "on_approval_timeout": "escalate",
   "on_capability_gap": "reject_run",
+  "on_consensus_blocking": "reject",
   "max_unattended_steps": 50
 }
 ```
 
-- 已定义可依赖字段:`on_approval_timeout`(`escalate` | `auto_reject` | `auto_approve`——后者危险,默认禁用,须显式开启且 server 可拒绝)、`on_capability_gap`(`reject_run` | `degrade`)、`max_unattended_steps`。
+- 已定义可依赖字段:`on_approval_timeout`(`escalate` | `auto_reject` | `auto_approve`——后者危险,默认禁用,须显式开启且 server 可拒绝)、`on_capability_gap`(`reject_run` | `degrade`)、`on_consensus_blocking`(`reject` | `ask_human`)、`max_unattended_steps`。
 - approval 超时 → `on_approval_timeout`(默认 `escalate`)→ 配合 §7 `approval_expired` 事件。
 - client 能力缺口 → `on_capability_gap`(配 §2 descriptor 协商)。
+- quorum 已满足但 consensus outcome 为 `request_changes`/`reject` → `on_consensus_blocking`。缺省 `reject` 保持旧行为;`ask_human` 必须先 mint `semantic_decision` approval,run 进入 `waiting_approval`,不得先 terminal `blocked`。
 - 名字「Human on Loop」= 默认尽量自动、只在 require_human 打断。
 
-> ⚠️ `gate` 概念(`auto_pass_gates`/`require_human_gates`)在协议层**尚未定义** gate object/gate event/gate outcome。当前 gate 列表值(`lint`/`test`/`build`/`merge_approval`)是 **daemon 私约定字符串**,consumer 无法可靠解析;consumer 应把 gate 列表当不透明,只依赖上述三个已定义字段。gate 协议(gate 种类、通过/失败事件、gate→approval kind 映射)留 v0.2。
+> `GateReport.v1` 是当前稳定 consumer surface。`auto_pass_gates` / `require_human_gates` 的具体 gate 名称仍可能是实现私约定字符串;consumer 应依赖 `gate_report.decision_surface` 而不是自行解析私有 gate 名称。
 
 ---
 
 ## 12. 实现边界(参考 daemon)
 
-**协议层(draft v0.1.5)**:本 spec 全章有定义。v0.1.5 将 Issue #11 的 harness isolation baseline 吸收进 §3 flock:runtime surface / isolation readiness matrix 是协议必备语义,不是后续 nice-to-have。
+**协议层(draft v0.1.7)**:本 spec 全章有定义。v0.1.5 将 Issue #11 的 harness isolation baseline 吸收进 §3 flock:runtime surface / isolation readiness matrix;v0.1.7 增加 consumer stable gate report surface。
 
 **当前仓已落地**:
 - ✅ 协议 draft(`protocol/`)。
@@ -617,13 +681,15 @@ JSON-RPC error object:`{ "code": <int>, "message": <string>, "data": {...} }`。
 - ✅ M5b real reviewer execution pilot:`mcp-codex` reviewer execution hook 只有在 strict JSON parser/validator + read-only attestation 通过时才计为 completed vote。
 - ✅ M6b second real provider adapter partial:`native-claude` 通过 Claude Code headless `-p --output-format json` 接入 reviewer path,read-only ready 取决于 enforcement probe evidence。
 - ✅ M6c runtime/session matrix foundation:consumer CLI 从 flock public wire response 渲染 headless/acp/direct_user_session、direct channel observation/control、isolation readiness 和声明风险。
+- ✅ M9 stable gate surface partial:`gate_report` capability + `gate.gate_report` / `GateReport.v1` projection,覆盖 consensus verdict/degraded、approval pending/resolved、override audit、terminal consistency、artifact_refs 降级等价和 CLI summary。
 
 **参考 daemon 下一步 milestone**:
-- ⏳ M7 foundation loop:WorkPlanner / multiround / L0 workflow / step-level JSONL exporter。
-- ⏳ M8-M12:真实 ACP/direct path、stable gate surface、learned router safe lane、dynamic workflow、Remote/distributed HOLP。
-- ❌ 未做(不声称):acp 真接线、direct user session、12-agent 完整矩阵;Web 传输;Remote(wire 不含)。
+- ⏳ M10 learned router safe lane:replay / eval / shadow mode / opt-in active canary。
+- ⏳ M11 dynamic workflow:L1 bounded dynamic insertion,then L2 after replay/shadow evidence。
+- ⏳ M12 Remote/distributed HOLP:remote runner surface,artifact/event/approval relay。
+- ❌ 未做(不声称):12-agent 完整矩阵;Web 传输;Remote(wire 不含)。PR14/M8 已落第一批真实 runtime surface pilot,但不表示所有 headless/ACP/direct paths 全覆盖。
 
-**当前仓只声称**「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter + v0.1.5 runtime surface/isolation baseline + M4a governance skeleton partial + M4b consensus kernel partial + M5 fake+fake demo + M5b real reviewer pilot + M6a fake consumer CLI partial + M6b native-claude headless reviewer partial + M6c runtime/session matrix foundation」。未接线 transport 的 declare/discover 实测 status 仍为 `rejected`;不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session` 三类运行面,也不声称真实 ACP/direct session、stable gate protocol surface、learned router active、dynamic workflow 或 Remote 已完成。
+**当前仓只声称**「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter + v0.1.5 runtime surface/isolation baseline + M4a governance skeleton partial + M4b consensus kernel partial + M5 fake+fake demo + M5b real reviewer pilot + M6a fake consumer CLI partial + M6b native-claude headless reviewer partial + M6c runtime/session matrix foundation + M8 first real runtime surface pilot + M9 stable gate surface partial」。未接线 transport 的 declare/discover 实测 status 仍为 `rejected`;不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session` 三类运行面,也不声称 learned router active、dynamic workflow 或 Remote 已完成。
 
 ### 12.1 adapter 实现约束
 
@@ -645,6 +711,7 @@ JSON-RPC error object:`{ "code": <int>, "message": <string>, "data": {...} }`。
 
 ## CHANGELOG
 
+- **v0.1.7**:M9 consumer stable gate surface。新增 `gate_report` capability、`gate` event category、唯一 event name `gate_report`、`GateReport.v1.decision_surface`(`review_outcome` + `gate_disposition`)作为 consumer summary truth。`approval.resolve` 对 `semantic_decision` 增加必填 audit fields,未知 approval kind fail-closed;`policy.on_consensus_blocking` 支持 quorum-met `request_changes`/`reject` 先进入 `waiting_approval`。`task.cancel` 明确为 run abort,不是 override。
 - **v0.1.5**:Issue #11 baseline amendment。把多 harness 隔离模型提升为协议基准:§3 增加 runtime surface / isolation readiness matrix,要求 flock declare/discover 能表达 `headless` / `acp` / `direct_user_session` 三类运行面、runtime kind、direct channel observation/control 能力、isolation profile readiness、state declaration ref、global mutation risk。`ready` 不再表示"agent 整体可用",只表示某个 runtime surface + isolation profile 下可调度。当前实现可以返回 unknown/unsupported/rejected,但不能省略该语义。
 - **v0.1.4**:跨仓 review(对照 cmux/warp/loopwright/happier/spawn/skypilot 真实代码)后补互操作缺口。**P1**:`artifact_refs` 不可用时 consensus `findings` / approval `details` 的内联降级形态,并澄清 provenance 裸 `artifact_id` 不受该能力控制(§2/§6.1/§7/§8.1);`orchestrate.run` 的 agent 引用绑定 flock + role 校验(§4.2,新错误码 `role_unsupported` -32018、`agent_not_found` -32019);`events.subscribe.categories` 语义(白名单/省略=全订)+ 五 category 封闭枚举(§5,新错误码 `invalid_event_category` -32020)。**P2**:§7 race 表述对 server-timeout 分支修正;§10.1 单点 role vs reviewer panel 的 rejected 分流交叉引用;seq 从 1 起的边界定义(§5);happier 权限枚举更正(五值,非三值)+ 补 loopwright `reviewerCandidates` 归因(positioning)。**冻结门(PR1)**:修了 4 处 spec 源内不自洽——§1 控制面方法列表补 `artifact.get`(§8.2 已定义却漏列);flock declare/discover 示例 cast 一致化(§3.3 回执改为返回 declare 声明过的 `claude`+`codex`,不再凭空返回未声明的 `gemini`;`gemini` 改走 §3.2 discover 并配 response 示例,`status=degraded` 且 `resolved_roles` 含 `reviewer`);§4 `orchestrate.run` 示例与 flock 实测 status 自洽(panel `[claude,gemini]` 均 known、reviewer 可用、非 rejected,排除作者 codex 后 eligible=2≥quorum2 → `accepted:true` 合法);§5 补 `events.unsubscribe` 的 success response 形状 `{subscription_id, unsubscribed:true}` + 未知 id 走 `invalid_subscription`。本 PR 即在冻结 v0.1.4,**不 bump 版本号**。
 - **v0.1.3**:quorum 两段式校验 + 错误码定序;artifact 强制 content(禁 content_ref);approval 单通道状态机(cancel 只由 task.cancel 导致)+ race 规则;`task.cancel` schema;capability descriptor `{supported, required?, kinds?}`(required 连接级);错误码拆开(一错误一码)+ flock 部分成功语义。经四轮深度 review,判「实现前无 P0」(跨仓 review 后在 v0.1.4 补了 3 个 P1 互操作缺口)。

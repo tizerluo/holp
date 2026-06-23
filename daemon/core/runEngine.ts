@@ -19,6 +19,7 @@ import type { AgentBackend } from "../../adapters/agent-backend.js";
 import { createHash } from "node:crypto";
 import { expireApproval } from "./approvalLifecycle.js";
 import { evidencePayload } from "./evidence.js";
+import { emitGateReport } from "./gateReport.js";
 import { claimTerminal } from "./terminalRun.js";
 import {
   buildConsensusVerdict,
@@ -139,14 +140,16 @@ export async function driveRun(
     // 5a. If the backend was aborted (e.g. approval rejected), emit run_blocked
     //     and skip artifact registration entirely.
     if (aborted) {
-      claimTerminal(run, ctx, clock, {
+      if (claimTerminal(run, ctx, clock, {
         state: "blocked",
         reason: abortReason ?? "approval_rejected",
         eventName: "run_blocked",
         payload: {
           reason: abortReason ?? "approval_rejected",
         },
-      });
+      })) {
+        emitGateReport(run, ctx, clock);
+      }
       return;
     }
 
@@ -179,7 +182,7 @@ export async function driveRun(
 
     // 6. Emit terminal run_merged. A run may complete without a diff artifact
     // if the real provider produced only lifecycle/model output.
-    claimTerminal(run, ctx, clock, {
+    if (claimTerminal(run, ctx, clock, {
       state: "merged",
       reason: "run completed",
       eventName: "run_merged",
@@ -189,16 +192,20 @@ export async function driveRun(
         ...(diffArtifactPath ? { path: diffArtifactPath } : {}),
         reason: "run completed",
       },
-    });
+    })) {
+      emitGateReport(run, ctx, clock);
+    }
   } catch (err) {
     if (run.status === "active") {
       const reason = err instanceof Error ? err.message : String(err);
-      claimTerminal(run, ctx, clock, {
+      if (claimTerminal(run, ctx, clock, {
         state: "gave_up",
         reason,
         eventName: "run_gave_up",
         payload: { reason },
-      });
+      })) {
+        emitGateReport(run, ctx, clock);
+      }
     }
   } finally {
     await backend.dispose().catch(() => {});
@@ -300,7 +307,18 @@ export async function runConsensusGate(
   });
   run.bus.publish("consensus", "consensus_verdict", verdict);
 
-  if (verdict.outcome === "approve") return true;
+  if (verdict.outcome === "approve") {
+    emitGateReport(run, ctx, clock);
+    return true;
+  }
+
+  if (consensus.policy.on_consensus_blocking === "ask_human") {
+    const approved = await requestSemanticDecisionApproval(run, ctx, clock, scheduler, verdict);
+    if (approved && run.status === "active") return true;
+    if (run.status !== "active") return false;
+    blockRun(run, ctx, clock, "consensus_semantic_decision_rejected");
+    return false;
+  }
 
   blockRun(run, ctx, clock, `consensus_${verdict.outcome}`);
   return false;
@@ -394,6 +412,7 @@ function publishConsensusDegraded(
     data: payload,
   });
   run.bus.publish("consensus", "consensus_degraded", payload);
+  emitGateReport(run, ctx, clock);
 }
 
 function blockRun(
@@ -402,12 +421,14 @@ function blockRun(
   clock: Clock,
   reason: string,
 ): void {
-  claimTerminal(run, ctx, clock, {
+  if (claimTerminal(run, ctx, clock, {
     state: "blocked",
     reason,
     eventName: "run_blocked",
     payload: { reason },
-  });
+  })) {
+    emitGateReport(run, ctx, clock);
+  }
 }
 
 async function requestSemanticDecisionApproval(
@@ -477,6 +498,7 @@ async function requestSemanticDecisionApproval(
         createdBy: "holp-reference-daemon",
       }),
     });
+    emitGateReport(run, ctx, clock);
   });
 
   return decision === "allow";

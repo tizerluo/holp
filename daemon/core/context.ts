@@ -30,6 +30,7 @@ export const EVENT_CATEGORIES = [
   "agent",
   "consensus",
   "approval",
+  "gate",
   "lifecycle",
 ] as const;
 

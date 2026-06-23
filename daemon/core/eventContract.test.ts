@@ -8,6 +8,7 @@ describe("event contract registry", () => {
     expect(isKnownEventName("run", "run_started")).toBe(true);
     expect(isKnownEventName("approval", "approval_requested")).toBe(true);
     expect(isKnownEventName("consensus", "consensus_verdict")).toBe(true);
+    expect(isKnownEventName("gate", "gate_report")).toBe(true);
     expect(isKnownEventName("lifecycle", "workflow_step_planned")).toBe(true);
   });
 
@@ -16,6 +17,9 @@ describe("event contract registry", () => {
 
     expect(() => bus.publish("run", "workflow_step_planned", {})).toThrow(
       "unknown event 'run.workflow_step_planned'",
+    );
+    expect(() => bus.publish("gate", "gate_overridden", {})).toThrow(
+      "unknown event 'gate.gate_overridden'",
     );
     expect(bus.latestSeq).toBe(0);
     expect(bus.allEvents()).toHaveLength(0);

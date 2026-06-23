@@ -173,6 +173,7 @@ describe("driveRun real-backend event forwarding", () => {
         approval: { supported: true, kinds: ["merge_approval"] },
         artifact_refs: { supported: false },
         unattended_loop: { supported: false },
+        gate_report: { supported: false },
       },
     };
     const bus = new EventBus("run_consensus", clock);
@@ -190,6 +191,7 @@ describe("driveRun real-backend event forwarding", () => {
           exclude_author: true,
           author_provenance: "produced_by_agent_id",
           on_quorum_unsatisfiable: "reject",
+          on_consensus_blocking: "reject",
         },
         producer_agent_id: "author",
       },

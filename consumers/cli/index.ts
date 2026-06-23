@@ -29,6 +29,7 @@ interface CliOptions {
   readonly artifactRefs: boolean;
   readonly raw: boolean;
   readonly debug: boolean;
+  readonly report: "human" | "json";
   readonly interactive: boolean;
   readonly decision?: Decision;
   readonly quorum: number;
@@ -82,6 +83,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     artifactRefs: optionBool(values, "artifact-refs", true),
     raw: optionBool(values, "raw", false),
     debug: optionBool(values, "debug", false),
+    report: optionReport(values.get("report")),
     interactive: optionBool(values, "interactive", false),
     decision: optionDecision(values.get("decision")),
     quorum: optionInt(values, "quorum", scenario === "single" ? 0 : 2),
@@ -132,6 +134,7 @@ export async function runCli(options: CliOptions): Promise<number> {
       capabilities: {
         approval: { supported: true, kinds: ["merge_approval", "semantic_decision"] },
         consensus: { supported: true },
+        gate_report: { supported: true },
         ...(options.artifactRefs ? { artifact_refs: { supported: true } } : {}),
       },
     });
@@ -168,6 +171,7 @@ export async function runCli(options: CliOptions): Promise<number> {
           approval_id: approval.approval_id,
           decision,
           by: options.interactive ? "user:cli" : "user:cli-auto",
+          ...approvalResolveAudit(approvalEvent, decision),
         });
         console.log(`approval.resolve accepted=${resolved.accepted} decision=${decision}`);
       } catch (error) {
@@ -193,6 +197,7 @@ export async function runCli(options: CliOptions): Promise<number> {
           approval_id: approval.approval_id,
           decision: "approved",
           by: "user:cli-late",
+          ...approvalResolveAudit(approvalEvent, "approved"),
         });
       } catch (error) {
         reportRpcError("late approval.resolve", error);
@@ -201,10 +206,18 @@ export async function runCli(options: CliOptions): Promise<number> {
 
     const summary = renderer.summary(run.run_id);
     console.log("summary:");
-    console.log(`  terminal=${summary.terminal?.name ?? "none"}`);
-    console.log(`  consensus=${summary.consensus?.name ?? summary.degraded?.name ?? "none"}`);
-    console.log(`  events=${summary.seen_events}`);
-    console.log(`  seq=${summary.seq_ok ? "contiguous" : "BROKEN"}`);
+    if (options.report === "json") {
+      console.log(JSON.stringify(summary.gate_report?.payload ?? summary, null, 2));
+    } else {
+      const gatePayload = objectPayload(summary.gate_report?.payload);
+      const decision = objectPayload(gatePayload.decision_surface);
+      console.log(`  terminal=${summary.terminal?.name ?? "none"}`);
+      console.log(`  gate=${stringField(decision, "gate_disposition") ?? "none"}`);
+      console.log(`  review=${stringField(decision, "review_outcome") ?? "none"}`);
+      console.log(`  consensus=${summary.consensus?.name ?? summary.degraded?.name ?? "none"}`);
+      console.log(`  events=${summary.seen_events}`);
+      console.log(`  seq=${summary.seq_ok ? "contiguous" : "BROKEN"}`);
+    }
     for (const diagnostic of renderer.diagnostics()) console.log(`  seq diagnostic: ${diagnostic}`);
     return summary.terminal ? 0 : 1;
   } finally {
@@ -363,6 +376,27 @@ function optionDecision(value: string | boolean | undefined): Decision | undefin
     throw new Error("--decision must be approved or rejected");
   }
   return value;
+}
+
+function optionReport(value: string | boolean | undefined): "human" | "json" {
+  if (value === undefined) return "human";
+  if (value !== "human" && value !== "json") {
+    throw new Error("--report must be human or json");
+  }
+  return value;
+}
+
+function approvalResolveAudit(event: EventFrame, decision: Decision): Record<string, unknown> {
+  const payload = objectPayload(event.payload);
+  if (stringField(payload, "kind") !== "semantic_decision") return {};
+  const provenance = objectPayload(payload.provenance);
+  const artifactId = stringField(provenance, "artifact_id");
+  return {
+    reason: decision === "approved" ? "cli semantic override" : "cli semantic rejection",
+    previous_gate_outcome: "ask_human",
+    new_gate_outcome: decision === "approved" ? "approved" : "blocked",
+    artifact_refs: artifactId ? [artifactId] : [],
+  };
 }
 
 function defaultGoal(scenario: Scenario): string {

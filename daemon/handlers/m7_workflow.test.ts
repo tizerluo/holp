@@ -40,7 +40,10 @@ async function pollUntil(pred: () => boolean, label = "pollUntil", maxTicks = 70
   throw new Error(`${label}: predicate not satisfied`);
 }
 
-async function freshHarness(): Promise<{
+async function freshHarness(opts?: {
+  semanticDecision?: boolean;
+  gateReport?: boolean;
+}): Promise<{
   ctx: ConnectionContext;
   clock: FakeClock;
   scheduler: FakeScheduler;
@@ -61,7 +64,11 @@ async function freshHarness(): Promise<{
     client: { name: "m7-workflow", version: "0" },
     capabilities: {
       approval: { supported: true, kinds: ["merge_approval"] },
+      ...(opts?.semanticDecision
+        ? { approval: { supported: true, kinds: ["merge_approval", "semantic_decision"] } }
+        : {}),
       consensus: { supported: true },
+      ...(opts?.gateReport ? { gate_report: { supported: true } } : {}),
     },
   }));
 
@@ -388,6 +395,71 @@ describe("M7 workflow foundation loop", () => {
       step_index: 0,
       reward: -1,
       reward_basis: "consensus_reject",
+    });
+  });
+
+  it("routes workflow review blocking verdicts through semantic approval before terminal block", async () => {
+    const h = await freshHarness({ semanticDecision: true, gateReport: true });
+    await declareCoderAndReviewers(h);
+    const { run_id } = ok<{ run_id: string }>(await h.dispatch("orchestrate.run", {
+      goal: "linear workflow consensus ask human",
+      workflow: "linear",
+      max_steps: 3,
+      roles: {
+        coder: { agent: "coder" },
+        reviewer: { panel: ["r1", "r2"], quorum: 1 },
+      },
+      policy: { on_consensus_blocking: "ask_human" },
+    }));
+    ok(await h.dispatch("events.subscribe", { run_id, after_seq: 0 }));
+
+    const run = h.ctx.runs.get(run_id)!;
+    const rejectingReviewer: ReviewerExecutor = async ({ agents }) =>
+      agents.map((agent) => ({
+        agent,
+        status: "completed" as const,
+        verdict: "request_changes" as const,
+        max_severity: "P2" as const,
+      }));
+    (run as { reviewerExecutor?: ReviewerExecutor }).reviewerExecutor = rejectingReviewer;
+
+    await approveFirstMergeApproval(h);
+    await pollUntil(
+      () => h.events.some((event) =>
+        event.name === "approval_requested" &&
+        (event.payload as Record<string, unknown>).kind === "semantic_decision"
+      ),
+      "semantic approval",
+    );
+    expect(h.events.some((event) => event.name === "run_blocked")).toBe(false);
+
+    const semanticApproval = h.events.find((event) =>
+      event.name === "approval_requested" &&
+      (event.payload as Record<string, unknown>).kind === "semantic_decision"
+    )!;
+    ok(await h.dispatch("approval.resolve", {
+      approval_id: (semanticApproval.payload as Record<string, unknown>).approval_id,
+      decision: "approved",
+      by: "user:test",
+      reason: "accepted workflow review risk",
+      previous_gate_outcome: "request_changes",
+      new_gate_outcome: "approved",
+      artifact_refs: [
+        ((semanticApproval.payload as Record<string, unknown>).provenance as Record<string, unknown>).artifact_id,
+      ].filter((value): value is string => typeof value === "string"),
+    }));
+    await pollUntil(() => h.events.some((event) => event.name === "run_merged"), "merged");
+
+    const latest = [...h.events].reverse().find((event) => event.name === "gate_report")!;
+    expect(latest.payload).toMatchObject({
+      decision_surface: {
+        review_outcome: "request_changes",
+        gate_disposition: "overridden",
+      },
+      terminal: {
+        state: "merged",
+        event: "run_merged",
+      },
     });
   });
 

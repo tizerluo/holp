@@ -112,6 +112,7 @@ describe("reviewer result validation", () => {
         approval: { supported: true, kinds: ["merge_approval"] },
         artifact_refs: { supported: false },
         unattended_loop: { supported: false },
+        gate_report: { supported: false },
       },
     };
     ctx.artifacts.set("art_diff_run_1", {

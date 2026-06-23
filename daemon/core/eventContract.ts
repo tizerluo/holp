@@ -17,6 +17,7 @@ export const EVENT_NAME_CONTRACT = {
     "approval_cancelled",
   ],
   consensus: ["consensus_verdict", "consensus_degraded"],
+  gate: ["gate_report"],
   lifecycle: [
     "workflow_selected",
     "workflow_step_planned",

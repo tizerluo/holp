@@ -10,6 +10,7 @@ describe("consumer CLI argument and approval handling", () => {
       "--registry=fake",
       "--artifact-refs=false",
       "--decision=rejected",
+      "--report=json",
       "--raw",
       "--debug=false",
     ])).toMatchObject({
@@ -17,6 +18,7 @@ describe("consumer CLI argument and approval handling", () => {
       registry: "fake",
       artifactRefs: false,
       decision: "rejected",
+      report: "json",
       raw: true,
       debug: false,
     });

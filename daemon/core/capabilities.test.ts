@@ -10,12 +10,14 @@ describe("negotiateCapabilities (spec §2)", () => {
       approval: { supported: false },
       unattended_loop: { supported: true },
       artifact_refs: { supported: true },
+      gate_report: { supported: true },
     };
     const server: CapabilityMap = {
       consensus: { supported: true },
       approval: { supported: true },
       unattended_loop: { supported: false },
       artifact_refs: { supported: true },
+      gate_report: { supported: true },
     };
     const out = negotiateCapabilities(client, server);
     expect(out.ok).toBe(true);
@@ -24,6 +26,7 @@ describe("negotiateCapabilities (spec §2)", () => {
     expect(out.negotiated.approval.supported).toBe(false); // false && true
     expect(out.negotiated.unattended_loop.supported).toBe(false); // true && false
     expect(out.negotiated.artifact_refs.supported).toBe(true);
+    expect(out.negotiated.gate_report.supported).toBe(true);
   });
 
   it("absent descriptor is treated as { supported:false }", () => {
@@ -31,6 +34,7 @@ describe("negotiateCapabilities (spec §2)", () => {
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(out.negotiated.consensus.supported).toBe(false);
+    expect(out.negotiated.gate_report.supported).toBe(false);
   });
 
   it("client required:true but server supported:false → capability_required_but_unsupported", () => {
