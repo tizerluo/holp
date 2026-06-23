@@ -2,7 +2,7 @@
 
 > 本文件是 `spec.md` 的派生索引,语义以 `spec.md` 为准,本文件只做清单与回链,不重新定义语义。
 
-适用版本:**v0.1.5 (draft)**。回链中的 `§N` 指 `protocol/spec.md` 的章节号。
+适用版本:**v0.1.8 (draft)**。回链中的 `§N` 指 `protocol/spec.md` 的章节号。
 目的:让 review 者和实现者无需通读 spec,就能一次拿到完整的方法 / 事件 / 错误码 / capability / 语义边界清单,且每条都能回链到 spec 的具体章节。
 
 ---
@@ -27,9 +27,9 @@
 
 ---
 
-## (b) 事件清单(按 5 个 category 分组)
+## (b) 事件清单(按 6 个 category 分组)
 
-事件均为 server→client 的 JSON-RPC notification,载体方法为 `events.event`(每条带 `subscription_id`、`seq`、`ts`、`run_id`、`category`、`name`、`payload`)。心跳为 `events.heartbeat`、背压关订阅为 `events.error`(`slow_consumer`),不属于下列五个 category。`category` 是封闭枚举,合法值仅以下五个。
+事件均为 server→client 的 JSON-RPC notification,载体方法为 `events.event`(每条带 `subscription_id`、`seq`、`ts`、`run_id`、`category`、`name`、`payload`)。心跳为 `events.heartbeat`、背压关订阅为 `events.error`(`slow_consumer`),不属于下列六个 category。`category` 是封闭枚举,合法值仅以下六个。
 
 ### category = `run`(§5)
 
@@ -72,13 +72,21 @@
 
 > approval 是单通道状态机:`requested → resolved | expired | cancelled`,每个转移一条对应事件;无独立 `approval.request` notification、无 `approval.cancel` 方法(§7)。
 
+### category = `gate`(§5 / §6.4)
+
+| name | 一句话 | spec § |
+|---|---|---|
+| `gate_report` | 稳定 consumer-facing gate snapshot projection;仅在 `gate_report` capability 协商成功时发送 | §6.4 |
+
 ### category = `lifecycle`(§5)
 
 | name | 一句话 | spec § |
 |---|---|---|
-| `escalated` | 升级给人处理 | §5 |
-| `lease_stolen` | lease 被并发抢占 | §5 |
-| `circuit_open` | 熔断打开 | §5 |
+| `workflow_selected` | 多步 workflow 已选择 | §5 |
+| `workflow_step_planned` | WorkPlanner 产生下一步计划 | §5 |
+| `workflow_step_completed` | workflow step 完成 | §5 |
+| `workflow_revised` | L2 pending graph revision 已接受;仅在 `dynamic_workflow` capability 协商成功时发送 | §5 |
+| `workflow_revision_rejected` | L2 pending graph revision 被整体拒绝并带 rollback cursor;仅在 `dynamic_workflow` capability 协商成功时发送 | §5 |
 
 ### artifact 不是事件 category
 
@@ -126,7 +134,7 @@ JSON-RPC error object:`{ code, message, data }`。HOLP 专用码用区间 `-3200
 
 ---
 
-## (d) capability 清单(4 个,§2)
+## (d) capability 清单(6 个,§2)
 
 每个 capability 是 descriptor `{ supported, required?, kinds? }`:`supported` = 本端是否支持;`required` = 是否硬要求对方支持(连接级,缺省 false);`kinds`(仅 approval)= 支持/要求的 kind 子集。缺省 capability(descriptor 未出现)= `{supported:false}`。协商 = 双方 descriptor 交集。
 
@@ -136,6 +144,8 @@ JSON-RPC error object:`{ code, message, data }`。HOLP 专用码用区间 `-3200
 | `approval` | `{ supported, required?, kinds? }` | server 不得发起会触发 approval 的 run;若 run 的 `require_human_gates` 非空且 client 不支持 → 受理前 reject `approval_required_but_unsupported`。`kinds` 取交集:任一方 `required:true` 且交集为空 → initialize 拒绝;双方都非 required 但交集为空 → 不拒连接,run 触发该 kind 时按 §7/§11 降级或 escalate | §2 / §7 / §11 |
 | `unattended_loop` | `{ supported, required? }` | 不支持时无人值守循环能力缺失,按 descriptor 协商 + `on_capability_gap`(§11)处置 | §2 / §11 |
 | `artifact_refs` | `{ supported, required? }` | server 不得用 artifact envelope 承载大 payload/evidence;`reviews[].findings`、approval `details` 改放内联降级形态(`{inline:true,...}`);只控 evidence envelope,不控 provenance/identity 的裸 `artifact_id` | §2 / §6.1 / §7 / §8.1 |
+| `gate_report` | `{ supported, required? }` | 不支持时 server 不发送 `gate.gate_report`;consumer 只能使用 legacy events 自行展示 | §2 / §6.4 |
+| `dynamic_workflow` | `{ supported, required? }` | 不支持时 server 不发送 `workflow_revised` / `workflow_revision_rejected` lifecycle events;L2 revision governance audit 可留在内部记录 | §2 / §5 |
 
 > 任一方 `capability.required:true` 但对方 `supported:false` → `initialize` 拒绝(`capability_required_but_unsupported`)。run 级硬要求不放 descriptor,放 `orchestrate.run` params(§2)。
 
@@ -154,6 +164,7 @@ JSON-RPC error object:`{ code, message, data }`。HOLP 专用码用区间 `-3200
 | degraded agent 条件可用 | known-but-degraded agent:仅当其 `resolved_roles` 含目标角色且声明/发现未把该角色标缺失时可用;否则按 role 不匹配走 `role_unsupported` | §4.2 / §6.2 |
 | runtime surface matrix 是必备语义 | `ready` 不表示 agent 整体可用,只表示某个 runtime surface + isolation profile 下可调度。`flock.declare`/`flock.discover` 必须能表达 `headless`/`acp`/`direct_user_session`、runtime kind、direct channel、isolation readiness、state declaration ref、global mutation risk;当前实现可以返回 unknown/unsupported/rejected,但空白不是合格声明 | §3.4 |
 | direct_user_session 必须显式声明 | Happy/Happier product session 与 Warp/cmux/tmux terminal session 不能从 headless/ACP adapter 自动推导;必须声明 attach/inject/interrupt/cancel、owner scope 和 route/session 隔离边界 | §3.4 |
+| learned-router PR16 是 safe lane foundation | PR16 只声称 replay/eval、shadow、fixture fail-closed、promotion evidence shape、L1 bounded workflow、L2 revision validator/reject/audit;不声称 `real_learned_model` backing、active/canary smoke/readiness 或 L2 learned-active readiness | §4 / §12 |
 | 错误码定序固定 | 引用合法性(`agent_not_found`)→ role 匹配(`role_unsupported`)→ quorum 形状(`invalid_quorum`)→ 策略不足(`quorum_unsatisfiable`),四段不重叠 | §6.2 |
 | Remote 不进 v0.1.x wire | `execution_mode.kind` 唯一合法值 `"Local"`;其他值 → `unsupported_execution_mode`(-32013)。Remote(workspace sync/secret scope/artifact transport/network/cost/identity)留独立扩展 proposal,当前 wire 不含任何 Remote 形状,届时作为新 minor + capability `remote_runner` 引入 | §4.1 / §10 |
 | flock 永远部分成功 | `flock.declare`/`flock.discover` 永远返回 per-agent `status`(ready/degraded/rejected + reason + missing),不抛 JSON-RPC error(哪怕全部 rejected);`unsupported_transport`/`missing_auth` 作为 `status=rejected` 的 reason;只有请求格式非法才抛 `invalid_request`(-32600) | §3.3 / §10.1 |

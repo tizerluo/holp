@@ -16,6 +16,7 @@ import { FakeClock } from "../daemon/core/clock.js";
 import type { JsonRpcResponse } from "../daemon/runtime/jsonrpc.js";
 
 const tempDirs: string[] = [];
+const PROCESS_HEAVY_TEST_TIMEOUT_MS = 20_000;
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -88,6 +89,25 @@ describe("adapter registry runtime surface resolution", () => {
     expect(headless?.actual_fidelity).toBe("streaming_controlled");
   });
 
+  it("declares learned-router as planner-only fixture backing", async () => {
+    const result = await createFakeRegistry().probe({
+      id: "router",
+      transport: "learned-router",
+      roles: ["work_planner"],
+      cwd: process.cwd(),
+    });
+
+    expect(result).toMatchObject({
+      status: "degraded",
+      resolved_roles: ["work_planner"],
+      reason: "fixture_planner_shadow_replay_only",
+    });
+    expect(result.runtime_surfaces?.[0].isolation_profiles.read_only_review).toMatchObject({
+      readiness: "degraded",
+      reason: "fixture_planner_shadow_replay_only",
+    });
+  });
+
   it("declares Reasonix ACP degraded with preserved session/new failure reason", async () => {
     const dir = makeTempDir();
     const definition = reasonixDefinition(dir);
@@ -110,7 +130,7 @@ describe("adapter registry runtime surface resolution", () => {
       readiness: "degraded",
       reason: expect.stringContaining("reasonix_acp_session_new_failed:acp_rpc_error"),
     });
-  });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
   it("keeps missing Reasonix binary rejected instead of policy-degraded present", async () => {
     const dir = makeTempDir();
@@ -168,7 +188,7 @@ describe("adapter registry runtime surface resolution", () => {
       readiness: "degraded",
       reason: "reasonix_acp_prompt_terminal_token_verified_policy_degraded",
     });
-  });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
   it("keeps ACP degraded when terminal output lacks HOLP_OK", async () => {
     const dir = makeTempDir();
@@ -190,7 +210,7 @@ describe("adapter registry runtime surface resolution", () => {
       readiness: "degraded",
       reason: "acp_smoke_not_enabled_or_failed",
     });
-  });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
   it("marks ACP ready when terminal output includes HOLP_OK", async () => {
     const dir = makeTempDir();
@@ -209,7 +229,7 @@ describe("adapter registry runtime surface resolution", () => {
 
     const acp = result.runtime_surfaces?.find((surface) => surface.runtime_surface === "acp");
     expect(acp?.isolation_profiles.coder_worktree.readiness).toBe("ready");
-  });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
   it("requires HOLP_OK in headless smoke output", async () => {
     const dir = makeTempDir();

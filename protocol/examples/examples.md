@@ -1,6 +1,6 @@
-# HOLP v0.1.5 最小 JSON 示例集
+# HOLP v0.1.8 最小 JSON 示例集
 
-> 示例派生自 `spec.md` v0.1.5,字段语义以 `spec.md` 为准。
+> 示例派生自 `spec.md` v0.1.8,字段语义以 `spec.md` 为准。
 
 本文档为 M0 验收材料:**9 个方法各至少一组 request/response**,**每类关键 notification 至少一条**。
 所有 JSON 为合法 JSON;`jsonc` 代码块中保留的 `//` 注释仅供阅读,去掉注释后结构仍合法(引号闭合、无非法尾逗号)。
@@ -22,9 +22,11 @@
       "consensus":    { "supported": true },
       "approval":     { "supported": true, "kinds": ["merge_approval"] },
       "unattended_loop": { "supported": true, "required": true },
-      "artifact_refs":{ "supported": true }
+      "artifact_refs":{ "supported": true },
+      "gate_report": { "supported": true },
+      "dynamic_workflow": { "supported": true }
     },
-    "protocol_version": "0.1.5"
+    "protocol_version": "0.1.8"
   }
 }
 ```
@@ -35,14 +37,16 @@
 {
   "jsonrpc": "2.0", "id": 1,
   "result": {
-    "server": { "name": "holp-reference-daemon", "version": "0.1.5" },
+    "server": { "name": "holp-reference-daemon", "version": "0.1.8" },
     "capabilities": {
       "consensus":    { "supported": true },
       "approval":     { "supported": true, "kinds": ["merge_approval","force_push_approval","budget_exceeded"] },
       "unattended_loop": { "supported": true },
-      "artifact_refs":{ "supported": true }
+      "artifact_refs":{ "supported": true },
+      "gate_report": { "supported": true },
+      "dynamic_workflow": { "supported": true }
     },
-    "protocol_version": "0.1.5"
+    "protocol_version": "0.1.8"
   }
 }
 ```
@@ -330,13 +334,14 @@
               "payload": { "reason": "cancelled" } } }
 ```
 
-### N11. `events.event` — `escalated`(§5,category=lifecycle)
+### N11. `events.event` — `workflow_revision_rejected`(§5,category=lifecycle)
 
 ```jsonc
 { "jsonrpc": "2.0", "method": "events.event",
   "params": { "subscription_id": "sub_1", "seq": 45, "ts": 1718600600,
-              "category": "lifecycle", "name": "escalated", "run_id": "run_abc",
-              "payload": { "reason": "merge-gate requires human", "approval_id": "ap_1" } } }
+              "category": "lifecycle", "name": "workflow_revision_rejected", "run_id": "run_abc",
+              "payload": { "revision_id": "rev_1", "rollback_cursor": 2,
+                           "reason": "hard_constraint_violation" } } }
 ```
 
 ---

@@ -2,10 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { DecisionRecord } from "./governance.js";
 import {
   attributeReward,
+  createPromotionEvidence,
+  dispatchStateStreamHash,
+  evaluateReplay,
   exportTrainingSamples,
   exportTrainingSamplesJsonl,
+  promotionEvidenceFresh,
   REWARD_POLICY_VERSION,
+  replayFingerprint,
 } from "./trainingSamples.js";
+import type { TrainingSampleV1 } from "./trainingSamples.js";
 import type { DispatchStateV1, WorkPlanV1 } from "./workPlanner.js";
 
 const action: WorkPlanV1 = {
@@ -102,6 +108,79 @@ describe("training sample export and reward attribution", () => {
       reward: null,
       reward_basis: "terminal_missing",
     });
+  });
+
+  it("evaluates replay metrics with explicit numerators and rejects mixed reward policies", () => {
+    const sample: TrainingSampleV1 = {
+      sample_id: "run_1:step:0",
+      run_id: "run_1",
+      step_index: 0,
+      state: {
+        ...state,
+        candidates: [{
+          ...state.candidates[0],
+          runtime: {
+            agent_id: "coder",
+            transport: "fake",
+            runtime_surface: "headless" as const,
+            runtime_kind: "fake",
+            actual_fidelity: "streaming_controlled" as const,
+            isolation_profile: "coder_worktree" as const,
+            isolation_status: "ready" as const,
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          },
+        }],
+      },
+      action,
+      reward: 1 as const,
+      reward_basis: "merged",
+      reward_policy_version: REWARD_POLICY_VERSION,
+      ts: 1,
+    };
+
+    expect(evaluateReplay([sample], () => action)).toMatchObject({
+      invalid_action_rate: { numerator: 0, denominator: 1, value: 0 },
+      constraint_violation_rate: { numerator: 0, denominator: 1, value: 0 },
+      fallback_rate: { numerator: 0, denominator: 1, value: 0 },
+      coverage: { numerator: 1, denominator: 1, value: 1 },
+      reward_delta: { numerator: 0, denominator: 1, value: 0, null_reward_count: 0 },
+    });
+
+    expect(() => evaluateReplay([
+      sample,
+      { ...sample, sample_id: "mixed", reward_policy_version: "other" } as unknown as TrainingSampleV1,
+    ], () => action)).toThrow("reward_policy_version");
+  });
+
+  it("creates stable promotion evidence hashes and checks freshness", () => {
+    const samples = exportTrainingSamples([
+      decision("training_sample_recorded", "run_1", {
+        sample_id: "run_1:step:0",
+        state,
+        action,
+      }),
+      decision("run_terminal", "run_1", { state: "merged" }, "run completed"),
+    ]);
+    const evidence = createPromotionEvidence({
+      samples,
+      planner_version: "fixture-v1",
+      backing: "fixture_planner",
+      threshold_version: "thresholds-v1",
+      created_at: 100,
+    });
+
+    expect(evidence).toMatchObject({
+      version: "PromotionEvidence.v1",
+      run_ids: ["run_1"],
+      planner_version: "fixture-v1",
+      backing: "fixture_planner",
+      dispatch_state_stream_hash: dispatchStateStreamHash(samples),
+      replay_fingerprint: replayFingerprint(samples),
+      sample_counts: { total: 1, reward_bearing: 1, null_reward: 0 },
+    });
+    expect(promotionEvidenceFresh(evidence, 100 + 7 * 24 * 60 * 60)).toBe(true);
+    expect(promotionEvidenceFresh(evidence, 100 + 7 * 24 * 60 * 60 + 1)).toBe(false);
   });
 });
 

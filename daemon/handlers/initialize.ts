@@ -23,11 +23,11 @@ import type { ConnectionContext } from "../core/context.js";
 /** Server identity returned in initialize result. */
 export const SERVER_IDENTITY = {
   name: "holp-reference-daemon",
-  version: "0.1.7",
+  version: "0.1.8",
 } as const;
 
 /** Protocol version this daemon speaks. */
-export const SERVER_PROTOCOL_VERSION = "0.1.7";
+export const SERVER_PROTOCOL_VERSION = "0.1.8";
 
 /**
  * Server's self-reported capabilities (spec §2 Response example).
@@ -42,6 +42,7 @@ export const SERVER_CAPABILITIES: CapabilityMap = {
   unattended_loop: { supported: true },
   artifact_refs: { supported: true },
   gate_report: { supported: true },
+  dynamic_workflow: { supported: true },
 };
 
 /** MAJOR.MINOR = the first two dot-separated segments (§9: 兼容性比 MAJOR.MINOR, 第三段不计). */

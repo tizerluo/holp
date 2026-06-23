@@ -113,6 +113,7 @@ describe("reviewer result validation", () => {
         artifact_refs: { supported: false },
         unattended_loop: { supported: false },
         gate_report: { supported: false },
+        dynamic_workflow: { supported: false },
       },
     };
     ctx.artifacts.set("art_diff_run_1", {

@@ -27,7 +27,13 @@ export type DecisionType =
   | "workflow_step_completed"
   | "workflow_step_failed"
   | "dispatch_snapshot_recorded"
-  | "training_sample_recorded";
+  | "training_sample_recorded"
+  | "learned_router_shadow_prediction"
+  | "learned_router_active_fallback"
+  | "learned_router_active_selected"
+  | "promotion_evidence_recorded"
+  | "workflow_revised"
+  | "workflow_revision_rejected";
 
 export type RunLifecycleState =
   | "queued"

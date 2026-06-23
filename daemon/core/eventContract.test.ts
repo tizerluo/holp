@@ -10,6 +10,8 @@ describe("event contract registry", () => {
     expect(isKnownEventName("consensus", "consensus_verdict")).toBe(true);
     expect(isKnownEventName("gate", "gate_report")).toBe(true);
     expect(isKnownEventName("lifecycle", "workflow_step_planned")).toBe(true);
+    expect(isKnownEventName("lifecycle", "workflow_revised")).toBe(true);
+    expect(isKnownEventName("lifecycle", "workflow_revision_rejected")).toBe(true);
   });
 
   it("rejects unknown published names before mutating the bus", () => {

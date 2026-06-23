@@ -16,19 +16,30 @@ import { runConsensusGate } from "./runEngine.js";
 import { claimTerminal } from "./terminalRun.js";
 import {
   runtimeActionFromWorkPlan,
+  roleForAction,
+  validateWorkPlanHardConstraints,
+  validateWorkflowRevisionHardConstraints,
+  workflowTemplate,
   type DispatchCandidateV1,
   type DispatchHistoryEntryV1,
   type DispatchStateV1,
+  type LearnedWorkPlanner,
+  type PlannerModeV1,
   type RuntimeActionV1,
   type WorkPlanV1,
   type WorkPlanner,
+  type WorkflowGraphV1,
   type WorkflowIdV1,
+  type WorkflowRevisionV1,
 } from "./workPlanner.js";
 
 export interface WorkflowRunOptions {
   readonly workflowId: WorkflowIdV1;
   readonly maxSteps: number;
   readonly planner: WorkPlanner;
+  readonly plannerMode?: PlannerModeV1;
+  readonly learnedPlanner?: LearnedWorkPlanner;
+  readonly plannerEvidenceId?: string;
   readonly candidates: readonly DispatchCandidateV1[];
   readonly coder: {
     readonly agent_id: string;
@@ -61,8 +72,15 @@ export async function driveWorkflowRun(
     version: "WorkflowRun.v1",
     workflow_id: options.workflowId,
     max_steps: options.maxSteps,
+    committed_graph: committedGraph(options),
+    pending_graph: {
+      version: "WorkflowGraph.v1",
+      cursor: 0,
+      steps: [],
+    },
   };
-  run.planner_mode = "rule";
+  run.planner_mode = options.plannerMode ?? "rule";
+  run.planner_evidence_id = options.plannerEvidenceId;
   run.step_history = [];
 
   try {
@@ -88,7 +106,7 @@ export async function driveWorkflowRun(
     while (run.status === "active") {
       const history: readonly DispatchHistoryEntryV1[] = run.step_history ?? [];
       const state = dispatchState(run, options, history.length);
-      const plan = options.planner.nextStep(state);
+      const plan = await selectPlannerStep(run, options, state, ctx, clock);
       if (plan.kind === "terminal") {
         completeRun(run, ctx, clock, latestArtifactId(run), plan.reason);
         return;
@@ -156,6 +174,9 @@ export async function driveWorkflowRun(
           outcome,
           history,
         });
+        if (shouldContinueAfterBoundedL1(outcome)) {
+          continue;
+        }
         if (run.status === "active") {
           blockRun(run, ctx, clock, outcome.reason ?? "workflow_step_failed");
         } else {
@@ -250,6 +271,7 @@ function dispatchState(
       max_steps: options.maxSteps,
       reviewer_panel_present: options.reviewerPanelPresent,
       reviewer_quorum: options.reviewerQuorum,
+      allowed_actions: ["plan", "implement", "test", "review", "fix", "synthesize"],
       executable_actions: ["implement", "review"],
     },
     history: run.step_history ?? [],
@@ -268,13 +290,15 @@ async function executeRuntimeAction(
 ): Promise<StepOutcome> {
   if (action === "review") {
     const artifactId = latestArtifactId(run);
-    const canContinue = await runConsensusGate(run, ctx, clock, artifactId, scheduler);
+    const canContinue = await runConsensusGate(run, ctx, clock, artifactId, scheduler, {
+      terminalOnBlocking: false,
+    });
     if (!canContinue) {
       const reason = terminalReason(run, ctx) ?? "consensus_rejected";
       if (run.status !== "active" && isExternalTerminalInterruption(reason)) {
         return { outcome: "cancelled", reason };
       }
-      return { outcome: "blocked", reason };
+      return { outcome: "blocked", reason: consensusBlockingReason(run, ctx) ?? reason };
     }
     return { outcome: "completed", artifact_id: artifactId };
   }
@@ -594,4 +618,223 @@ function decisionIds(ctx: ConnectionContext, runId: string, decisionType: string
   return ctx.governance.decisions
     .filter((decision) => decision.run_id === runId && decision.decision_type === decisionType)
     .map((decision) => decision.decision_id);
+}
+
+async function selectPlannerStep(
+  run: RunRecord,
+  options: WorkflowRunOptions,
+  state: DispatchStateV1,
+  ctx: ConnectionContext,
+  clock: Clock,
+): Promise<WorkPlanV1> {
+  const rulePlan = async (): Promise<WorkPlanV1> => options.planner.nextStep(state);
+  const mode = options.plannerMode ?? "rule";
+  if (mode === "rule" || !options.learnedPlanner) return rulePlan();
+
+  try {
+    const prediction = await options.learnedPlanner.predict(state);
+    run.planner_backing = prediction.backing;
+    const data = {
+      ...prediction,
+      state_snapshot_id: state.snapshot_id,
+      evidence_id: options.plannerEvidenceId,
+    };
+
+    if (mode === "learned_shadow") {
+      ctx.governance.recordDecision({
+        decision_type: "learned_router_shadow_prediction",
+        run_id: run.run_id,
+        reason: "shadow_only",
+        ts: clock.now(),
+        data: { ...data, buffer: "shadow" },
+      });
+      return rulePlan();
+    }
+
+    if (prediction.backing !== "real_learned_model") {
+      ctx.governance.recordDecision({
+        decision_type: "learned_router_active_fallback",
+        run_id: run.run_id,
+        reason: "fixture_backing_not_active_eligible",
+        ts: clock.now(),
+        data: { ...data, requested_mode: mode },
+      });
+      return rulePlan();
+    }
+
+    if (prediction.output.version === "WorkflowRevision.v1") {
+      const accepted = applyWorkflowRevision(run, prediction.output, state, ctx, clock);
+      if (!accepted) return rulePlan();
+      return planFromPendingGraph(run, state) ?? rulePlan();
+    }
+
+    const validation = validateWorkPlanHardConstraints(prediction.output, state);
+    if (!validation.ok) {
+      ctx.governance.recordDecision({
+        decision_type: "learned_router_active_fallback",
+        run_id: run.run_id,
+        reason: "hard_constraint_violation",
+        ts: clock.now(),
+        data: { ...data, violations: validation.violations },
+      });
+      return rulePlan();
+    }
+
+    ctx.governance.recordDecision({
+      decision_type: "learned_router_active_selected",
+      run_id: run.run_id,
+      reason: mode,
+      ts: clock.now(),
+      data,
+    });
+    return prediction.output;
+  } catch (error) {
+    ctx.governance.recordDecision({
+      decision_type: "learned_router_active_fallback",
+      run_id: run.run_id,
+      reason: "planner_error",
+      ts: clock.now(),
+      data: { message: error instanceof Error ? error.message : String(error), requested_mode: mode },
+    });
+    return rulePlan();
+  }
+}
+
+function applyWorkflowRevision(
+  run: RunRecord,
+  revision: WorkflowRevisionV1,
+  state: DispatchStateV1,
+  ctx: ConnectionContext,
+  clock: Clock,
+): boolean {
+  const key = `${run.run_id}:${revision.revision_id}`;
+  run.rejected_workflow_revisions ??= new Set();
+  const validation = validateWorkflowRevisionHardConstraints(revision, state);
+  if (!validation.ok) {
+    if (
+      !run.rejected_workflow_revisions.has(key) &&
+      !revisionRejectedInGovernance(ctx, run.run_id, revision.revision_id)
+    ) {
+      run.rejected_workflow_revisions.add(key);
+      ctx.governance.recordDecision({
+        decision_type: "workflow_revision_rejected",
+        run_id: run.run_id,
+        reason: "hard_constraint_violation",
+        ts: clock.now(),
+        data: {
+          revision,
+          rollback_cursor: state.step_index,
+          violations: validation.violations,
+        },
+      });
+      publishDynamicWorkflowEvent(run, ctx, "workflow_revision_rejected", {
+        revision_id: revision.revision_id,
+        rollback_cursor: state.step_index,
+        reason: "hard_constraint_violation",
+      });
+    }
+    return false;
+  }
+
+  run.workflow = {
+    ...(run.workflow ?? {
+      version: "WorkflowRun.v1" as const,
+      workflow_id: state.workflow_id,
+      max_steps: state.constraints.max_steps,
+    }),
+    pending_graph: revision.pending_graph,
+  };
+  ctx.governance.recordDecision({
+    decision_type: "workflow_revised",
+    run_id: run.run_id,
+    reason: revision.reason ?? "workflow_revision_accepted",
+    ts: clock.now(),
+    data: revision,
+  });
+  publishDynamicWorkflowEvent(run, ctx, "workflow_revised", {
+    revision_id: revision.revision_id,
+    cursor: revision.pending_graph.cursor,
+  });
+  return true;
+}
+
+function publishDynamicWorkflowEvent(
+  run: RunRecord,
+  ctx: ConnectionContext,
+  name: "workflow_revised" | "workflow_revision_rejected",
+  payload: unknown,
+): void {
+  if (ctx.initialized?.negotiated.dynamic_workflow.supported !== true) return;
+  run.bus.publish("lifecycle", name, payload);
+}
+
+function planFromPendingGraph(
+  run: RunRecord,
+  state: DispatchStateV1,
+): WorkPlanV1 | undefined {
+  const graph = run.workflow?.pending_graph;
+  const step = graph?.steps[state.step_index - (graph.cursor ?? 0)];
+  if (!step) return undefined;
+  return {
+    version: "WorkPlan.v1",
+    kind: "step",
+    action: step.action,
+    agent_id: step.agent_id,
+    role: step.role,
+  };
+}
+
+function revisionRejectedInGovernance(
+  ctx: ConnectionContext,
+  runId: string,
+  revisionId: string,
+): boolean {
+  return ctx.governance.decisions.some((decision) =>
+    decision.run_id === runId &&
+    decision.decision_type === "workflow_revision_rejected" &&
+    revisionIdFromDecisionData(decision.data) === revisionId
+  );
+}
+
+function revisionIdFromDecisionData(data: unknown): string | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const revision = (data as { revision?: unknown }).revision;
+  if (!revision || typeof revision !== "object") return undefined;
+  const revisionId = (revision as { revision_id?: unknown }).revision_id;
+  return typeof revisionId === "string" ? revisionId : undefined;
+}
+
+function committedGraph(options: WorkflowRunOptions): WorkflowGraphV1 {
+  return {
+    version: "WorkflowGraph.v1",
+    cursor: 0,
+    steps: workflowTemplate(options.workflowId, options.reviewerPanelPresent).map((action, index) => {
+      const role = roleForAction(action);
+      const candidate = options.candidates.find((item) => item.role === role);
+      return {
+        id: `l0_${index}_${action}`,
+        action,
+        role,
+        agent_id: candidate?.agent_id ?? "unassigned",
+      };
+    }),
+  };
+}
+
+function shouldContinueAfterBoundedL1(outcome: StepOutcome): boolean {
+  return outcome.outcome === "blocked" && outcome.reason === "consensus_request_changes";
+}
+
+function consensusBlockingReason(run: RunRecord, ctx: ConnectionContext): string | undefined {
+  const verdict = [...ctx.governance.decisions]
+    .reverse()
+    .find((decision) =>
+      decision.run_id === run.run_id && decision.decision_type === "consensus_verdict"
+    );
+  const outcome = verdict?.data && typeof verdict.data === "object"
+    ? (verdict.data as { outcome?: unknown }).outcome
+    : undefined;
+  return outcome === "request_changes" || outcome === "reject"
+    ? `consensus_${outcome}`
+    : undefined;
 }

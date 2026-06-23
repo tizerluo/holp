@@ -218,6 +218,7 @@ export async function runConsensusGate(
   clock: Clock,
   artifactId: string | undefined,
   scheduler: Scheduler,
+  options: { readonly terminalOnBlocking?: boolean } = {},
 ): Promise<boolean> {
   const consensus = run.consensus;
   if (!consensus) return true;
@@ -321,6 +322,11 @@ export async function runConsensusGate(
     if (approved && run.status === "active") return true;
     if (run.status !== "active") return false;
     blockRun(run, ctx, clock, "consensus_semantic_decision_rejected");
+    return false;
+  }
+
+  if (options.terminalOnBlocking === false && verdict.outcome === "request_changes") {
+    emitGateReport(run, ctx, clock);
     return false;
   }
 

@@ -174,6 +174,7 @@ describe("driveRun real-backend event forwarding", () => {
         artifact_refs: { supported: false },
         unattended_loop: { supported: false },
         gate_report: { supported: false },
+        dynamic_workflow: { supported: false },
       },
     };
     const bus = new EventBus("run_consensus", clock);
@@ -254,6 +255,7 @@ describe("driveRun real-backend event forwarding", () => {
         artifact_refs: { supported: false },
         unattended_loop: { supported: false },
         gate_report: { supported: true },
+        dynamic_workflow: { supported: false },
       },
     };
     const bus = new EventBus("run_below_quorum", clock);

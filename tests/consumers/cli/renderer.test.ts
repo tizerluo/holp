@@ -84,6 +84,26 @@ describe("consumer CLI renderer", () => {
     })).toEqual(["run cancelled: reason=cancelled"]);
   });
 
+  it("renders dynamic workflow revision events compactly", () => {
+    const renderer = new RunRenderer();
+    expect(renderer.recordEvent({
+      run_id: "run_1",
+      seq: 1,
+      category: "lifecycle",
+      name: "workflow_revised",
+      payload: { revision_id: "rev_1", cursor: 2 },
+    })).toEqual(["workflow revised: revision=rev_1 cursor=2"]);
+    expect(renderer.recordEvent({
+      run_id: "run_1",
+      seq: 2,
+      category: "lifecycle",
+      name: "workflow_revision_rejected",
+      payload: { revision_id: "rev_2", rollback_cursor: 2, reason: "hard_constraint_violation" },
+    })).toEqual([
+      "workflow revision rejected: revision=rev_2 rollback_cursor=2 reason=hard_constraint_violation",
+    ]);
+  });
+
   it("renders consensus verdict details, inline findings, and artifact findings", () => {
     const renderer = new RunRenderer();
     const lines = renderer.recordEvent({

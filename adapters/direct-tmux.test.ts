@@ -9,6 +9,8 @@ import {
 } from "./direct-tmux.js";
 import type { AgentMessage } from "./agent-backend.js";
 
+const PROCESS_HEAVY_TEST_TIMEOUT_MS = 20_000;
+
 describe("direct tmux backend", () => {
   it("creates only holp-owned sessions and resolves on sentinel output", async () => {
     const dir = mkdtempSync(join(tmpdir(), "holp-direct-tmux-"));
@@ -63,7 +65,7 @@ describe("direct tmux backend", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
   it("ignores tmux kill-session cleanup failures", async () => {
     const dir = mkdtempSync(join(tmpdir(), "holp-direct-cleanup-"));
@@ -93,7 +95,7 @@ describe("direct tmux backend", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 });
 
 function fakeTmux(dir: string, opts: { killFails?: boolean } = {}): string {

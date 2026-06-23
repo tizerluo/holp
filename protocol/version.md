@@ -2,7 +2,7 @@
 
 ## 当前版本
 
-**v0.1.7 (draft)** — 见 `spec.md`。
+**v0.1.8 (draft)** — 见 `spec.md`。
 
 ## 版本号
 
@@ -14,7 +14,7 @@
 
 `initialize` 时双方报 `protocol_version`(比 `MAJOR.MINOR`),major 不匹配 → 拒绝(`protocol_version_mismatch`)。
 
-## v0.1.7 范围
+## v0.1.8 范围
 
 **协议层(draft)**:spec 全章有定义——握手+能力(descriptor) / flock(declare+discover) / orchestrate.run(含 §4.2 agent 引用绑定 flock + role 校验) / events.subscribe(categories 白名单语义 + seq 从 1 起) / consensus(两段式 quorum + artifact_refs 降级 findings) / approval(单通道状态机 + artifact_refs 降级 details) / task.cancel / artifact(强制 content + provenance artifact_id 例外) / 版本化 / 错误模型 / unattended policy / 实现边界。
 
@@ -23,6 +23,8 @@
 **v0.1.6 runtime selection 修订**:`orchestrate.run.roles.<role>.preferred_runtime_surface` 可选,取值 `headless` / `acp` / `direct_user_session`。缺省保持 legacy headless;显式请求 ACP/direct 失败时不得 fallback headless。runtime declaration 和 runtime selection metadata 必须携带 `actual_fidelity`=`one_shot` 或 `streaming_controlled`,该值来自实际 backend/runtime kind,不是 surface 名称。
 
 **v0.1.7 stable gate surface 修订**:`gate_report` capability、`gate` event category、唯一 event name `gate_report`、`GateReport.v1` projection 进入协议。consumer 使用 latest `gate_report.decision_surface` 作为 summary truth;`consensus_snapshot` 只作 evidence。`approval.resolve` 对 `semantic_decision` 要求 audit fields,未知 approval kind fail-closed。`policy.on_consensus_blocking` 支持 quorum-met blocking consensus 先进入 `waiting_approval`。
+
+**v0.1.8 learned router / dynamic workflow 修订**:`dynamic_workflow` capability、`learned-router` transport、planner-only `work_planner` role、顶层 `orchestrate.run.planner`、`workflow_revised` / `workflow_revision_rejected` lifecycle events 进入协议。fixture planner 只可 replay/shadow;active/canary/L2 learned-active 需要 `real_learned_model` attestation + fresh promotion evidence,否则 fail-closed 回退 RuleWorkPlanner。
 
 **当前仓已落地**:
 - protocol draft + adapter 契约桩。
@@ -38,16 +40,24 @@
 - M6b second real provider adapter partial:`"native-claude"` 接 Claude Code headless `-p --output-format json` reviewer path。外层 Claude CLI JSON 失败即 fail-closed;内层 reviewer output 复用 PR9 strict parser/attestation gate。`headless + read_only_review` 只有在 read-only tool whitelist enforcement probe 给出证据时才 ready;否则 degraded/rejected。真实 Claude reviewer smoke 默认 SKIP,需 `HOLP_REAL_CLAUDE_REVIEWER_SMOKE=1`。
 - M6c runtime/session matrix foundation:consumer CLI 从 `flock.declare`/`flock.discover` public wire response 渲染 `runtime_surfaces` 矩阵,展示 headless/acp/direct_user_session、direct channel observation/control 能力、isolation readiness、global mutation risk、declared_not_enforced 和 state_declaration_ref。该 report 是 descriptive projection,不是 scheduling authority;真实调度仍由 `orchestrate.run` eligibility / isolation gate 决定。
 - M9 stable gate surface partial:`gate_report` capability + `GateReport.v1` projection + CLI default human summary / `--report=json` path for fake consumer scenarios。
+- M10/M11 safe-lane partial:`learned-router` / `work_planner` planner-only role,offline replay/eval helpers,shadow recording,fixture active/canary fail-closed fallback,promotion evidence shape,L1 bounded dynamic insertion,L2 revision validator/reject/audit foundation,and capability-gated workflow revision lifecycle events. No `real_learned_model` backing, real learned active/canary smoke/readiness, or L2 learned-active readiness is claimed.
 
 **参考 daemon 下一步 milestone**:
-- M10 learned router safe lane:replay / eval / shadow mode / opt-in active canary。
-- M11 dynamic workflow:L1 bounded dynamic insertion,then L2 after replay/shadow evidence。
+- M10 real learned router active lane:requires `real_learned_model` attestation and fresh promotion evidence。
+- M11 L2 learned-active dynamic workflow:requires evidence continuity;fixture backing remains replay/shadow/fallback only。
 - M12 Remote/distributed HOLP:remote runner surface,artifact/event/approval relay。
 - **未做(不声称)**:12 个 agent 的三类运行面完整支持、Web 传输、Remote。PR14/M8 已落第一批真实 runtime surface pilot,但不表示所有 headless/ACP/direct paths 全覆盖。**Remote 不在 v0.1.x wire**(见 spec §4.1:wire 只 Local)。
 
-> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter(含基础 runtime recovery) + v0.1.5 runtime surface/isolation baseline + M4a governance data/state/decision skeleton partial + M4b consensus kernel partial + M5 deterministic unanimous-approve fake+fake demo + M5b real reviewer execution pilot + M6a fake consumer CLI partial + M6b native-claude headless reviewer partial + M6c runtime/session matrix foundation + M8 first real runtime surface pilot + M9 stable gate surface partial」,不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实 provider dissent/timeout demo 已执行。
+> 当前只声称「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter(含基础 runtime recovery) + v0.1.5 runtime surface/isolation baseline + M4a governance data/state/decision skeleton partial + M4b consensus kernel partial + M5 deterministic unanimous-approve fake+fake demo + M5b real reviewer execution pilot + M6a fake consumer CLI partial + M6b native-claude headless reviewer partial + M6c runtime/session matrix foundation + M8 first real runtime surface pilot + M9 stable gate surface partial + M10/M11 fixture replay/shadow/fail-closed/L1 bounded dynamic workflow plus L2 revision validator/reject/audit foundation partial」,不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session`,也不声称真实 provider dissent/timeout demo、`real_learned_model` backing、real learned active/canary smoke/readiness、L2 learned-active workflow readiness 或 Remote 已执行。
 
 ## 变更记录
+
+### v0.1.8 (draft) — Learned router safe lane + dynamic workflow partial
+- P1:新增 `dynamic_workflow` capability;未协商时不得发送 `workflow_revised` / `workflow_revision_rejected` lifecycle events。
+- P1:新增 `learned-router` transport 和 planner-only `work_planner` role;任何把 planner agent 放入 coder/reviewer/tester executor roles 的请求在 runtime selection 前 `role_unsupported`。
+- P1:新增顶层 `orchestrate.run.planner` mode:`rule` / `learned_shadow` / `learned_active` / `canary`;fixture backing 只能 replay/shadow,active/canary fail-closed 回退规则 planner。
+- P1:定义 `PromotionEvidence.v1` 形状、DispatchState stream hash、replay fingerprint、sample counts、threshold version、freshness default 7 days。
+- P1:L1 bounded insertion 支持 `request_changes -> fix -> review`;L2 WorkflowRevision 必须整体验证或整体拒绝,拒绝幂等并记录 rollback cursor。
 
 ### v0.1.7 (draft) — Consumer stable gate surface
 - P1:新增 `gate_report` capability 和 `gate.gate_report` event;未协商时不发送任何 `GateReport.v1`。

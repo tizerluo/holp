@@ -134,6 +134,47 @@ function fakeRuntimeSurfaces(): readonly RuntimeSurfaceDeclaration[] {
   ];
 }
 
+function learnedRouterRuntimeSurfaces(): readonly RuntimeSurfaceDeclaration[] {
+  const profiles = rejectedProfiles("planner_only_not_executor");
+  return [
+    {
+      runtime_surface: "headless",
+      runtime_kind: "learned_router_fixture",
+      actual_fidelity: "one_shot",
+      surface_support: "experimental",
+      isolation_profiles: withProfile(profiles, "read_only_review", {
+        readiness: "degraded",
+        reason: "fixture_planner_shadow_replay_only",
+        warnings: ["not_active_eligible_without_real_learned_model_attestation"],
+      }),
+      state_declaration_ref: "harness-state:learned-router",
+      global_mutation_required: false,
+      declared_not_enforced: true,
+    },
+    {
+      runtime_surface: "acp",
+      runtime_kind: "learned_router_acp_unwired",
+      actual_fidelity: "one_shot",
+      surface_support: "unsupported",
+      isolation_profiles: rejectedProfiles("unsupported_runtime_surface"),
+      state_declaration_ref: "harness-state:learned-router:acp",
+      global_mutation_required: false,
+      declared_not_enforced: true,
+    },
+    {
+      runtime_surface: "direct_user_session",
+      runtime_kind: "learned_router_direct_unwired",
+      actual_fidelity: "one_shot",
+      surface_support: "unsupported",
+      isolation_profiles: rejectedProfiles("unsupported_runtime_surface"),
+      direct_channel: unknownDirectChannel(),
+      state_declaration_ref: "harness-state:learned-router:direct_user_session",
+      global_mutation_required: false,
+      declared_not_enforced: true,
+    },
+  ];
+}
+
 /** 桩 factory:任何 transport 都返回未接线错误。 */
 export function createStubFactory(transport: TransportClass): AgentBackendFactory {
   return () => createStubBackend(transport);
@@ -213,6 +254,7 @@ export function createDefaultAdapterRegistry(): AdapterRegistry {
       "native-claude": createClaudeCodeBackendFactory(),
       "mcp-codex": createCodexAppServerBackendFactory(),
       acp: createStubFactory("acp"),
+      "learned-router": createStubFactory("learned-router"),
       ...firstBatchAdapterFactories(),
     },
     {
@@ -227,6 +269,22 @@ export function createDefaultAdapterRegistry(): AdapterRegistry {
         resolved_roles: [],
         reason: "unsupported_transport",
         missing: input.roles.map((role) => `role:${role}`),
+      }),
+      "learned-router": (input) => ({
+        status: "degraded",
+        harness_id: "learned-router",
+        vendor: "HOLP",
+        transport_class: input.transport,
+        runtime_surfaces: learnedRouterRuntimeSurfaces(),
+        state_declaration_ref: "harness-state:learned-router",
+        global_mutation_required: false,
+        version: "fixture-planner-v1",
+        logged_in: true,
+        resolved_roles: input.roles.includes("work_planner") ? ["work_planner"] : [],
+        reason: "fixture_planner_shadow_replay_only",
+        missing: input.roles
+          .filter((role) => role !== "work_planner")
+          .map((role) => `role:${role}`),
       }),
     },
   );
@@ -247,6 +305,7 @@ export function createFakeRegistry(): AdapterRegistry {
       "native-claude": createStubFactory("native-claude"),
       "mcp-codex": createStubFactory("mcp-codex"),
       acp: createStubFactory("acp"),
+      "learned-router": createStubFactory("learned-router"),
       fake: createFakeBackendFactory(),
     },
     {
@@ -261,6 +320,22 @@ export function createFakeRegistry(): AdapterRegistry {
         version: "0.0.1-fake",
         logged_in: true,
         resolved_roles: input.roles.length > 0 ? input.roles : ["coder", "reviewer", "tester"],
+      }),
+      "learned-router": (input) => ({
+        status: "degraded",
+        harness_id: "learned-router",
+        vendor: "HOLP",
+        transport_class: input.transport,
+        runtime_surfaces: learnedRouterRuntimeSurfaces(),
+        state_declaration_ref: "harness-state:learned-router",
+        global_mutation_required: false,
+        version: "fixture-planner-v1",
+        logged_in: true,
+        resolved_roles: input.roles.includes("work_planner") ? ["work_planner"] : [],
+        reason: "fixture_planner_shadow_replay_only",
+        missing: input.roles
+          .filter((role) => role !== "work_planner")
+          .map((role) => `role:${role}`),
       }),
     },
   );
