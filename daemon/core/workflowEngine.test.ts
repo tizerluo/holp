@@ -118,11 +118,12 @@ describe("driveWorkflowRun learned router revisions", () => {
 
     expect(result.ctx.governance.decisions).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        decision_type: "learned_router_active_fallback",
+        decision_type: "learned_router_shadow_fallback",
         reason: "planner_error",
       }),
     ]));
     expect(result.ctx.governance.decisions.some((decision) =>
+      decision.decision_type === "learned_router_active_fallback" ||
       decision.decision_type === "learned_router_shadow_prediction" ||
       decision.decision_type === "learned_router_active_selected"
     )).toBe(false);
