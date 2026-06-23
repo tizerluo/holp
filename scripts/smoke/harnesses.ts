@@ -44,7 +44,11 @@ for (const transport of FIRST_BATCH_TRANSPORTS) {
     }
     results.push({
       transport,
-      status: probe.status === "ready" ? "PASS" : probe.status === "degraded" ? "INCONCLUSIVE" : "FAIL",
+      status: probe.status === "ready"
+        ? "PASS"
+        : probe.status === "degraded"
+          ? "INCONCLUSIVE"
+          : missingProviderBinary(probe) ? "SKIP" : "FAIL",
       detail: `${probe.status}${probe.reason ? `:${probe.reason}` : ""}`,
     });
   } catch (error) {
@@ -127,6 +131,14 @@ function ok<T>(res: unknown): T {
   const response = res as JsonRpcResponse;
   if ("error" in response) throw new Error(response.error.message);
   return response.result as T;
+}
+
+function missingProviderBinary(probe: AgentProbeResult): boolean {
+  return probe.missing?.some((item) =>
+    item === "headless:missing_binary" ||
+    item === "binary:tmux" ||
+    item.startsWith("headless:missing_")
+  ) ?? false;
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {

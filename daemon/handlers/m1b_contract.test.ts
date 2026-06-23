@@ -620,6 +620,20 @@ describe("3. orchestrate.run error ordering (spec §6.2 — fixed 4-stage order)
     expect(ctx.runs.size).toBe(0);
   });
 
+  it("agent_not_found wins over unknown preferred_runtime_surface", async () => {
+    const { dispatch, ctx } = await freshDispatcher();
+
+    const e = err(await dispatch("orchestrate.run", {
+      goal: "bad surface but missing agent first",
+      roles: {
+        coder: { agent: "missing-agent", preferred_runtime_surface: "websocket" },
+      },
+    }));
+
+    expect(e.code).toBe(HOLP_ERROR_CODES.agent_not_found);
+    expect(ctx.runs.size).toBe(0);
+  });
+
   it("explicit acp does not fall back to headless when only headless is declared ready", async () => {
     const profiles = withProfile(
       rejectedProfiles("unsupported_isolation_profile"),
@@ -772,6 +786,77 @@ describe("3. orchestrate.run error ordering (spec §6.2 — fixed 4-stage order)
     await dispatch("task.cancel", { run_id });
   });
 
+  it("fallback coder selection honors requested runtime surface", async () => {
+    const headlessProfiles = withProfile(
+      rejectedProfiles("unsupported_isolation_profile"),
+      "coder_worktree",
+      { readiness: "ready" },
+    );
+    const acpProfiles = withProfile(
+      rejectedProfiles("unsupported_isolation_profile"),
+      "coder_worktree",
+      { readiness: "ready" },
+    );
+    const registry = createAdapterRegistry(
+      {
+        headless: { headless: createFakeBackendFactory() },
+        acp: { acp: createFakeBackendFactory() },
+      },
+      {
+        headless: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "headless",
+            runtime_kind: "headless-only",
+            actual_fidelity: "one_shot",
+            surface_support: "supported",
+            isolation_profiles: headlessProfiles,
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+        acp: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "acp",
+            runtime_kind: "acp-only",
+            actual_fidelity: "streaming_controlled",
+            surface_support: "supported",
+            isolation_profiles: acpProfiles,
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+      },
+    );
+    const { dispatch, events } = await freshDispatcher({ registry });
+    ok(await dispatch("flock.declare", {
+      agents: [
+        { id: "headless-first", transport: "headless", roles: ["coder"] },
+        { id: "acp-second", transport: "acp", roles: ["coder"] },
+      ],
+    }));
+
+    const { run_id } = ok<{ run_id: string }>(
+      await dispatch("orchestrate.run", {
+        goal: "x",
+        roles: { coder: { preferred_runtime_surface: "acp" } },
+      }),
+    );
+    ok(await dispatch("events.subscribe", { run_id, after_seq: 0 }));
+    await pollUntil(() => events.some((e) => e.name === "run_started"));
+
+    const started = events.find((e) => e.name === "run_started")!;
+    const runtime = (started.payload as Record<string, unknown>).runtime as Record<string, unknown>;
+    expect(runtime.agent_id).toBe("acp-second");
+    expect(runtime.runtime_surface).toBe("acp");
+    expect(runtime.runtime_kind).toBe("acp-only");
+
+    await dispatch("task.cancel", { run_id });
+  });
+
   it("reviewer panel member with rejected read_only_review profile fails closed after quorum checks", async () => {
     const coderProfiles = withProfile(
       rejectedProfiles("unsupported_isolation_profile"),
@@ -896,6 +981,81 @@ describe("3. orchestrate.run error ordering (spec §6.2 — fixed 4-stage order)
     expect(e.data).toMatchObject({
       agent_id: "reviewer",
       transport: "reviewerUnknown",
+      reason: "reviewer_execution_config_missing",
+    });
+    expect(ctx.runs.size).toBe(0);
+  });
+
+  it("non-headless reviewer-ready unknown transport without executor is a hard config error", async () => {
+    const coderProfiles = withProfile(
+      rejectedProfiles("unsupported_isolation_profile"),
+      "coder_worktree",
+      { readiness: "ready" },
+    );
+    const reviewerProfiles = withProfile(
+      rejectedProfiles("unsupported_isolation_profile"),
+      "read_only_review",
+      { readiness: "ready" },
+    );
+    const registry = createAdapterRegistry(
+      {
+        coder: createFakeBackendFactory(),
+        reviewerUnknown: createStubFactory("reviewerUnknown"),
+      },
+      {
+        coder: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "headless",
+            runtime_kind: "coder",
+            actual_fidelity: "streaming_controlled",
+            surface_support: "supported",
+            isolation_profiles: coderProfiles,
+            global_mutation_required: false,
+            declared_not_enforced: true,
+          }],
+        }),
+        reviewerUnknown: (input) => ({
+          status: "ready",
+          resolved_roles: input.roles,
+          runtime_surfaces: [{
+            runtime_surface: "acp",
+            runtime_kind: "unknown-reviewer-acp",
+            actual_fidelity: "streaming_controlled",
+            surface_support: "supported",
+            isolation_profiles: reviewerProfiles,
+            global_mutation_required: false,
+            declared_not_enforced: false,
+          }],
+        }),
+      },
+    );
+    const { dispatch, ctx } = await freshDispatcher({ registry });
+    ok(await dispatch("flock.declare", {
+      agents: [
+        { id: "coder", transport: "coder", roles: ["coder"] },
+        { id: "reviewer", transport: "reviewerUnknown", roles: ["reviewer"] },
+      ],
+    }));
+
+    const e = err(await dispatch("orchestrate.run", {
+      goal: "x",
+      roles: {
+        coder: { agent: "coder" },
+        reviewer: {
+          panel: ["reviewer"],
+          quorum: 1,
+          preferred_runtime_surface: "acp",
+        },
+      },
+    }));
+
+    expect(e.code).toBe(HOLP_ERROR_CODES.unsupported_transport);
+    expect(e.data).toMatchObject({
+      agent_id: "reviewer",
+      transport: "reviewerUnknown",
+      runtime_surface: "acp",
       reason: "reviewer_execution_config_missing",
     });
     expect(ctx.runs.size).toBe(0);

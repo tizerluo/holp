@@ -61,6 +61,21 @@ describe("ACP stdio client", () => {
     expect(messages).toContainEqual({ type: "model-output", fullText: "final:world" });
   });
 
+  it("rejects concurrent prompts on one ACP client", async () => {
+    const client = new AcpClient({
+      command: fakeAcpServer("slow-prompt"),
+      cwd: process.cwd(),
+      requestTimeoutMs: 5_000,
+      terminalTimeoutMs: 5_000,
+    });
+
+    const { sessionId } = await client.startSession();
+    const first = client.sendPrompt(sessionId, "first");
+    await expect(client.sendPrompt(sessionId, "second")).rejects.toThrow("acp_prompt_in_flight");
+    await expect(first).resolves.toBe("final:first");
+    await client.dispose();
+  });
+
   it.each([
     ["missing-terminal", "acp_terminal_timeout"],
     ["malformed", "acp_malformed_json"],
@@ -85,7 +100,7 @@ describe("ACP stdio client", () => {
 });
 
 function fakeAcpServer(
-  mode: "ok" | "kimi-stop" | "missing-terminal" | "malformed" | "exit" | "prompt-error" | "stop-without-output" | "request-timeout",
+  mode: "ok" | "kimi-stop" | "slow-prompt" | "missing-terminal" | "malformed" | "exit" | "prompt-error" | "stop-without-output" | "request-timeout",
 ): string {
   const dir = mkdtempSync(join(tmpdir(), "holp-acp-client-"));
   tempDirs.push(dir);
@@ -133,6 +148,13 @@ rl.on("line", (line) => {
       send({ method: "session/update", params: { sessionId: "session-1", update: { sessionUpdate: "agent_message_chunk", content: { text: "kimi:" } } } });
       send({ method: "session/update", params: { sessionId: "session-1", update: { sessionUpdate: "agent_message_chunk", content: { chunk: prompt } } } });
       send({ id: frame.id, result: { stopReason: "end_turn" } });
+      return;
+    }
+    if (mode === "slow-prompt") {
+      setTimeout(() => {
+        send({ id: frame.id, result: { accepted: true } });
+        send({ method: "session/update", params: { sessionId: "session-1", finalText: "final:" + prompt, type: "completed" } });
+      }, 50);
       return;
     }
     send({ id: frame.id, result: { accepted: true } });

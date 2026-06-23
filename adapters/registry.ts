@@ -199,7 +199,7 @@ export function createAdapterRegistry(
         transport_class: input.transport,
         runtime_surfaces: stubRuntimeSurfaces("probe_not_configured"),
         resolved_roles: [],
-        reason: "unsupported_transport",
+        reason: "probe_not_configured",
         missing: input.roles.map((role) => `role:${role}`),
       };
     },

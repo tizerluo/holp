@@ -53,6 +53,26 @@ describe("adapter registry runtime surface resolution", () => {
     expect(registry.resolve("multi", "direct_user_session")).toBeUndefined();
   });
 
+  it("reports probe_not_configured when a factory exists without a probe", async () => {
+    const registry = createAdapterRegistry({
+      wired: createStubFactory("wired"),
+    });
+
+    const result = await registry.probe({
+      id: "wired",
+      transport: "wired",
+      roles: ["coder"],
+      cwd: process.cwd(),
+    });
+
+    expect(result).toMatchObject({
+      status: "rejected",
+      reason: "probe_not_configured",
+    });
+    expect(result.runtime_surfaces?.[0].isolation_profiles.coder_worktree.reason)
+      .toBe("probe_not_configured");
+  });
+
   it("keeps fake headless declared as streaming controlled", async () => {
     const result = await createFakeRegistry().probe({
       id: "fake",
@@ -111,6 +131,47 @@ describe("adapter registry runtime surface resolution", () => {
     expect(acp?.isolation_profiles.coder_worktree).toMatchObject({
       readiness: "degraded",
       reason: "reasonix_acp_prompt_terminal_verified_policy_degraded",
+    });
+  });
+
+  it("requires HOLP_OK in headless smoke output", async () => {
+    const dir = makeTempDir();
+    const definition: FirstBatchHarnessDefinition = {
+      transport: "opencode",
+      harnessId: "opencode",
+      vendor: "OpenCode",
+      probeHeadlessSmoke: true,
+      headless: {
+        transport: "opencode",
+        command: fakeCli(dir, "opencode-no-token", "model replied without token"),
+        versionArgs: ["--version"],
+        argsForPrompt: (prompt) => ["run", prompt],
+      },
+      acp: {
+        transport: "opencode",
+        command: fakeAcp(dir, "ok"),
+        requestTimeoutMs: 5_000,
+        terminalTimeoutMs: 5_000,
+      },
+    };
+    const registry = createAdapterRegistry(
+      firstBatchAdapterFactories([definition]),
+      firstBatchAdapterProbes([definition]),
+    );
+
+    const result = await registry.probe({
+      id: "opencode",
+      transport: "opencode",
+      roles: ["coder"],
+      cwd: dir,
+    });
+
+    const headless = result.runtime_surfaces?.find((surface) =>
+      surface.runtime_surface === "headless"
+    );
+    expect(headless?.isolation_profiles.coder_worktree).toMatchObject({
+      readiness: "degraded",
+      reason: "headless_smoke_not_enabled_or_failed",
     });
   });
 
@@ -286,14 +347,14 @@ function kimiDefinition(
   };
 }
 
-function fakeCli(dir: string, name: string): string {
+function fakeCli(dir: string, name: string, output = "HOLP_OK"): string {
   const script = join(dir, `${name}.mjs`);
   writeFileSync(script, `#!/usr/bin/env node
 if (process.argv.includes("--version")) {
   console.log(${JSON.stringify(`${name}/fake`)});
   process.exit(0);
 }
-console.log("ok");
+console.log(${JSON.stringify(output)});
 `, "utf8");
   chmodSync(script, 0o755);
   return script;
@@ -310,7 +371,10 @@ rl.on("line", (line) => {
   const frame = JSON.parse(line);
   if (frame.method === "initialize") return send({ id: frame.id, result: { ok: true } });
   if (frame.method === "session/new") {
-    if (mode === "session-new-error") return send({ id: frame.id, error: { code: -32000, message: "session/new failed" } });
+    if (mode === "session-new-error") {
+      send({ id: frame.id, error: { code: -32000, message: "session/new failed" } });
+      process.exit(0);
+    }
     return send({ id: frame.id, result: { sessionId: "s1" } });
   }
   if (frame.method === "session/prompt") {

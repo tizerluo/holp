@@ -96,32 +96,32 @@ export function handleOrchestrateRun(
     agentId: string;
     role: string;
     isPanel: boolean;
-    runtimeSurface: RuntimeSurface;
+    runtimeSurfaceValue: unknown;
+    runtimeSurfacePath: string;
   }> = [];
 
   // Collect non-reviewer single-agent roles.
   for (const [roleName, roleSpec] of Object.entries(roles)) {
     if (roleName === "reviewer") continue;
     if (!isObject(roleSpec)) continue;
-    const runtimeSurface = parsePreferredRuntimeSurface(
-      (roleSpec as Record<string, unknown>).preferred_runtime_surface,
-      `roles.${roleName}.preferred_runtime_surface`,
-    );
     if (typeof roleSpec.agent === "string") {
-      agentRefs.push({ agentId: roleSpec.agent, role: roleName, isPanel: false, runtimeSurface });
+      agentRefs.push({
+        agentId: roleSpec.agent,
+        role: roleName,
+        isPanel: false,
+        runtimeSurfaceValue: (roleSpec as Record<string, unknown>).preferred_runtime_surface,
+        runtimeSurfacePath: `roles.${roleName}.preferred_runtime_surface`,
+      });
     }
   }
 
   // Collect reviewer panel.
   let reviewerPanel: string[] = [];
   let quorum = 0;
-  let reviewerRuntimeSurface: RuntimeSurface = "headless";
+  let reviewerRuntimeSurfaceValue: unknown;
   if (isObject(roles.reviewer)) {
     const rv = roles.reviewer as Record<string, unknown>;
-    reviewerRuntimeSurface = parsePreferredRuntimeSurface(
-      rv.preferred_runtime_surface,
-      "roles.reviewer.preferred_runtime_surface",
-    );
+    reviewerRuntimeSurfaceValue = rv.preferred_runtime_surface;
     if (Array.isArray(rv.panel)) {
       reviewerPanel = (rv.panel as unknown[]).filter((x) => typeof x === "string") as string[];
       quorum = typeof rv.quorum === "number" ? rv.quorum : 0;
@@ -131,7 +131,8 @@ export function handleOrchestrateRun(
         agentId,
         role: "reviewer",
         isPanel: true,
-        runtimeSurface: reviewerRuntimeSurface,
+        runtimeSurfaceValue: reviewerRuntimeSurfaceValue,
+        runtimeSurfacePath: "roles.reviewer.preferred_runtime_surface",
       });
     }
   }
@@ -286,10 +287,18 @@ export function handleOrchestrateRun(
   for (const ref of agentRefs) {
     if (ref.isPanel) continue;
     const agent = ctx.flock.get(ref.agentId) as FlockAgent;
-    const selection = resolveRuntimeSelection(agent, ref.role, ref.runtimeSurface);
+    const runtimeSurface = parsePreferredRuntimeSurface(
+      ref.runtimeSurfaceValue,
+      ref.runtimeSurfacePath,
+    );
+    const selection = resolveRuntimeSelection(agent, ref.role, runtimeSurface);
     runtimeSelections.set(runtimeKey(ref.agentId, ref.role), selection);
   }
   if (reviewerPanel.length > 0) {
+    const reviewerRuntimeSurface = parsePreferredRuntimeSurface(
+      reviewerRuntimeSurfaceValue,
+      "roles.reviewer.preferred_runtime_surface",
+    );
     const reviewerSelections: Array<{
       agentId: string;
       selection: RuntimeSelectionMetadata;
@@ -351,6 +360,11 @@ export function handleOrchestrateRun(
 
   // --- Determine coder agent (required for the current single-backend run) ---
   let coderAgentId: string | undefined;
+  const coderRoleSpec = isObject(roles.coder) ? roles.coder as Record<string, unknown> : {};
+  const coderRuntimeSurface = parsePreferredRuntimeSurface(
+    coderRoleSpec.preferred_runtime_surface,
+    "roles.coder.preferred_runtime_surface",
+  );
   if (isObject(roles.coder) && typeof (roles.coder as Record<string, unknown>).agent === "string") {
     coderAgentId = (roles.coder as Record<string, unknown>).agent as string;
   }
@@ -363,7 +377,7 @@ export function handleOrchestrateRun(
       if (
         agent.status === "ready" &&
         agent.resolved_roles.includes("coder") &&
-        canSelectRuntime(agent, "coder")
+        canSelectRuntime(agent, "coder", coderRuntimeSurface)
       ) {
         coderAgentId = id;
         break;
@@ -381,11 +395,6 @@ export function handleOrchestrateRun(
   }
 
   const coderAgent = ctx.flock.get(coderAgentId) as FlockAgent;
-  const coderRoleSpec = isObject(roles.coder) ? roles.coder as Record<string, unknown> : {};
-  const coderRuntimeSurface = parsePreferredRuntimeSurface(
-    coderRoleSpec.preferred_runtime_surface,
-    "roles.coder.preferred_runtime_surface",
-  );
   const coderRuntime = runtimeSelections.get(runtimeKey(coderAgentId, "coder")) ??
     resolveRuntimeSelection(coderAgent, "coder", coderRuntimeSurface);
   const factory = registry.resolve(coderAgent.transport, coderRuntime.runtime_surface);
@@ -728,9 +737,13 @@ function defaultIsolationProfileForRole(role: string): IsolationProfile {
   return role === "coder" ? "coder_worktree" : "read_only_review";
 }
 
-function canSelectRuntime(agent: FlockAgent, role: string): boolean {
+function canSelectRuntime(
+  agent: FlockAgent,
+  role: string,
+  runtimeSurface: RuntimeSurface = "headless",
+): boolean {
   try {
-    resolveRuntimeSelection(agent, role, "headless");
+    resolveRuntimeSelection(agent, role, runtimeSurface);
     return true;
   } catch {
     return false;

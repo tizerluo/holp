@@ -268,7 +268,8 @@ async function headlessSmokeReady(
     cwd,
     timeoutMs: Math.min(definition.headless.timeoutMs ?? DEFAULT_TIMEOUT_MS, 20_000),
   });
-  return classifyCliResult(result, definition.headless.classify).ok;
+  return classifyCliResult(result, definition.headless.classify).ok &&
+    result.stdout.includes("HOLP_OK");
 }
 
 async function acpSmokeReady(

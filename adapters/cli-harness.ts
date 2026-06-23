@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import type {
   AgentBackend,
   AgentBackendFactory,
@@ -8,6 +8,7 @@ import type {
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
+const DEFAULT_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const KNOWN_FAILURE_PATTERNS = [
   /auth(?:entication|orization)?\s+(?:failed|required|not configured|missing)/i,
   /not\s+(?:logged|signed)\s+in/i,
@@ -16,7 +17,7 @@ const KNOWN_FAILURE_PATTERNS = [
   /unauthorized|forbidden/i,
   /quota|rate\s*limit/i,
   /api\s*key\s+(?:missing|required|invalid)/i,
-  /\berror:\s+/i,
+  /^(?:fatal|error):\s+/im,
 ];
 
 export interface CliCommandResult {
@@ -25,6 +26,8 @@ export interface CliCommandResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly timedOut: boolean;
+  readonly stdoutTruncated?: boolean;
+  readonly stderrTruncated?: boolean;
 }
 
 export interface CliClassification {
@@ -47,6 +50,8 @@ export async function runCliCommand(args: {
   readonly cwd: string;
   readonly env?: Readonly<Record<string, string>>;
   readonly timeoutMs?: number;
+  readonly onProcess?: (child: ChildProcess) => void;
+  readonly maxOutputBytes?: number;
 }): Promise<CliCommandResult> {
   return new Promise((resolve) => {
     const child = spawn(args.command, [...(args.args ?? [])], {
@@ -54,10 +59,14 @@ export async function runCliCommand(args: {
       env: args.env ? { ...process.env, ...args.env } : process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    args.onProcess?.(child);
     let stdout = "";
     let stderr = "";
     let settled = false;
     let timedOut = false;
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
+    const maxOutputBytes = args.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGTERM");
@@ -66,10 +75,14 @@ export async function runCliCommand(args: {
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
-      stdout += chunk;
+      const next = appendLimited(stdout, chunk, maxOutputBytes);
+      stdout = next.text;
+      stdoutTruncated ||= next.truncated;
     });
     child.stderr.on("data", (chunk) => {
-      stderr += chunk;
+      const next = appendLimited(stderr, chunk, maxOutputBytes);
+      stderr = next.text;
+      stderrTruncated ||= next.truncated;
     });
     child.on("error", (error) => {
       if (settled) return;
@@ -81,15 +94,32 @@ export async function runCliCommand(args: {
         stdout,
         stderr: stderr || error.message,
         timedOut,
+        stdoutTruncated,
+        stderrTruncated,
       });
     });
     child.on("close", (code, signal) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ code, signal, stdout, stderr, timedOut });
+      resolve({ code, signal, stdout, stderr, timedOut, stdoutTruncated, stderrTruncated });
     });
   });
+}
+
+function appendLimited(
+  current: string,
+  chunk: string,
+  maxBytes: number,
+): { text: string; truncated: boolean } {
+  if (maxBytes <= 0) return { text: "", truncated: true };
+  const remaining = maxBytes - Buffer.byteLength(current);
+  if (remaining <= 0) return { text: current, truncated: true };
+  if (Buffer.byteLength(chunk) <= remaining) return { text: current + chunk, truncated: false };
+  return {
+    text: current + Buffer.from(chunk).subarray(0, remaining).toString("utf8"),
+    truncated: true,
+  };
 }
 
 export function classifyCliResult(
@@ -131,7 +161,7 @@ export async function probeCliBinary(args: {
 
 class CliHarnessBackend implements AgentBackend {
   private readonly handlers: AgentMessageHandler[] = [];
-  private currentProcess: ChildProcessWithoutNullStreams | undefined;
+  private currentProcess: ChildProcess | undefined;
   private sessionId: string | undefined;
   private cancelled = false;
 
@@ -156,6 +186,11 @@ class CliHarnessBackend implements AgentBackend {
       cwd: this.opts.cwd,
       env: this.opts.env,
       timeoutMs: this.definition.timeoutMs,
+      onProcess: (child) => {
+        this.currentProcess = child;
+      },
+    }).finally(() => {
+      this.currentProcess = undefined;
     });
     if (this.cancelled) return;
     const classified = classifyCliResult(result, this.definition.classify);
@@ -190,4 +225,3 @@ class CliHarnessBackend implements AgentBackend {
     for (const handler of this.handlers) handler(message);
   }
 }
-

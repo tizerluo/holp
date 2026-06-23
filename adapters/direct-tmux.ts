@@ -77,14 +77,15 @@ export async function probeDirectTmux(args: {
       if (captured.code !== 0 || captured.timedOut || !captured.stdout.includes(marker)) {
         return { ready: false, reason: "tmux_read_probe_failed", missing: ["tmux:capture-pane"] };
       }
-      await runCommand(tmuxCommand, ["send-keys", "-t", sessionId, "C-c"], args.cwd, args.timeoutMs ?? 2_000);
+      await runCommand(tmuxCommand, ["send-keys", "-t", sessionId, "C-c"], args.cwd, args.timeoutMs ?? 2_000)
+        .catch(() => undefined);
     } finally {
       await runCommand(
         args.tmuxCommand ?? "tmux",
         ["kill-session", "-t", sessionId],
         args.cwd,
         args.timeoutMs ?? 2_000,
-      );
+      ).catch(() => undefined);
     }
   }
   return { ready: true };
@@ -155,8 +156,10 @@ class DirectTmuxBackend implements AgentBackend {
   async cancel(sessionId: string): Promise<void> {
     if (sessionId !== this.sessionId) return;
     this.cancelled = true;
-    await runCommand(this.tmuxCommand, ["send-keys", "-t", sessionId, "C-c"], this.opts.cwd, 2_000);
-    await runCommand(this.tmuxCommand, ["kill-session", "-t", sessionId], this.opts.cwd, 2_000);
+    await runCommand(this.tmuxCommand, ["send-keys", "-t", sessionId, "C-c"], this.opts.cwd, 2_000)
+      .catch(() => undefined);
+    await runCommand(this.tmuxCommand, ["kill-session", "-t", sessionId], this.opts.cwd, 2_000)
+      .catch(() => undefined);
   }
 
   onMessage(handler: AgentMessageHandler): void {
@@ -170,7 +173,8 @@ class DirectTmuxBackend implements AgentBackend {
 
   async dispose(): Promise<void> {
     if (this.sessionId) {
-      await runCommand(this.tmuxCommand, ["kill-session", "-t", this.sessionId], this.opts.cwd, 2_000);
+      await runCommand(this.tmuxCommand, ["kill-session", "-t", this.sessionId], this.opts.cwd, 2_000)
+        .catch(() => undefined);
     }
   }
 

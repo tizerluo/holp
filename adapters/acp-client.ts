@@ -53,6 +53,7 @@ export class AcpClient {
   private disposed = false;
   private streamReject: ((error: Error) => void) | undefined;
   private activeUpdateHandler: ((update: AcpSessionUpdate) => void) | undefined;
+  private promptInFlight = false;
 
   constructor(private readonly options: AcpClientOptions) {}
 
@@ -74,6 +75,8 @@ export class AcpClient {
 
   async sendPrompt(sessionId: string, prompt: string): Promise<string> {
     this.start();
+    if (this.promptInFlight) throw new Error("acp_prompt_in_flight");
+    this.promptInFlight = true;
     let output = "";
     let terminal = false;
     let terminalTimer: NodeJS.Timeout | undefined;
@@ -123,6 +126,7 @@ export class AcpClient {
     } finally {
       if (terminalTimer) clearTimeout(terminalTimer);
       this.activeUpdateHandler = undefined;
+      this.promptInFlight = false;
       if (!terminal) {
         this.streamReject = undefined;
       }
@@ -204,7 +208,24 @@ export class AcpClient {
       timer.unref?.();
       this.pending.set(id, { resolve, reject, timer });
     });
-    child.stdin.write(`${JSON.stringify(frame)}\n`);
+    const rejectPendingWrite = (error: Error): void => {
+      const pending = this.pending.get(id);
+      if (!pending) return;
+      this.pending.delete(id);
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    };
+    try {
+      if (child.stdin.destroyed || child.stdin.writableEnded) {
+        rejectPendingWrite(new Error(`acp_write_failed:${method}`));
+      } else {
+        child.stdin.write(`${JSON.stringify(frame)}\n`, (error?: Error | null) => {
+          if (error) rejectPendingWrite(new Error(`acp_write_failed:${method}`));
+        });
+      }
+    } catch {
+      rejectPendingWrite(new Error(`acp_write_failed:${method}`));
+    }
     return promise;
   }
 
