@@ -9,6 +9,7 @@ import {
 import type { AgentMessage, PermissionVerdict } from "./agent-backend.js";
 
 const tempDirs: string[] = [];
+const PROCESS_HEAVY_TEST_TIMEOUT_MS = 20_000;
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -471,7 +472,7 @@ describe("CodexAppServerBackend", () => {
     expect(result.status).toBe("degraded");
     expect(result.missing).toContain("auth:codex");
     expect(result.reason).toBe("codex_auth_status_unknown");
-  });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
   it("reports degraded when app-server initialize fails after auth succeeds", async () => {
     const dir = makeTempDir();

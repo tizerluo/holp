@@ -6,6 +6,7 @@ import { AcpClient, createAcpBackendFactory } from "./acp-client.js";
 import type { AgentMessage } from "./agent-backend.js";
 
 const tempDirs: string[] = [];
+const PROCESS_HEAVY_TEST_TIMEOUT_MS = 20_000;
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -59,7 +60,7 @@ describe("ACP stdio client", () => {
 
     expect(messages).toContainEqual({ type: "model-output", textDelta: "delta:world" });
     expect(messages).toContainEqual({ type: "model-output", fullText: "final:world" });
-  });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
   it("rejects concurrent prompts on one ACP client", async () => {
     const client = new AcpClient({

@@ -205,6 +205,7 @@ function newContextWithGateReport(): ConnectionContext {
       unattended_loop: { supported: false },
       artifact_refs: { supported: false },
       gate_report: { supported: true },
+      dynamic_workflow: { supported: false },
     },
   };
   return ctx;

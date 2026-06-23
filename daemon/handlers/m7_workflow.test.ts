@@ -43,6 +43,7 @@ async function pollUntil(pred: () => boolean, label = "pollUntil", maxTicks = 70
 async function freshHarness(opts?: {
   semanticDecision?: boolean;
   gateReport?: boolean;
+  dynamicWorkflow?: boolean;
 }): Promise<{
   ctx: ConnectionContext;
   clock: FakeClock;
@@ -69,6 +70,7 @@ async function freshHarness(opts?: {
         : {}),
       consensus: { supported: true },
       ...(opts?.gateReport ? { gate_report: { supported: true } } : {}),
+      ...(opts?.dynamicWorkflow ? { dynamic_workflow: { supported: true } } : {}),
     },
   }));
 
@@ -89,6 +91,29 @@ async function approveFirstMergeApproval(h: Awaited<ReturnType<typeof freshHarne
   await pollUntil(() => h.events.some((event) => event.name === "approval_requested"), "approval");
   const approval = h.events.find((event) => event.name === "approval_requested")!;
   const approvalId = (approval.payload as Record<string, unknown>).approval_id as string;
+  ok(await h.dispatch("approval.resolve", {
+    approval_id: approvalId,
+    decision: "approved",
+    by: "user:test",
+  }));
+}
+
+async function approveMergeApprovalAt(
+  h: Awaited<ReturnType<typeof freshHarness>>,
+  index: number,
+): Promise<void> {
+  await pollUntil(
+    () => h.events.filter((event) =>
+      event.name === "approval_requested" &&
+      (event.payload as Record<string, unknown>).kind === "merge_approval"
+    ).length > index,
+    `approval ${index}`,
+  );
+  const approvals = h.events.filter((event) =>
+    event.name === "approval_requested" &&
+    (event.payload as Record<string, unknown>).kind === "merge_approval"
+  );
+  const approvalId = (approvals[index].payload as Record<string, unknown>).approval_id as string;
   ok(await h.dispatch("approval.resolve", {
     approval_id: approvalId,
     decision: "approved",
@@ -149,6 +174,45 @@ describe("M7 workflow foundation loop", () => {
       expect(error.code).toBe(-32600);
       expect(error.message).toContain("workflow");
     }
+  });
+
+  it("rejects malformed canary planner values instead of defaulting them", async () => {
+    const h = await freshHarness();
+
+    for (const canary of [
+      null,
+      "bad",
+      { seed: 1 },
+      { ratio: "1" },
+      { allowlist: ["run_1", 2] },
+    ]) {
+      const error = err(await h.dispatch("orchestrate.run", {
+        goal: "bad canary",
+        roles: {},
+        planner: { mode: "canary", canary },
+      }));
+      expect(error.code).toBe(-32600);
+      expect(error.message).toContain("planner.canary");
+    }
+  });
+
+  it("rejects work_planner when referenced as an executor role", async () => {
+    const h = await freshHarness();
+    ok(await h.dispatch("flock.declare", {
+      agents: [{ id: "router", transport: "learned-router", roles: ["work_planner"] }],
+    }));
+
+    const byRole = err(await h.dispatch("orchestrate.run", {
+      goal: "bad planner role",
+      roles: { work_planner: { agent: "router" } },
+    }));
+    expect(byRole.code).toBe(-32018);
+
+    const asCoder = err(await h.dispatch("orchestrate.run", {
+      goal: "bad planner executor",
+      roles: { coder: { agent: "router" } },
+    }));
+    expect(asCoder.code).toBe(-32018);
   });
 
   it("keeps default orchestrate.run on the pre-M7 event path without workflow events", async () => {
@@ -230,6 +294,14 @@ describe("M7 workflow foundation loop", () => {
     }))).toEqual([
       { action: "implement", outcome: "completed" },
       { action: "review", outcome: "completed" },
+    ]);
+    expect(run?.workflow?.committed_graph?.steps.map((step) => ({
+      action: step.action,
+      role: step.role,
+      agent_id: step.agent_id,
+    }))).toEqual([
+      { action: "implement", role: "coder", agent_id: "coder" },
+      { action: "review", role: "reviewer", agent_id: "r1" },
     ]);
     expect(run?.active_step_token).toBeUndefined();
     expect(run?.step_index).toBeUndefined();
@@ -337,6 +409,142 @@ describe("M7 workflow foundation loop", () => {
       })).toEqual(expectedCandidates);
       expect(JSON.parse(JSON.stringify(state.candidates))).toEqual(state.candidates);
     }
+  });
+
+  it("records learned shadow predictions without exporting them as training samples", async () => {
+    const h = await freshHarness();
+    ok(await h.dispatch("flock.declare", {
+      agents: [{ id: "coder", transport: "fake", roles: ["coder"] }],
+    }));
+    const { run_id } = ok<{ run_id: string }>(await h.dispatch("orchestrate.run", {
+      goal: "shadow workflow",
+      workflow: "linear",
+      max_steps: 2,
+      planner: { mode: "learned_shadow" },
+      roles: { coder: { agent: "coder" } },
+    }));
+    ok(await h.dispatch("events.subscribe", { run_id, after_seq: 0 }));
+
+    await approveFirstMergeApproval(h);
+    await pollUntil(() => h.events.some((event) => event.name === "run_merged"), "merged");
+
+    expect(h.ctx.governance.decisions.some((decision) =>
+      decision.decision_type === "learned_router_shadow_prediction"
+    )).toBe(true);
+    const samples = parseJsonl(exportTrainingSamplesJsonl(h.ctx.governance.decisions));
+    expect(samples).toHaveLength(1);
+    expect(samples.some((sample) => sample.decision_type === "learned_router_shadow_prediction"))
+      .toBe(false);
+  });
+
+  it("fails closed from fixture learned active to RuleWorkPlanner", async () => {
+    const h = await freshHarness();
+    ok(await h.dispatch("flock.declare", {
+      agents: [
+        { id: "coder", transport: "fake", roles: ["coder"] },
+        { id: "router", transport: "learned-router", roles: ["work_planner"] },
+      ],
+    }));
+    const { run_id } = ok<{ run_id: string }>(await h.dispatch("orchestrate.run", {
+      goal: "active fixture fallback",
+      workflow: "linear",
+      max_steps: 2,
+      planner: { mode: "learned_active", agent: "router", evidence_id: "ev_fixture" },
+      roles: { coder: { agent: "coder" } },
+    }));
+    ok(await h.dispatch("events.subscribe", { run_id, after_seq: 0 }));
+
+    await approveFirstMergeApproval(h);
+    await pollUntil(() => h.events.some((event) => event.name === "run_merged"), "merged");
+
+    expect(h.ctx.runs.get(run_id)?.planner_mode).toBe("learned_active");
+    expect(h.ctx.governance.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        decision_type: "learned_router_active_fallback",
+        reason: "fixture_backing_not_active_eligible",
+      }),
+    ]));
+  });
+
+  it("does not claim active-selected audit for fixture canary lane", async () => {
+    const h = await freshHarness();
+    ok(await h.dispatch("flock.declare", {
+      agents: [
+        { id: "coder", transport: "fake", roles: ["coder"] },
+        { id: "router", transport: "learned-router", roles: ["work_planner"] },
+      ],
+    }));
+    const { run_id } = ok<{ run_id: string }>(await h.dispatch("orchestrate.run", {
+      goal: "canary fixture fallback",
+      workflow: "linear",
+      max_steps: 2,
+      planner: {
+        mode: "canary",
+        agent: "router",
+        canary: { seed: "test", ratio: 1 },
+      },
+      roles: { coder: { agent: "coder" } },
+    }));
+    ok(await h.dispatch("events.subscribe", { run_id, after_seq: 0 }));
+
+    await approveFirstMergeApproval(h);
+    await pollUntil(() => h.events.some((event) => event.name === "run_merged"), "merged");
+
+    expect(h.ctx.runs.get(run_id)?.planner_mode).toBe("canary");
+    expect(h.ctx.governance.decisions.some((decision) =>
+      decision.decision_type === "learned_router_active_selected"
+    )).toBe(false);
+    expect(h.ctx.governance.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        decision_type: "learned_router_active_fallback",
+        reason: "fixture_backing_not_active_eligible",
+      }),
+    ]));
+  });
+
+  it("continues bounded L1 request_changes as fix then review", async () => {
+    const h = await freshHarness();
+    await declareCoderAndReviewers(h);
+    const { run_id } = ok<{ run_id: string }>(await h.dispatch("orchestrate.run", {
+      goal: "l1 request changes",
+      workflow: "linear",
+      max_steps: 5,
+      roles: {
+        coder: { agent: "coder" },
+        reviewer: { panel: ["r1", "r2"], quorum: 1 },
+      },
+    }));
+    ok(await h.dispatch("events.subscribe", { run_id, after_seq: 0 }));
+
+    const run = h.ctx.runs.get(run_id)!;
+    let reviewCalls = 0;
+    const reviewer: ReviewerExecutor = async ({ agents }) => {
+      reviewCalls += 1;
+      return agents.map((agent) => ({
+        agent,
+        status: "completed" as const,
+        verdict: reviewCalls === 1 ? "request_changes" as const : "approve" as const,
+        max_severity: reviewCalls === 1 ? "P2" as const : "NONE" as const,
+      }));
+    };
+    (run as { reviewerExecutor?: ReviewerExecutor }).reviewerExecutor = reviewer;
+
+    await approveMergeApprovalAt(h, 0);
+    await pollUntil(() => (run.step_history?.length ?? 0) >= 2, "first review recorded");
+    await approveMergeApprovalAt(h, 1);
+    await pollUntil(() => h.events.some((event) => event.name === "run_merged"), "merged");
+
+    expect(run.step_history?.map((entry) => ({
+      action: entry.action.kind === "step" ? entry.action.action : entry.action.kind,
+      outcome: entry.outcome,
+      reason: entry.reason,
+    }))).toEqual([
+      { action: "implement", outcome: "completed", reason: undefined },
+      { action: "review", outcome: "blocked", reason: "consensus_request_changes" },
+      { action: "fix", outcome: "completed", reason: undefined },
+      { action: "review", outcome: "completed", reason: undefined },
+    ]);
+    expect(terminalEvents(h.events)).toHaveLength(1);
   });
 
   it("blocks once and exports negative reward when consensus rejects the review step", async () => {

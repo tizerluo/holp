@@ -36,10 +36,13 @@ import { driveRun } from "../core/runEngine.js";
 import { expireApproval } from "../core/approvalLifecycle.js";
 import { driveWorkflowRun } from "../core/workflowEngine.js";
 import {
+  canarySelected,
+  FixtureLearnedWorkPlanner,
   parseMaxSteps,
   parseWorkflowId,
   RuleWorkPlanner,
   type DispatchCandidateV1,
+  type PlannerModeV1,
 } from "../core/workPlanner.js";
 import type {
   ConsensusPolicy,
@@ -91,6 +94,17 @@ export function handleOrchestrateRun(
   const consensusPolicy = parseConsensusPolicy(params.policy);
   const workflowId = parseWorkflowParam(params.workflow);
   const maxSteps = parseMaxStepsParam(params.max_steps);
+  const plannerRequest = parsePlannerRequest(params.planner);
+
+  if (roles.work_planner !== undefined) {
+    throw new HolpRpcError(
+      holpError(
+        "role_unsupported",
+        "work_planner is planner-only and cannot be used as an executor role",
+        { role: "work_planner" },
+      ),
+    );
+  }
 
   // Collect all agent ids referenced.
   const agentRefs: Array<{
@@ -148,6 +162,32 @@ export function handleOrchestrateRun(
       );
     }
   }
+  if (plannerRequest.agent && !ctx.flock.has(plannerRequest.agent)) {
+    throw new HolpRpcError(
+      holpError("agent_not_found", `planner agent '${plannerRequest.agent}' not in this connection's flock`, {
+        agent_id: plannerRequest.agent,
+      }),
+    );
+  }
+  if (plannerRequest.agent) {
+    const plannerAgent = ctx.flock.get(plannerRequest.agent) as FlockAgent;
+    if (
+      plannerAgent.transport !== "learned-router" ||
+      !plannerAgent.resolved_roles.includes("work_planner")
+    ) {
+      throw new HolpRpcError(
+        holpError(
+          "role_unsupported",
+          `agent '${plannerRequest.agent}' does not have planner-only role 'work_planner'`,
+          {
+            agent_id: plannerRequest.agent,
+            role: "work_planner",
+            resolved_roles: plannerAgent.resolved_roles,
+          },
+        ),
+      );
+    }
+  }
 
   // --- Validation step 2: role_unsupported (+ unsupported_transport for rejected) ---
   // Single-point roles first.
@@ -157,6 +197,15 @@ export function handleOrchestrateRun(
   for (const ref of agentRefs) {
     if (ref.isPanel) continue;
     const agent = ctx.flock.get(ref.agentId) as FlockAgent;
+    if (agent.transport === "learned-router" || agent.resolved_roles.includes("work_planner")) {
+      throw new HolpRpcError(
+        holpError(
+          "role_unsupported",
+          `agent '${ref.agentId}' is planner-only and cannot be used as '${ref.role}'`,
+          { agent_id: ref.agentId, role: ref.role, resolved_roles: agent.resolved_roles },
+        ),
+      );
+    }
     if (agent.status === "rejected") {
       throw new HolpRpcError(
         holpError(
@@ -202,6 +251,15 @@ export function handleOrchestrateRun(
   // (b) Reviewer panel role check (non-rejected agents — rejected already caught above).
   for (const agentId of reviewerPanel) {
     const agent = ctx.flock.get(agentId) as FlockAgent;
+    if (agent.transport === "learned-router" || agent.resolved_roles.includes("work_planner")) {
+      throw new HolpRpcError(
+        holpError(
+          "role_unsupported",
+          `agent '${agentId}' is planner-only and cannot be used as 'reviewer'`,
+          { agent_id: agentId, role: "reviewer", resolved_roles: agent.resolved_roles },
+        ),
+      );
+    }
     if (!agent.resolved_roles.includes("reviewer")) {
       throw new HolpRpcError(
         holpError(
@@ -461,6 +519,16 @@ export function handleOrchestrateRun(
   });
 
   if (maxSteps > 1) {
+    const plannerMode = effectivePlannerMode(plannerRequest, runId);
+    if (plannerRequest.mode === "canary" && plannerMode === "rule") {
+      ctx.governance.recordDecision({
+        decision_type: "learned_router_active_fallback",
+        run_id: runId,
+        reason: "canary_lane_not_selected",
+        ts: clock.now(),
+        data: { planner: plannerRequest, effective_mode: plannerMode },
+      });
+    }
     const candidates = buildDispatchCandidates(
       coderAgent,
       coderRuntime,
@@ -473,6 +541,11 @@ export function handleOrchestrateRun(
         workflowId,
         maxSteps,
         planner: new RuleWorkPlanner(),
+        plannerMode,
+        learnedPlanner: plannerMode === "rule"
+          ? undefined
+          : new FixtureLearnedWorkPlanner("fixture-learned-router-v1", learnedBuffer(plannerMode)),
+        plannerEvidenceId: plannerRequest.evidence_id,
         candidates,
         coder: {
           agent_id: coderAgentId,
@@ -582,6 +655,88 @@ function parseMaxStepsParam(value: unknown): number {
       invalidRequest(error instanceof Error ? error.message : String(error)),
     );
   }
+}
+
+interface PlannerRequest {
+  readonly mode: PlannerModeV1;
+  readonly agent?: string;
+  readonly evidence_id?: string;
+  readonly canary?: {
+    readonly seed: string;
+    readonly ratio: number;
+    readonly allowlist?: readonly string[];
+  };
+}
+
+function parsePlannerRequest(value: unknown): PlannerRequest {
+  if (value === undefined) return { mode: "rule" };
+  if (!isObject(value)) {
+    throw new HolpRpcError(invalidRequest("orchestrate.run.planner must be an object"));
+  }
+  const mode = value.mode;
+  if (!isPlannerMode(mode)) {
+    throw new HolpRpcError(
+      invalidRequest("orchestrate.run.planner.mode must be rule, learned_shadow, learned_active, or canary"),
+    );
+  }
+  let canary: PlannerRequest["canary"];
+  if (value.canary !== undefined) {
+    if (!isObject(value.canary)) {
+      throw new HolpRpcError(invalidRequest("orchestrate.run.planner.canary must be an object"));
+    }
+    if (value.canary.seed !== undefined && typeof value.canary.seed !== "string") {
+      throw new HolpRpcError(invalidRequest("orchestrate.run.planner.canary.seed must be a string"));
+    }
+    if (value.canary.ratio !== undefined && typeof value.canary.ratio !== "number") {
+      throw new HolpRpcError(invalidRequest("orchestrate.run.planner.canary.ratio must be a number"));
+    }
+    if (
+      value.canary.allowlist !== undefined &&
+      (!Array.isArray(value.canary.allowlist) ||
+        !value.canary.allowlist.every((item) => typeof item === "string"))
+    ) {
+      throw new HolpRpcError(invalidRequest("orchestrate.run.planner.canary.allowlist must be string[]"));
+    }
+    canary = {
+      seed: value.canary.seed ?? "holp-canary-v1",
+      ratio: value.canary.ratio ?? 0,
+      allowlist: value.canary.allowlist,
+    };
+  }
+  if (canary && (canary.ratio < 0 || canary.ratio > 1)) {
+    throw new HolpRpcError(invalidRequest("orchestrate.run.planner.canary.ratio must be between 0 and 1"));
+  }
+  return {
+    mode,
+    agent: typeof value.agent === "string" ? value.agent : undefined,
+    evidence_id: typeof value.evidence_id === "string" ? value.evidence_id : undefined,
+    canary,
+  };
+}
+
+function isPlannerMode(value: unknown): value is PlannerModeV1 {
+  return value === "rule" ||
+    value === "learned_shadow" ||
+    value === "learned_active" ||
+    value === "canary";
+}
+
+function effectivePlannerMode(request: PlannerRequest, runId: string): PlannerModeV1 {
+  if (request.mode !== "canary") return request.mode;
+  const canary = request.canary ?? { seed: "holp-canary-v1", ratio: 0 };
+  return canarySelected({
+    runId,
+    seed: canary.seed,
+    ratio: canary.ratio,
+    allowlist: canary.allowlist,
+  })
+    ? "canary"
+    : "rule";
+}
+
+function learnedBuffer(mode: PlannerModeV1): "shadow" | "active" | "canary" {
+  if (mode === "canary") return "canary";
+  return mode === "learned_active" ? "active" : "shadow";
 }
 
 function parsePreferredRuntimeSurface(value: unknown, path: string): RuntimeSurface {

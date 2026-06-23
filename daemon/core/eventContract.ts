@@ -22,6 +22,8 @@ export const EVENT_NAME_CONTRACT = {
     "workflow_selected",
     "workflow_step_planned",
     "workflow_step_completed",
+    "workflow_revised",
+    "workflow_revision_rejected",
   ],
 } as const satisfies Record<EventCategory, readonly string[]>;
 

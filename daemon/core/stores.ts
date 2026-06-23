@@ -16,7 +16,9 @@ import type { ReviewerExecutor } from "./reviewer.js";
 import type { ScheduledTask } from "./scheduler.js";
 import type {
   DispatchHistoryEntryV1,
+  PlannerModeV1,
   RuntimeActionV1,
+  WorkflowGraphV1,
   WorkflowIdV1,
 } from "./workPlanner.js";
 
@@ -118,10 +120,15 @@ export interface RunRecord {
     readonly version: "WorkflowRun.v1";
     readonly workflow_id: WorkflowIdV1;
     readonly max_steps: number;
+    readonly committed_graph?: WorkflowGraphV1;
+    readonly pending_graph?: WorkflowGraphV1;
   };
   step_index?: number;
   step_history?: DispatchHistoryEntryV1[];
-  planner_mode?: "rule" | "learned-shadow" | "learned-active";
+  planner_mode?: PlannerModeV1;
+  planner_evidence_id?: string;
+  planner_backing?: "fixture_planner" | "real_learned_model";
+  rejected_workflow_revisions?: Set<string>;
   per_step?: Array<{
     readonly step_index: number;
     readonly action: RuntimeActionV1;

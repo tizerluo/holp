@@ -25,6 +25,7 @@ export const CAPABILITY_NAMES = [
   "unattended_loop",
   "artifact_refs",
   "gate_report",
+  "dynamic_workflow",
 ] as const;
 
 export type CapabilityName = (typeof CAPABILITY_NAMES)[number];

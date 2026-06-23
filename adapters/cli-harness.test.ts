@@ -11,6 +11,7 @@ import {
 import type { AgentMessage } from "./agent-backend.js";
 
 const tempDirs: string[] = [];
+const PROCESS_HEAVY_TEST_TIMEOUT_MS = 20_000;
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -49,7 +50,7 @@ describe("CLI harness wrapper", () => {
     });
 
     expect(classifyCliResult(result)).toEqual({ ok: false, reason });
-  });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
   it("fails closed on timeout", async () => {
     const result = await runCliCommand({

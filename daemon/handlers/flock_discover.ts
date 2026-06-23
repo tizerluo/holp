@@ -64,7 +64,7 @@ export async function handleFlockDiscover(
     }
 
     const id = discoveredAgentId(transport);
-    const roles = ["coder", "reviewer", "tester"];
+    const roles = discoveredRoles(transport);
     const agent: FlockAgent = probe
       ? toFlockAgent(
           id,
@@ -119,9 +119,15 @@ function discoveredAgentId(transport: string): string {
       return "claude-agent";
     case "acp":
       return "acp-agent";
+    case "learned-router":
+      return "learned-router";
     default:
       return `${transport}-agent`;
   }
+}
+
+function discoveredRoles(transport: string): readonly string[] {
+  return transport === "learned-router" ? ["work_planner"] : ["coder", "reviewer", "tester"];
 }
 
 function notProbedRuntimeSurfaces(id: string): readonly RuntimeSurfaceDeclaration[] {

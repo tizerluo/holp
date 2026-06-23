@@ -28,6 +28,7 @@ describe("initialize: capability negotiation (spec §2)", () => {
           unattended_loop: { supported: true, required: true },
           artifact_refs: { supported: true },
           gate_report: { supported: true },
+          dynamic_workflow: { supported: true },
         },
       }),
     )) as JsonRpcSuccessResponse;
@@ -45,6 +46,7 @@ describe("initialize: capability negotiation (spec §2)", () => {
     expect(result.capabilities.unattended_loop.supported).toBe(true);
     expect(result.capabilities.artifact_refs.supported).toBe(true);
     expect(result.capabilities.gate_report.supported).toBe(true);
+    expect(result.capabilities.dynamic_workflow.supported).toBe(true);
     // approval.kinds intersection: client ["merge_approval"] ∩ server full set
     expect(result.capabilities.approval.supported).toBe(true);
     expect(result.capabilities.approval.kinds).toEqual(["merge_approval"]);
@@ -52,6 +54,7 @@ describe("initialize: capability negotiation (spec §2)", () => {
     expect(ctx.initialized?.clientName).toBe("cmux");
     expect(ctx.initialized?.negotiated.consensus.supported).toBe(true);
     expect(ctx.initialized?.negotiated.gate_report.supported).toBe(true);
+    expect(ctx.initialized?.negotiated.dynamic_workflow.supported).toBe(true);
   });
 
   it("absent client capability negotiates to supported:false (intersection)", async () => {
@@ -65,11 +68,12 @@ describe("initialize: capability negotiation (spec §2)", () => {
     )) as JsonRpcSuccessResponse;
     const caps = (res.result as { capabilities: Record<string, { supported: boolean }> }).capabilities;
     expect(caps.consensus.supported).toBe(true);
-    // approval/unattended_loop/artifact_refs/gate_report absent on client → false
+    // approval/unattended_loop/artifact_refs/gate_report/dynamic_workflow absent on client → false
     expect(caps.approval.supported).toBe(false);
     expect(caps.unattended_loop.supported).toBe(false);
     expect(caps.artifact_refs.supported).toBe(false);
     expect(caps.gate_report.supported).toBe(false);
+    expect(caps.dynamic_workflow.supported).toBe(false);
   });
 
   it("client requires a capability the server does not support → capability_required_but_unsupported", async () => {

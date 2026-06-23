@@ -1,6 +1,6 @@
 # HOLP — Human On Loop Protocol
 
-> **版本**:v0.1.7 (draft)
+> **版本**:v0.1.8 (draft)
 > **状态**:草稿,参考实现进行中
 > **定位**:见 `docs/positioning.md`。开源、免费、本地优先的 multi-agent 编排协议。
 
@@ -45,9 +45,10 @@ client 连上后第一条。双方报身份与**细粒度能力**。每个 capab
       "approval":     { "supported": true, "kinds": ["merge_approval"] },
       "unattended_loop": { "supported": true, "required": true },
       "artifact_refs":{ "supported": true },
-      "gate_report":  { "supported": true }
+      "gate_report":  { "supported": true },
+      "dynamic_workflow": { "supported": true }
     },
-    "protocol_version": "0.1.7"
+    "protocol_version": "0.1.8"
   }
 }
 ```
@@ -57,15 +58,16 @@ client 连上后第一条。双方报身份与**细粒度能力**。每个 capab
 {
   "jsonrpc": "2.0", "id": 1,
   "result": {
-    "server": { "name": "holp-reference-daemon", "version": "0.1.7" },
+    "server": { "name": "holp-reference-daemon", "version": "0.1.8" },
     "capabilities": {
       "consensus":    { "supported": true },
       "approval":     { "supported": true, "kinds": ["merge_approval","force_push_approval","budget_exceeded"] },
       "unattended_loop": { "supported": true },
       "artifact_refs":{ "supported": true },
-      "gate_report":  { "supported": true }
+      "gate_report":  { "supported": true },
+      "dynamic_workflow": { "supported": true }
     },
-    "protocol_version": "0.1.7"
+    "protocol_version": "0.1.8"
   }
 }
 ```
@@ -78,6 +80,7 @@ client 连上后第一条。双方报身份与**细粒度能力**。每个 capab
 - `approval.kinds` 取交集;**任一方 `approval.required:true` 且 kinds 交集为空** → `initialize` 拒绝;**双方都非 required 但 kinds 空交集** → 不拒绝连接,run 触发该 kind 时按 §7/§11 降级或 escalate。
 - `artifact_refs` 不可用 → server 不得用 artifact envelope 承载**大 payload/evidence**;凡 spec 中放 evidence envelope 的位置(consensus `reviews[].findings`、approval `details`)改放**内联降级形态**(见 §6.1、§7)。`artifact_refs` 不控制 provenance/identity 字段里的裸 `artifact_id`(如 `target.artifact_id`、`provenance.artifact_id`),这些 id 只是关联已知产物,不要求 consumer 再取大 payload。
 - `gate_report` 不可用 → server **不得**发 `gate.gate_report`。旧 consumer 继续只收 `consensus_*` / `approval_*` / `run_*` 事件。
+- `dynamic_workflow` 不可用 → server **不得**发 `workflow_revised` / `workflow_revision_rejected` lifecycle events。L0/M7 `workflow_selected` / `workflow_step_planned` / `workflow_step_completed` 仍是旧 consumer 可忽略的 lifecycle events。
 
 ---
 
@@ -97,7 +100,9 @@ client 连上后第一条。双方报身份与**细粒度能力**。每个 capab
   ] } }
 ```
 
-字段:`id`(开放字符串,运行时校验)/ `transport`(`native-claude`|`mcp-codex`|`acp`|自定义)/ `roles`(architect/reviewer/coder/tester/test_audit/test_strengthen)/ `auth_ref`(凭证引用,**不传明文**:`env:XXX`|`login:agent`|`secret:name`)/ `enabled`。
+字段:`id`(开放字符串,运行时校验)/ `transport`(`native-claude`|`mcp-codex`|`acp`|`learned-router`|自定义)/ `roles`(architect/reviewer/coder/tester/test_audit/test_strengthen/work_planner)/ `auth_ref`(凭证引用,**不传明文**:`env:XXX`|`login:agent`|`secret:name`)/ `enabled`。
+
+`learned-router` transport 只能声明 `work_planner` role。`work_planner` 是 planner-only role:它只能通过 `orchestrate.run.planner` 参与 WorkPlanner 决策,不得作为 `roles.coder` / `roles.reviewer` / `roles.tester` 等 executor role 使用。任何把 `work_planner` 或 `learned-router` agent 放入 executor role graph 的请求,必须在 runtime selection 前 fail-closed 为 `role_unsupported`。
 
 ### 3.2 `flock.discover`(pull:让 orchestrator 主动发现本地 agent)
 
@@ -227,6 +232,9 @@ M4a 内部 governance registry 还预留 `permission_surface` / `observability_s
       "reviewer": { "panel": ["claude", "gemini"], "quorum": 2, "preferred_runtime_surface": "acp" }
     },
     "execution_mode": { "kind": "Local" },
+    "planner": {
+      "mode": "rule"
+    },
     "policy": {
       "exclude_author": true,
       "author_provenance": "produced_by_agent_id",
@@ -241,6 +249,7 @@ M4a 内部 governance registry 还预留 `permission_surface` / `observability_s
 - `roles`:角色派单;reviewer 带 `panel`+`quorum`。**共识配置只在 `roles.reviewer` 一处**。引用的 agent id 绑定 flock(见 §4.2)。
   - `roles.<role>.preferred_runtime_surface` 可选,取值 `headless` | `acp` | `direct_user_session`。缺省保持旧 consumer 的 legacy `headless` 行为。显式请求 `acp` / `direct_user_session` 时,该 surface 的 declaration/factory 不可用必须 fail-closed,不得 fallback 到 headless。未知值为 JSON-RPC `invalid_request`。
 - `execution_mode`:见 §4.1。
+- `planner`:可选的 planner 选择,顶层字段,不得通过 `roles` 表达。`mode` 取值:`rule` | `learned_shadow` | `learned_active` | `canary`;可选 `agent` 引用一个 flock 中已声明的 `learned-router` / `work_planner`;可选 `evidence_id`;`canary` 支持 `{seed, ratio, allowlist}`。fixture backing 只能 replay/shadow;active/canary 必须有 `real_learned_model` attestation 和 promotion evidence,否则 fail-closed 回退 `RuleWorkPlanner` 并记录 governance audit。当前参考实现只声称 fixture fail-closed safe lane,不声称 active/canary readiness。
 - `policy`:治理策略(不是 wire 层业务概念)。
   - `exclude_author`:是否排除作者(orchestrator policy)。
   - `author_provenance`:作者身份来源——`produced_by_agent_id` | `commit_author` | `run_initiator`。
@@ -264,6 +273,7 @@ M4a 内部 governance registry 还预留 `permission_surface` / `observability_s
 - **known 但 status=rejected**(声明/发现过但不可调度)→ 该 agent 视为不可用:用于 reviewer panel 时按 §6.2 走 `invalid_quorum`(panel 含 rejected agent);用于单点 role(coder/architect 等)时按 §10.1 走 `unsupported_transport`/`missing_auth`。
 - **known 但 status=degraded**:只有当其 `resolved_roles` 含目标角色且声明/发现结果没有把该角色标为缺失时,才可用于该 role/panel;否则按 role 不匹配走 `role_unsupported`。
 - **role 不匹配**:被派的 agent 其 flock response `resolved_roles` 不含该角色(如把 `resolved_roles:["coder"]` 的 agent 派为 reviewer)→ error `role_unsupported`(§10)。
+- **planner-only 误用**:`roles.work_planner` 或把 `transport:"learned-router"` / `resolved_roles:["work_planner"]` 的 agent 放入 executor role → error `role_unsupported`。planner 选择只能走顶层 `orchestrate.run.planner`。
 
 「known」以本连接 flock 状态为准——flock 是连接级会话状态,不跨连接共享。
 
@@ -324,7 +334,7 @@ M4a 内部 governance registry 还预留 `permission_surface` / `observability_s
 - `consensus`:`consensus_verdict`(见 §6)/`consensus_degraded`
 - `approval`:`approval_requested`/`approval_resolved`/`approval_expired`/`approval_cancelled`(见 §7,单通道状态机,每态一事件)
 - `gate`:`gate_report`(见 §6.4;仅在 `gate_report` capability 协商成功时发送)
-- `lifecycle`:`escalated`/`lease_stolen`/`circuit_open`
+- `lifecycle`:`workflow_selected`/`workflow_step_planned`/`workflow_step_completed`/`workflow_revised`/`workflow_revision_rejected`。`workflow_revised` 与 `workflow_revision_rejected` 仅在 `dynamic_workflow` capability 协商成功时发送。
 
 每事件带 `subscription_id`、`seq`(单调、可重放)、`ts`、`run_id`、`category`、`name`、`payload`。
 
@@ -666,7 +676,7 @@ JSON-RPC error object:`{ "code": <int>, "message": <string>, "data": {...} }`。
 
 ## 12. 实现边界(参考 daemon)
 
-**协议层(draft v0.1.7)**:本 spec 全章有定义。v0.1.5 将 Issue #11 的 harness isolation baseline 吸收进 §3 flock:runtime surface / isolation readiness matrix;v0.1.7 增加 consumer stable gate report surface。
+**协议层(draft v0.1.8)**:本 spec 全章有定义。v0.1.5 将 Issue #11 的 harness isolation baseline 吸收进 §3 flock:runtime surface / isolation readiness matrix;v0.1.7 增加 consumer stable gate report surface;v0.1.8 增加 learned router safe lane 与 dynamic workflow capability-gated lifecycle revision events。
 
 **当前仓已落地**:
 - ✅ 协议 draft(`protocol/`)。
@@ -682,14 +692,15 @@ JSON-RPC error object:`{ "code": <int>, "message": <string>, "data": {...} }`。
 - ✅ M6b second real provider adapter partial:`native-claude` 通过 Claude Code headless `-p --output-format json` 接入 reviewer path,read-only ready 取决于 enforcement probe evidence。
 - ✅ M6c runtime/session matrix foundation:consumer CLI 从 flock public wire response 渲染 headless/acp/direct_user_session、direct channel observation/control、isolation readiness 和声明风险。
 - ✅ M9 stable gate surface partial:`gate_report` capability + `gate.gate_report` / `GateReport.v1` projection,覆盖 consensus verdict/degraded、approval pending/resolved、override audit、terminal consistency、artifact_refs 降级等价和 CLI summary。
+- ✅ M10/M11 safe-lane partial:`learned-router` / `work_planner` planner-only role,top-level `orchestrate.run.planner`,fixture replay/shadow/fail-closed active fallback,promotion evidence shape,L1 bounded `request_changes -> fix -> review`,L2 `WorkflowRevision.v1` validator/reject/audit foundation,and capability-gated `workflow_revised` / `workflow_revision_rejected` events. No `real_learned_model` backing, active/canary smoke/readiness, or L2 learned-active readiness is claimed.
 
 **参考 daemon 下一步 milestone**:
-- ⏳ M10 learned router safe lane:replay / eval / shadow mode / opt-in active canary。
-- ⏳ M11 dynamic workflow:L1 bounded dynamic insertion,then L2 after replay/shadow evidence。
+- ⏳ M10 learned router real active lane:requires `real_learned_model` attestation and fresh promotion evidence before active/canary can execute learned decisions.
+- ⏳ M11 L2 learned-active dynamic workflow:full pending-graph replacement requires fresh matching evidence;fixture backing remains replay/shadow/fallback only.
 - ⏳ M12 Remote/distributed HOLP:remote runner surface,artifact/event/approval relay。
 - ❌ 未做(不声称):12-agent 完整矩阵;Web 传输;Remote(wire 不含)。PR14/M8 已落第一批真实 runtime surface pilot,但不表示所有 headless/ACP/direct paths 全覆盖。
 
-**当前仓只声称**「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter + v0.1.5 runtime surface/isolation baseline + M4a governance skeleton partial + M4b consensus kernel partial + M5 fake+fake demo + M5b real reviewer pilot + M6a fake consumer CLI partial + M6b native-claude headless reviewer partial + M6c runtime/session matrix foundation + M8 first real runtime surface pilot + M9 stable gate surface partial」。未接线 transport 的 declare/discover 实测 status 仍为 `rejected`;不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session` 三类运行面,也不声称 learned router active、dynamic workflow 或 Remote 已完成。
+**当前仓只声称**「protocol draft + fake backend 跑通的 M1 闭环 + M2 契约层锁定 + Codex app-server 首个真实 adapter + v0.1.5 runtime surface/isolation baseline + M4a governance skeleton partial + M4b consensus kernel partial + M5 fake+fake demo + M5b real reviewer pilot + M6a fake consumer CLI partial + M6b native-claude headless reviewer partial + M6c runtime/session matrix foundation + M8 first real runtime surface pilot + M9 stable gate surface partial + M10/M11 fixture replay/shadow/fail-closed/L1 bounded dynamic workflow plus L2 revision validator/reject/audit foundation partial」。未接线 transport 的 declare/discover 实测 status 仍为 `rejected`;不声称 12 个 agent 已完整支持 `headless` / `acp` / `direct_user_session` 三类运行面,也不声称 `real_learned_model` backing、learned router active/canary smoke/readiness、L2 learned-active workflow readiness 或 Remote 已完成。
 
 ### 12.1 adapter 实现约束
 
@@ -711,6 +722,7 @@ JSON-RPC error object:`{ "code": <int>, "message": <string>, "data": {...} }`。
 
 ## CHANGELOG
 
+- **v0.1.8**:M10/M11 learned router safe lane + dynamic workflow partial。新增 `dynamic_workflow` capability;新增 `learned-router` transport 与 planner-only `work_planner` role;`orchestrate.run.planner` 顶层选择 `rule` / `learned_shadow` / `learned_active` / `canary`,不得通过 executor `roles` 表达。fixture planner 只可 replay/shadow;active/canary/L2 learned-active 需要 `real_learned_model` attestation + fresh promotion evidence,否则 fail-closed 回退 RuleWorkPlanner。新增 `workflow_revised` / `workflow_revision_rejected` lifecycle events,仅在 `dynamic_workflow` 协商成功时发送。L1 支持受限 `request_changes -> fix -> review`;L2 pending graph revision 必须整体验证或整体拒绝。
 - **v0.1.7**:M9 consumer stable gate surface。新增 `gate_report` capability、`gate` event category、唯一 event name `gate_report`、`GateReport.v1.decision_surface`(`review_outcome` + `gate_disposition`)作为 consumer summary truth。`approval.resolve` 对 `semantic_decision` 增加必填 audit fields,未知 approval kind fail-closed;`policy.on_consensus_blocking` 支持 quorum-met `request_changes`/`reject` 先进入 `waiting_approval`。`task.cancel` 明确为 run abort,不是 override。
 - **v0.1.5**:Issue #11 baseline amendment。把多 harness 隔离模型提升为协议基准:§3 增加 runtime surface / isolation readiness matrix,要求 flock declare/discover 能表达 `headless` / `acp` / `direct_user_session` 三类运行面、runtime kind、direct channel observation/control 能力、isolation profile readiness、state declaration ref、global mutation risk。`ready` 不再表示"agent 整体可用",只表示某个 runtime surface + isolation profile 下可调度。当前实现可以返回 unknown/unsupported/rejected,但不能省略该语义。
 - **v0.1.4**:跨仓 review(对照 cmux/warp/loopwright/happier/spawn/skypilot 真实代码)后补互操作缺口。**P1**:`artifact_refs` 不可用时 consensus `findings` / approval `details` 的内联降级形态,并澄清 provenance 裸 `artifact_id` 不受该能力控制(§2/§6.1/§7/§8.1);`orchestrate.run` 的 agent 引用绑定 flock + role 校验(§4.2,新错误码 `role_unsupported` -32018、`agent_not_found` -32019);`events.subscribe.categories` 语义(白名单/省略=全订)+ 五 category 封闭枚举(§5,新错误码 `invalid_event_category` -32020)。**P2**:§7 race 表述对 server-timeout 分支修正;§10.1 单点 role vs reviewer panel 的 rejected 分流交叉引用;seq 从 1 起的边界定义(§5);happier 权限枚举更正(五值,非三值)+ 补 loopwright `reviewerCandidates` 归因(positioning)。**冻结门(PR1)**:修了 4 处 spec 源内不自洽——§1 控制面方法列表补 `artifact.get`(§8.2 已定义却漏列);flock declare/discover 示例 cast 一致化(§3.3 回执改为返回 declare 声明过的 `claude`+`codex`,不再凭空返回未声明的 `gemini`;`gemini` 改走 §3.2 discover 并配 response 示例,`status=degraded` 且 `resolved_roles` 含 `reviewer`);§4 `orchestrate.run` 示例与 flock 实测 status 自洽(panel `[claude,gemini]` 均 known、reviewer 可用、非 rejected,排除作者 codex 后 eligible=2≥quorum2 → `accepted:true` 合法);§5 补 `events.unsubscribe` 的 success response 形状 `{subscription_id, unsubscribed:true}` + 未知 id 走 `invalid_subscription`。本 PR 即在冻结 v0.1.4,**不 bump 版本号**。

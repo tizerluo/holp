@@ -97,6 +97,14 @@ export function renderEvent(event: EventFrame): string[] {
       return renderConsensusDegraded(payload);
     case "gate_report":
       return renderGateReport(payload);
+    case "workflow_revised":
+      return [
+        `workflow revised: revision=${stringField(payload, "revision_id") ?? "unknown"} cursor=${payload.cursor ?? "?"}`,
+      ];
+    case "workflow_revision_rejected":
+      return [
+        `workflow revision rejected: revision=${stringField(payload, "revision_id") ?? "unknown"} rollback_cursor=${payload.rollback_cursor ?? "?"} reason=${stringField(payload, "reason") ?? "unknown"}`,
+      ];
     default:
       return [`[${event.category}] ${event.name}: ${preview(event.payload)}`];
   }
