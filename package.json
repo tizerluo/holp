@@ -16,6 +16,7 @@
     "demo:cli:inline": "tsx consumers/cli/index.ts run --scenario=consensus --artifact-refs=false --decision=approved",
     "demo:cli:degraded": "tsx consumers/cli/index.ts run --scenario=degraded --decision=approved",
     "harness:workspace": "tsx consumers/harness-workspace/demo.ts",
+    "harness:workspace:cmux-layout": "tsx consumers/cmux-bridge/demo.ts",
     "demo:m5": "tsx consumers/cli/m5-consensus-demo.ts",
     "smoke:codex": "tsx scripts/smoke/codex-approval-patch.e2e.ts",
     "smoke:codex:adapter": "tsx scripts/smoke/codex-approval-patch.adapter.ts",

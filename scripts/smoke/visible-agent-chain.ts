@@ -1,11 +1,24 @@
 #!/usr/bin/env tsx
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DaemonClient, RpcError, type EventFrame } from "../../consumers/cli/wire.js";
 import { isTerminalEvent, objectPayload, stringField } from "../../consumers/cli/renderer.js";
+import {
+  cmuxWorkspaceFromEnv,
+  resolveCmuxCommand,
+  runCmuxBestEffort,
+  type CmuxCommandResult,
+} from "../../consumers/cmux-bridge/index.js";
+
+export {
+  cmuxWorkspaceFromEnv,
+  resolveCmuxCommand,
+  runCmuxBestEffort,
+  type CmuxCommandResult,
+} from "../../consumers/cmux-bridge/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), "..", "..");
@@ -168,47 +181,7 @@ export function cmuxStatusLine(): string {
 export const PASS_MARKER = "PASS visible-agent-chain";
 
 export function cmuxVisibleAgentChainEnabled(env: Record<string, string | undefined>): boolean {
-  return env.HOLP_VISIBLE_AGENT_CHAIN_CMUX === "1" || Boolean(env.CMUX_WORKSPACE_ID);
-}
-
-export function cmuxWorkspaceFromEnv(env: Record<string, string | undefined>): string | undefined {
-  return env.CMUX_WORKSPACE_ID;
-}
-
-function isExecutableFileSync(filePath: string): boolean {
-  try {
-    const stats = statSync(filePath);
-    return stats.isFile() && (stats.mode & 0o111) !== 0;
-  } catch {
-    return false;
-  }
-}
-
-function defaultIsOnPath(command: string, env: Record<string, string | undefined>): boolean {
-  const pathEnv = env.PATH ?? "";
-  const dirs = pathEnv.split(path.delimiter).filter(Boolean);
-  return dirs.some((dir) => isExecutableFileSync(path.join(dir, command)));
-}
-
-export function resolveCmuxCommand(
-  env: Record<string, string | undefined>,
-  predicates: {
-    readonly isOnPath?: (command: string, env: Record<string, string | undefined>) => boolean;
-    readonly isExecutableFile?: (filePath: string) => boolean;
-  } = {},
-): string {
-  const isOnPath = predicates.isOnPath ?? defaultIsOnPath;
-  const isExecutableFile = predicates.isExecutableFile ?? isExecutableFileSync;
-
-  const override = env.HOLP_VISIBLE_AGENT_CHAIN_CMUX_BIN;
-  if (override) return override;
-
-  if (isOnPath("cmux", env)) return "cmux";
-
-  const appBin = "/Applications/cmux.app/Contents/Resources/bin/cmux";
-  if (isExecutableFile(appBin)) return appBin;
-
-  return "cmux";
+  return env.HOLP_VISIBLE_AGENT_CHAIN_CMUX === "1" || Boolean(cmuxWorkspaceFromEnv(env));
 }
 
 export function dashboardDirForMarker(marker: string): string {
@@ -272,51 +245,6 @@ export function updateDashboardForMarker(
   const fullData: DashboardData = { ...data, updatedAt: new Date().toISOString() };
   writeDashboardSync(dashboardPath, buildDashboardMarkdown(fullData));
   return dashboardPath;
-}
-
-export interface CmuxCommandResult {
-  readonly command: string;
-  readonly ok: boolean;
-  readonly error?: string;
-}
-
-export function runCmuxBestEffort(
-  command: string,
-  args: readonly string[],
-  cwd: string,
-): Promise<CmuxCommandResult> {
-  return new Promise((resolve) => {
-    const proc = spawn(command, [...args], {
-      cwd,
-      stdio: ["ignore", "ignore", "ignore"],
-      env: { ...process.env },
-    });
-    let killed = false;
-    const timer = setTimeout(() => {
-      killed = true;
-      proc.kill("SIGTERM");
-    }, 10_000);
-    proc.once("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0 && !killed) {
-        resolve({ command: `${command} ${args.join(" ")}`, ok: true });
-      } else {
-        resolve({
-          command: `${command} ${args.join(" ")}`,
-          ok: false,
-          error: killed ? "timed out" : `exit_code=${code ?? "unknown"}`,
-        });
-      }
-    });
-    proc.once("error", (error) => {
-      clearTimeout(timer);
-      resolve({
-        command: `${command} ${args.join(" ")}`,
-        ok: false,
-        error: error.message,
-      });
-    });
-  });
 }
 
 export async function runCmuxDashboardCommands(opts: {
