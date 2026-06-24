@@ -44,6 +44,35 @@ describe("ACP stdio client", () => {
     expect(output).toBe("kimi:hello");
   });
 
+  it("preserves default session/new params with empty mcpServers", async () => {
+    const client = new AcpClient({
+      command: fakeAcpServer("default-session-shape"),
+      cwd: process.cwd(),
+      requestTimeoutMs: 5_000,
+      terminalTimeoutMs: 5_000,
+    });
+
+    const { sessionId } = await client.startSession();
+    await client.dispose();
+
+    expect(sessionId).toBe("session-1");
+  });
+
+  it("can opt into Reasonix-style cwd-only session/new params", async () => {
+    const client = new AcpClient({
+      command: fakeAcpServer("cwd-only-session-shape"),
+      cwd: process.cwd(),
+      sessionNewShape: "cwd_only",
+      requestTimeoutMs: 5_000,
+      terminalTimeoutMs: 5_000,
+    });
+
+    const { sessionId } = await client.startSession();
+    await client.dispose();
+
+    expect(sessionId).toBe("session-1");
+  });
+
   it("backend emits streamed and final model output", async () => {
     const messages: AgentMessage[] = [];
     const backend = createAcpBackendFactory({
@@ -77,6 +106,37 @@ describe("ACP stdio client", () => {
     await client.dispose();
   });
 
+  it("sends cancel without turning a pending prompt into success", async () => {
+    const client = new AcpClient({
+      command: fakeAcpServer("cancel-hangs-prompt"),
+      cwd: process.cwd(),
+      requestTimeoutMs: 5_000,
+      terminalTimeoutMs: 50,
+    });
+
+    const { sessionId } = await client.startSession();
+    const prompt = client.sendPrompt(sessionId, "cancel me");
+    await client.cancel(sessionId);
+
+    await expect(prompt).rejects.toThrow("acp_terminal_timeout");
+    await client.dispose().catch(() => undefined);
+  });
+
+  it("ignores late updates after a prompt already failed closed", async () => {
+    const client = new AcpClient({
+      command: fakeAcpServer("late-update-after-error"),
+      cwd: process.cwd(),
+      requestTimeoutMs: 5_000,
+      terminalTimeoutMs: 5_000,
+    });
+
+    const { sessionId } = await client.startSession();
+    await expect(client.sendPrompt(sessionId, "late")).rejects.toThrow("acp_rpc_error");
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await expect(client.sendPrompt(sessionId, "next")).resolves.toBe("final:next");
+    await client.dispose();
+  });
+
   it.each([
     ["missing-terminal", "acp_terminal_timeout"],
     ["malformed", "acp_malformed_json"],
@@ -101,7 +161,7 @@ describe("ACP stdio client", () => {
 });
 
 function fakeAcpServer(
-  mode: "ok" | "kimi-stop" | "slow-prompt" | "missing-terminal" | "malformed" | "exit" | "prompt-error" | "stop-without-output" | "request-timeout",
+  mode: "ok" | "kimi-stop" | "default-session-shape" | "cwd-only-session-shape" | "slow-prompt" | "cancel-hangs-prompt" | "late-update-after-error" | "missing-terminal" | "malformed" | "exit" | "prompt-error" | "stop-without-output" | "request-timeout",
 ): string {
   const dir = mkdtempSync(join(tmpdir(), "holp-acp-client-"));
   tempDirs.push(dir);
@@ -125,6 +185,14 @@ rl.on("line", (line) => {
     return;
   }
   if (frame.method === "session/new") {
+    if (mode === "cwd-only-session-shape") {
+      if (typeof frame.params.cwd !== "string" || "mcpServers" in frame.params) {
+        send({ id: frame.id, error: { code: -32602, message: "expected cwd-only session/new params" } });
+        return;
+      }
+      send({ id: frame.id, result: { sessionId: "session-1" } });
+      return;
+    }
     if (typeof frame.params.cwd !== "string" || !Array.isArray(frame.params.mcpServers)) {
       send({ id: frame.id, error: { code: -32602, message: "invalid session/new params" } });
       return;
@@ -140,8 +208,19 @@ rl.on("line", (line) => {
       send({ id: frame.id, error: { code: -32001, message: "prompt rejected" } });
       return;
     }
+    if (mode === "late-update-after-error" && prompt === "late") {
+      send({ id: frame.id, error: { code: -32001, message: "prompt rejected" } });
+      setTimeout(() => {
+        send({ method: "session/update", params: { sessionId: "session-1", finalText: "SHOULD_NOT_LEAK", type: "completed" } });
+      }, 10);
+      return;
+    }
     if (mode === "stop-without-output") {
       send({ id: frame.id, result: { stopReason: "end_turn" } });
+      return;
+    }
+    if (mode === "cancel-hangs-prompt") {
+      send({ id: frame.id, result: { accepted: true } });
       return;
     }
     if (mode === "kimi-stop") {
@@ -168,6 +247,10 @@ rl.on("line", (line) => {
     if (mode !== "missing-terminal") {
       send({ method: "session/update", params: { sessionId: "session-1", finalText: "final:" + prompt, type: "completed" } });
     }
+    return;
+  }
+  if (frame.method === "session/cancel") {
+    send({ id: frame.id, result: { cancelled: true } });
   }
 });
 `, "utf8");

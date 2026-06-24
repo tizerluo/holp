@@ -73,6 +73,7 @@ const FIRST_BATCH_DIRECT_SMOKE_MISSING = [
   "agent_in_tmux_smoke",
   "owner_verified",
 ] as const;
+const FIRST_BATCH_ACP_SMOKE_MISSING = ["HOLP_REAL_HARNESS_SMOKE", "acp_protocol_smoke"] as const;
 // Grounded in the local drive-opencode skill's known usable model examples.
 const OPENCODE_DIRECT_MODEL = "opencode/deepseek-v4-flash-free";
 
@@ -140,10 +141,10 @@ export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
       transport: "opencode",
       command: "opencode",
       versionArgs: ["--version"],
-      argsForPrompt: (prompt) => ["run", prompt],
+      argsForPrompt: (prompt) => ["run", "--pure", prompt, "-m", OPENCODE_DIRECT_MODEL],
       timeoutMs: DEFAULT_TIMEOUT_MS,
     },
-    acp: { transport: "opencode", command: "opencode", args: ["acp"] },
+    acp: { transport: "opencode", command: "opencode", args: ["acp", "--pure"] },
     direct: configuredDirect({
       transport: "opencode",
       command: "opencode",
@@ -191,10 +192,15 @@ export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
       transport: "reasonix",
       command: "reasonix",
       versionArgs: ["--version"],
-      argsForPrompt: (prompt) => ["run", prompt],
+      argsForPrompt: (prompt) => ["run", "--model", "deepseek-flash", prompt],
       timeoutMs: DEFAULT_TIMEOUT_MS,
     },
-    acp: { transport: "reasonix", command: "reasonix", args: ["acp"] },
+    acp: {
+      transport: "reasonix",
+      command: "reasonix",
+      args: ["acp", "--model", "deepseek-flash"],
+      sessionNewShape: "cwd_only",
+    },
     direct: configuredDirect({
       transport: "reasonix",
       command: "reasonix",
@@ -256,12 +262,13 @@ async function probeFirstBatchHarness(
     ? headlessReady ? undefined : "headless_smoke_not_enabled_or_failed"
     : headlessVersion.reason ?? "headless_unavailable";
 
-  const acpReady = definition.transport !== "reasonix" &&
-    (definition.probeAcpSmoke || realSmokeEnabled) &&
-    await acpSmokeReady(definition, input.cwd);
-  const acpReason = definition.transport === "reasonix"
+  const acpProbe = definition.transport === "reasonix"
     ? await reasonixAcpDegradedReason(definition, input.cwd, definition.probeAcpSmoke || realSmokeEnabled)
-    : acpReady ? undefined : "acp_smoke_not_enabled_or_failed";
+    : await acpSmokeReady(definition, input.cwd, definition.probeAcpSmoke || realSmokeEnabled);
+  const acpReady = definition.transport !== "reasonix" && acpProbe.ready;
+  const acpReason = definition.transport === "reasonix"
+    ? acpProbe.reason
+    : acpReady ? undefined : acpProbe.reason;
 
   const directProbe = await directProbeResult(definition, input.cwd, directSmokeEnabled);
   const directReady = directProbe.ready;
@@ -286,6 +293,7 @@ async function probeFirstBatchHarness(
       support: definition.transport === "reasonix" ? "experimental" : "supported",
       ready: acpReady,
       reason: acpReason,
+      missing: acpProbe.missing,
       readOnlyEnforced: false,
       stateRef: `harness-state:${definition.transport}:acp`,
     }),
@@ -305,7 +313,7 @@ async function probeFirstBatchHarness(
 
   const anyReady = headlessReady || acpReady || directReady;
   const anyPresent = headlessVersion.ok ||
-    (definition.transport !== "reasonix" && acpReason !== "acp_smoke_not_enabled_or_failed") ||
+    (definition.transport !== "reasonix" && acpProbe.present) ||
     hasDirectPresenceEvidence(directReady, directReason, directSmokeEnabled);
   return {
     status: anyReady ? "ready" : anyPresent ? "degraded" : "rejected",
@@ -342,21 +350,44 @@ async function headlessSmokeReady(
 async function acpSmokeReady(
   definition: FirstBatchHarnessDefinition,
   cwd: string,
-): Promise<boolean> {
+  runSmoke: boolean,
+): Promise<AcpProbeResult> {
+  if (!runSmoke) {
+    return {
+      ready: false,
+      present: false,
+      reason: "acp_smoke_not_enabled",
+      missing: FIRST_BATCH_ACP_SMOKE_MISSING,
+    };
+  }
   let client: AcpClient | undefined;
   try {
     client = new AcpClient({
       command: definition.acp.command,
       args: definition.acp.args,
       cwd,
+      sessionNewShape: definition.acp.sessionNewShape,
       requestTimeoutMs: definition.acp.requestTimeoutMs ?? 5_000,
       terminalTimeoutMs: definition.acp.terminalTimeoutMs ?? 20_000,
     });
     const session = await client.startSession();
     const output = await client.sendPrompt(session.sessionId, "HOLP ACP smoke. Reply with HOLP_OK.");
-    return output.includes("HOLP_OK");
-  } catch {
-    return false;
+    return output.includes("HOLP_OK")
+      ? { ready: true, present: true }
+      : {
+          ready: false,
+          present: true,
+          reason: "acp_prompt_missing_holp_ok",
+          missing: ["acp_protocol_smoke:HOLP_OK"],
+        };
+  } catch (error) {
+    const reason = classifyAcpFailure(definition.transport, error);
+    return {
+      ready: false,
+      present: reason !== "acp_missing_binary",
+      reason,
+      missing: [`acp_protocol_smoke:${reason}`],
+    };
   } finally {
     await client?.dispose().catch(() => undefined);
   }
@@ -366,12 +397,20 @@ async function reasonixAcpDegradedReason(
   definition: FirstBatchHarnessDefinition,
   cwd: string,
   runSmoke: boolean,
-): Promise<string> {
-  if (!runSmoke) return "reasonix_acp_session_new_not_stable";
+): Promise<AcpProbeResult> {
+  if (!runSmoke) {
+    return {
+      ready: false,
+      present: false,
+      reason: "reasonix_acp_session_new_not_stable",
+      missing: FIRST_BATCH_ACP_SMOKE_MISSING,
+    };
+  }
   const client = new AcpClient({
     command: definition.acp.command,
     args: definition.acp.args,
     cwd,
+    sessionNewShape: definition.acp.sessionNewShape,
     requestTimeoutMs: definition.acp.requestTimeoutMs ?? 5_000,
     terminalTimeoutMs: definition.acp.terminalTimeoutMs ?? 10_000,
   });
@@ -381,15 +420,57 @@ async function reasonixAcpDegradedReason(
     stage = "prompt_terminal";
     const output = await client.sendPrompt(session.sessionId, "HOLP Reasonix ACP smoke. Reply with HOLP_OK.");
     return output.includes("HOLP_OK")
-      ? "reasonix_acp_prompt_terminal_token_verified_policy_degraded"
-      : "reasonix_acp_session_new_succeeded_prompt_terminal_without_holp_ok";
+      ? {
+          ready: false,
+          present: true,
+          reason: "reasonix_acp_observed_ok_but_not_certified_this_pr",
+          missing: ["reasonix_acp_certification"],
+        }
+      : {
+          ready: false,
+          present: true,
+          reason: "reasonix_acp_session_new_succeeded_prompt_terminal_without_holp_ok",
+          missing: ["acp_protocol_smoke:HOLP_OK"],
+        };
   } catch (error) {
-    return stage === "session_new"
-      ? `reasonix_acp_session_new_failed:${error instanceof Error ? error.message : String(error)}`
-      : `reasonix_acp_session_new_succeeded_prompt_terminal_not_verified:${error instanceof Error ? error.message : String(error)}`;
+    const message = error instanceof Error ? error.message : String(error);
+    const reason = stage === "session_new"
+      ? `reasonix_acp_session_new_failed:${message}`
+      : `reasonix_acp_session_new_succeeded_prompt_terminal_not_verified:${message}`;
+    return {
+      ready: false,
+      present: classifyAcpFailure(definition.transport, error) !== "acp_missing_binary",
+      reason,
+      missing: [`acp_protocol_smoke:${stage}`],
+    };
   } finally {
     await client.dispose().catch(() => undefined);
   }
+}
+
+interface AcpProbeResult {
+  readonly ready: boolean;
+  readonly present: boolean;
+  readonly reason?: string;
+  readonly missing?: readonly string[];
+}
+
+function classifyAcpFailure(transport: FirstBatchTransport, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("ENOENT")) return "acp_missing_binary";
+  if (message.includes("acp_malformed_json")) return "acp_malformed_json";
+  if (message.includes("acp_terminal_timeout")) return "acp_prompt_terminal_missing";
+  if (message.includes("acp_request_timeout:initialize")) return "acp_initialize_timeout";
+  if (message.includes("acp_request_timeout:session/new")) return "acp_session_new_timeout";
+  if (message.includes("acp_request_timeout:session/prompt")) return "acp_prompt_timeout";
+  if (message.includes("acp_missing_final_result")) return "acp_prompt_terminal_missing";
+  if (message.includes("acp_process_exit")) return "acp_process_exit";
+  if (message.includes("auth") || message.includes("Authentication") || message.includes("unauthorized")) {
+    return transport === "cursor-agent" ? "cursor_acp_auth_required" : "acp_auth_required";
+  }
+  if (message.includes("session/new")) return "acp_session_new_failed";
+  if (message.includes("initialize")) return "acp_initialize_failed";
+  return `acp_smoke_failed:${message}`;
 }
 
 async function directProbeResult(
