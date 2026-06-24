@@ -602,17 +602,17 @@ function directChannel(ready: boolean): DirectChannelDeclaration {
   const support = ready ? "supported" : "unknown";
   return {
     channel_type: "tmux",
-    attach: support,
+    attach: "unknown",
     observe: support,
     read: support,
     inject: support,
-    interrupt: support,
+    interrupt: "unknown",
     cancel: support,
     owner_scope: ready ? "supported" : "unknown",
     session_origin: "holp_created",
     session_id_namespace: "holp-*",
     capability_bitmask: ready
-      ? ["observe", "read", "inject", "interrupt", "cancel", "owner_verified"]
+      ? ["observe", "read", "inject", "cancel", "owner_verified"]
       : [],
   };
 }

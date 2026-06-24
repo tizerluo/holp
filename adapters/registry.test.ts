@@ -485,7 +485,9 @@ describe("adapter registry runtime surface resolution", () => {
       session_origin: "holp_created",
       session_id_namespace: "holp-*",
       owner_scope: "supported",
-      capability_bitmask: ["observe", "read", "inject", "interrupt", "cancel", "owner_verified"],
+      attach: "unknown",
+      interrupt: "unknown",
+      capability_bitmask: ["observe", "read", "inject", "cancel", "owner_verified"],
     });
   });
 

@@ -424,6 +424,16 @@ export function handleOrchestrateRun(
     coderRoleSpec.preferred_runtime_surface,
     "roles.coder.preferred_runtime_surface",
   );
+  const directSession = isObject(coderRoleSpec.direct_session)
+    ? (coderRoleSpec.direct_session as Record<string, unknown>)
+    : {};
+  const coderHoldSession = directSession.hold === true;
+  const coderHoldTimeoutMs = typeof directSession.hold_timeout_ms === "number"
+    ? directSession.hold_timeout_ms
+    : undefined;
+  const coderTmuxSocketPath = typeof directSession.tmux_socket_path === "string"
+    ? directSession.tmux_socket_path
+    : undefined;
   if (isObject(roles.coder) && typeof (roles.coder as Record<string, unknown>).agent === "string") {
     coderAgentId = (roles.coder as Record<string, unknown>).agent as string;
   }
@@ -552,6 +562,9 @@ export function handleOrchestrateRun(
           transport: coderAgent.transport,
           runtime: coderRuntime,
           factory,
+          holdSession: coderHoldSession,
+          holdTimeoutMs: coderHoldTimeoutMs,
+          tmuxSocketPath: coderTmuxSocketPath,
         },
         reviewerPanelPresent: reviewerPanel.length > 0,
         reviewerQuorum: reviewerPanel.length > 0 ? quorum : undefined,
@@ -567,6 +580,9 @@ export function handleOrchestrateRun(
   // --- Create backend and wire it ---
   const backend = factory({
     cwd: process.cwd(),
+    holdSession: coderHoldSession,
+    holdTimeoutMs: coderHoldTimeoutMs,
+    tmuxSocketPath: coderTmuxSocketPath,
     permissionHandler: async (toolName: string, input: unknown) => {
       // The permissionHandler creates an approval record, emits approval_requested,
       // and returns a PENDING Promise. The backend awaits it (genuinely paused).

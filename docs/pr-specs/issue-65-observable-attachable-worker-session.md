@@ -46,8 +46,10 @@ This PR must not claim `cmux-ready`. It delivers the attachable/observable
   - Surface structured attach info `{ sessionId, socketPath }` in the
     `status:starting` detail (extend, do not break, the existing string form).
   - **L1**: `AgentBackendOptions.holdSession?: boolean` + `holdTimeoutMs?: number`.
-    When `holdSession`, `dispose()` skips the kill, emits a terminal `status:held`
-    with the attach target, and arms a bounded reaper `setTimeout` → kill after
+    When `holdSession`, `dispose()` skips the kill, emits a terminal `status:idle`
+    plus an `agent_event` named `session_held` carrying the attach target
+    (`AgentMessage.status` has no `held` variant), and arms a bounded reaper
+    `setTimeout` → kill after
     `holdTimeoutMs`. `cancel()` is unchanged (still kills — cancel = interrupt).
   - **L3**: on `startSession`, `tmux -S <socket> pipe-pane -t <session> -o
     'cat >> <logfile>'`; maintain a byte-offset cursor; on each poll tick tail the

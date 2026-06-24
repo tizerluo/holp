@@ -89,6 +89,23 @@ export function attachCommandForSession(session: string): string {
   return `tmux attach -t ${session}`;
 }
 
+export interface AttachTarget {
+  readonly sessionId: string;
+  readonly attachCommand: string;
+  readonly killCommand?: string;
+}
+
+export function extractAttachTargetFromAgentEvent(event: EventFrame): AttachTarget | undefined {
+  if (event.name !== "agent_event") return undefined;
+  const outer = objectPayload(event.payload);
+  if (stringField(outer, "name") !== "attach_target") return undefined;
+  const inner = objectPayload(outer.payload);
+  const sessionId = stringField(inner, "session_id");
+  const attachCommand = stringField(inner, "attach_command");
+  if (!sessionId || !attachCommand) return undefined;
+  return { sessionId, attachCommand, killCommand: stringField(inner, "kill_command") };
+}
+
 export function buildResultBlock(fields: Readonly<Record<string, string>>): string {
   const lines = [RESULT_BEGIN];
   for (const [k, v] of Object.entries(fields)) lines.push(`${k}=${v}`);
@@ -440,6 +457,8 @@ async function runClientMode(args: {
   const events: EventFrame[] = [];
   let subscriptionId: string | undefined;
   let workerSession: string | undefined;
+  let attachCommand: string | undefined;
+  let killCommand: string | undefined;
   let runId: string | undefined;
   const modelOutputTexts: string[] = [];
 
@@ -457,12 +476,16 @@ async function runClientMode(args: {
 
   client.onEvent((event) => {
     events.push(event);
+    const attach = extractAttachTargetFromAgentEvent(event);
+    if (attach && !attachCommand) {
+      workerSession = attach.sessionId;
+      attachCommand = attach.attachCommand;
+      killCommand = attach.killCommand;
+      console.log(`attach_command=${attach.attachCommand}`);
+    }
     if (event.name === "step_started" && !workerSession) {
       const session = extractWorkerSessionFromStepStarted(event);
-      if (session) {
-        workerSession = session;
-        console.log(`attach_command=${attachCommandForSession(session)}`);
-      }
+      if (session) workerSession = session;
     }
     if (event.name === "model_output") {
       const payload = objectPayload(event.payload);
@@ -499,6 +522,7 @@ async function runClientMode(args: {
         coder: {
           agent: agent.id,
           preferred_runtime_surface: "direct_user_session",
+          direct_session: { hold: true, hold_timeout_ms: 120_000 },
         },
       },
     });
@@ -523,17 +547,18 @@ async function runClientMode(args: {
       throw new Error(`surface mismatch: observed=${observedSurface ?? "missing"}`);
     }
 
-    // Wait for step_started if session not yet captured by onEvent
-    if (!workerSession) {
-      const stepEv = await waitForEventFromEvents(
+    if (!attachCommand) {
+      const attachEv = await waitForEventFromEvents(
         client, events,
-        (e) => e.run_id === run.run_id && e.name === "step_started",
-        "step_started", STEP_STARTED_TIMEOUT_MS,
-      );
-      const session = extractWorkerSessionFromStepStarted(stepEv);
-      if (session && !workerSession) {
-        workerSession = session;
-        console.log(`attach_command=${attachCommandForSession(session)}`);
+        (e) => e.run_id === run.run_id && extractAttachTargetFromAgentEvent(e) !== undefined,
+        "attach_target", STEP_STARTED_TIMEOUT_MS,
+      ).catch(() => undefined);
+      const attach = attachEv ? extractAttachTargetFromAgentEvent(attachEv) : undefined;
+      if (attach) {
+        workerSession = attach.sessionId;
+        attachCommand = attach.attachCommand;
+        killCommand = attach.killCommand;
+        console.log(`attach_command=${attach.attachCommand}`);
       }
     }
 
@@ -560,7 +585,7 @@ async function runClientMode(args: {
       model_output_marker: modelOutputMarker,
       controller: args.controller,
       run_id: runId ?? "missing",
-      attach_command: workerSession ? attachCommandForSession(workerSession) : "missing",
+      attach_command: attachCommand ?? "missing",
       timeline: timeline.join("; "),
       result: "pass",
     });
@@ -580,7 +605,7 @@ async function runClientMode(args: {
       model_output_marker: "not_found",
       controller: args.controller,
       run_id: runId ?? "missing",
-      attach_command: workerSession ? attachCommandForSession(workerSession) : "missing",
+      attach_command: attachCommand ?? "missing",
       timeline: timeline.join("; "),
       result: "error",
     });
@@ -593,8 +618,43 @@ async function runClientMode(args: {
         .catch(() => undefined);
     }
     await client.close();
+    if (killCommand) {
+      await reapHeldSession(killCommand);
+      console.log(`reaped_held_session: ${killCommand}`);
+    }
     rmSync(smokeCwd, { recursive: true, force: true });
   }
+}
+
+function socketDirFromKillCommand(killCommand: string): string | undefined {
+  const match = killCommand.match(/-S\s+(\S+)/);
+  return match ? path.dirname(match[1]) : undefined;
+}
+
+function reapHeldSession(killCommand: string): Promise<void> {
+  const parts = killCommand.split(/\s+/).filter(Boolean);
+  if (parts.length === 0 || parts[0] !== "tmux") return Promise.resolve();
+  const socketDir = socketDirFromKillCommand(killCommand);
+  return new Promise((resolve) => {
+    const { TMUX: _drop, ...env } = process.env;
+    const proc = spawn(parts[0], parts.slice(1), { stdio: "ignore", env });
+    const done = () => {
+      if (socketDir) rmSync(socketDir, { recursive: true, force: true });
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      proc.kill("SIGTERM");
+      done();
+    }, 5_000);
+    proc.once("close", () => {
+      clearTimeout(timer);
+      done();
+    });
+    proc.once("error", () => {
+      clearTimeout(timer);
+      done();
+    });
+  });
 }
 
 // ── runner mode ────────────────────────────────────────────────────────────

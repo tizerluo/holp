@@ -46,6 +46,9 @@ export interface WorkflowRunOptions {
     readonly transport: string;
     readonly runtime: RuntimeSelectionMetadata;
     readonly factory: AgentBackendFactory;
+    readonly holdSession?: boolean;
+    readonly holdTimeoutMs?: number;
+    readonly tmuxSocketPath?: string;
   };
   readonly reviewerPanelPresent: boolean;
   readonly reviewerQuorum?: number;
@@ -317,6 +320,9 @@ function createBackend(
 ): AgentBackend {
   return options.coder.factory({
     cwd: process.cwd(),
+    holdSession: options.coder.holdSession,
+    holdTimeoutMs: options.coder.holdTimeoutMs,
+    tmuxSocketPath: options.coder.tmuxSocketPath,
     permissionHandler: async (toolName: string, input: unknown) => {
       return new Promise((resolveVerdict) => {
         run.approvalSeq += 1;
