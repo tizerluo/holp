@@ -367,12 +367,17 @@ describe("visible agent chain smoke helpers", () => {
 
   it("detects cmux visibility when CMUX_WORKSPACE_ID is present", () => {
     expect(cmuxVisibleAgentChainEnabled({ CMUX_WORKSPACE_ID: "workspace:1" })).toBe(true);
+    expect(cmuxVisibleAgentChainEnabled({ CMUX_WORKSPACE_ID: "workspace:abc-def" })).toBe(true);
     expect(cmuxVisibleAgentChainEnabled({ CMUX_WORKSPACE_ID: "" })).toBe(false);
+    expect(cmuxVisibleAgentChainEnabled({ CMUX_WORKSPACE_ID: "--focus" })).toBe(false);
   });
 
   it("reads CMUX_WORKSPACE_ID from env", () => {
     expect(cmuxWorkspaceFromEnv({})).toBeUndefined();
     expect(cmuxWorkspaceFromEnv({ CMUX_WORKSPACE_ID: "workspace:2" })).toBe("workspace:2");
+    expect(cmuxWorkspaceFromEnv({ CMUX_WORKSPACE_ID: "workspace:abc-def" })).toBe("workspace:abc-def");
+    expect(cmuxWorkspaceFromEnv({ CMUX_WORKSPACE_ID: "" })).toBeUndefined();
+    expect(cmuxWorkspaceFromEnv({ CMUX_WORKSPACE_ID: "--focus" })).toBeUndefined();
   });
 
   it("resolves cmux command from env override", () => {
