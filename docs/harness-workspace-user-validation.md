@@ -13,7 +13,7 @@ real-usage training-distribution evidence for #41.
 | --- | --- | --- |
 | Runtime-surface / public-wire gate | `allowed` | Reference-only: #52 recorded `terminal-consumer-integration-ready` and a complete bounded runtime-surface matrix in `docs/runtime-surface-validation-matrix.md`. |
 | Usable UI real-usage data collection | `pending-user-validation` | No explicit human-authored real-use validation record has been captured for the #71-#75 Harness Workspace UI stack. Automated smoke and Commander-run demos are not enough. |
-| cmux product readiness | `cmux-pending-user-validation` | Reference-only: #52 remains the canonical cmux product-readiness row. #76 has not recorded a human cmux acceptance transcript. |
+| cmux product readiness | `cmux-pending-user-validation` | Reference-only: #52 remains the canonical source for the current cmux product-readiness marker. #76 has not recorded a human cmux acceptance transcript. |
 | Learned-router real-usage data for #41 | `blocked` | #41 may rely on the #52 runtime-surface/public-wire gate, but future data cannot be counted as real-usage training-distribution evidence until this document records `usable-ui-real-usage-data-collection: allowed`. |
 
 The #52 runtime-surface/public-wire `allowed` decision remains valid. It is a
@@ -109,6 +109,19 @@ itself:
 
 Automated evidence can help diagnose blockers during validation. It cannot
 replace human acceptance.
+
+## Local Consistency Checks
+
+Before changing this record, run the docs-safe checks from the #76 spec:
+
+- `git diff --check`;
+- grep/readability checks that `cmux-ready` is not claimed as achieved;
+- confirm #52 runtime-surface/public-wire `allowed` remains a reference-only
+  prerequisite, not a reversal target;
+- confirm `usable-ui-real-usage-data-collection` stays
+  `pending-user-validation` unless a human validation record exists;
+- confirm `learned-router-real-usage-data-for-#41` stays `blocked` while this
+  document has no human `passed` records.
 
 ## Downstream Rules
 
