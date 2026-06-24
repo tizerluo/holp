@@ -879,7 +879,8 @@ function fakeTmux(dir: string, directOutput: string): string {
   writeFileSync(script, `#!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 const statePath = ${JSON.stringify(statePath)};
-const args = process.argv.slice(2);
+let args = process.argv.slice(2);
+if (args[0] === "-S") args = args.slice(2);
 function readState() {
   return existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : {};
 }

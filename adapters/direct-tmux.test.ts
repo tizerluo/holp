@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -28,7 +28,7 @@ describe("direct tmux backend", () => {
         timeoutMs: 1_000,
         pollIntervalMs: 1,
       };
-      const backend = createDirectTmuxBackendFactory(definition)({ cwd: dir });
+      const backend = createDirectTmuxBackendFactory(definition)({ cwd: dir, tmuxSocketPath: join(dir, "tmux.sock") });
       const messages: AgentMessage[] = [];
       backend.onMessage((message) => messages.push(message));
 
@@ -52,6 +52,7 @@ describe("direct tmux backend", () => {
       await expect(probeDirectTmux({
         tmuxCommand: tmux,
         agentCommand: kimi,
+        socketPath: join(dir, "tmux.sock"),
         cwd: dir,
         timeoutMs: 10_000,
         verifyCapabilities: true,
@@ -82,8 +83,8 @@ describe("direct tmux backend", () => {
         agentCommand: "kimi",
         agentArgsForPrompt: (prompt) => ["-p", prompt],
       };
-      const first = createDirectTmuxBackendFactory(definition)({ cwd: dir });
-      const second = createDirectTmuxBackendFactory(definition)({ cwd: dir });
+      const first = createDirectTmuxBackendFactory(definition)({ cwd: dir, tmuxSocketPath: join(dir, "tmux.sock") });
+      const second = createDirectTmuxBackendFactory(definition)({ cwd: dir, tmuxSocketPath: join(dir, "tmux.sock") });
       const messages: AgentMessage[] = [];
       first.onMessage((message) => messages.push(message));
       vi.spyOn(Date, "now").mockReturnValue(123);
@@ -100,6 +101,99 @@ describe("direct tmux backend", () => {
     }
   });
 
+  it("emits an attach_target event carrying the caller socket and attach command", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "holp-direct-attach-"));
+    try {
+      const tmux = fakeTmux(dir);
+      const socketPath = join(dir, "tmux.sock");
+      const backend = createDirectTmuxBackendFactory({
+        transport: "kimi-code",
+        tmuxCommand: tmux,
+        agentCommand: "kimi",
+        agentArgsForPrompt: (prompt) => ["-p", prompt],
+        timeoutMs: 1_000,
+        pollIntervalMs: 1,
+      })({ cwd: dir, tmuxSocketPath: socketPath });
+      const messages: AgentMessage[] = [];
+      backend.onMessage((message) => messages.push(message));
+
+      const { sessionId } = await backend.startSession();
+      await backend.dispose();
+
+      const attach = messages.find(
+        (m): m is Extract<AgentMessage, { type: "event" }> =>
+          m.type === "event" && m.name === "attach_target",
+      );
+      expect(attach).toBeDefined();
+      const payload = attach!.payload as Record<string, unknown>;
+      expect(payload.session_id).toBe(sessionId);
+      expect(payload.socket_path).toBe(socketPath);
+      expect(payload.attach_command).toBe(`tmux -S ${socketPath} attach -t ${sessionId}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("strips inherited TMUX from spawned tmux commands", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "holp-direct-tmuxenv-"));
+    const priorTmux = process.env.TMUX;
+    process.env.TMUX = "/tmp/some-server,1234,0";
+    try {
+      const tmux = fakeTmuxEnvProbe(dir);
+      const backend = createDirectTmuxBackendFactory({
+        transport: "kimi-code",
+        tmuxCommand: tmux,
+        agentCommand: "kimi",
+        agentArgsForPrompt: (prompt) => ["-p", prompt],
+        timeoutMs: 1_000,
+        pollIntervalMs: 1,
+      })({ cwd: dir, tmuxSocketPath: join(dir, "tmux.sock") });
+      await backend.startSession();
+      await backend.dispose();
+
+      const recorded = JSON.parse(readFileSync(join(dir, "env-state.json"), "utf8")) as { tmux?: string | null };
+      expect(recorded.tmux ?? "ABSENT").toBe("ABSENT");
+    } finally {
+      if (priorTmux === undefined) delete process.env.TMUX;
+      else process.env.TMUX = priorTmux;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("holdSession keeps the session past dispose, then the reaper kills it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "holp-direct-hold-"));
+    try {
+      const tmux = fakeTmux(dir);
+      const statePath = join(dir, "tmux-state.json");
+      const backend = createDirectTmuxBackendFactory({
+        transport: "kimi-code",
+        tmuxCommand: tmux,
+        agentCommand: "kimi",
+        agentArgsForPrompt: (prompt) => ["-p", prompt],
+        timeoutMs: 1_000,
+        pollIntervalMs: 1,
+      })({ cwd: dir, tmuxSocketPath: join(dir, "tmux.sock"), holdSession: true, holdTimeoutMs: 80 });
+      const messages: AgentMessage[] = [];
+      backend.onMessage((message) => messages.push(message));
+
+      const { sessionId } = await backend.startSession();
+      await backend.dispose();
+
+      const afterDispose = JSON.parse(readFileSync(statePath, "utf8")) as { sessions?: Record<string, boolean> };
+      expect(afterDispose.sessions?.[sessionId]).toBe(true);
+      expect(messages).toContainEqual(
+        expect.objectContaining({ type: "event", name: "session_held" }),
+      );
+
+      await expect.poll(() => {
+        const state = JSON.parse(readFileSync(statePath, "utf8")) as { sessions?: Record<string, boolean> };
+        return state.sessions?.[sessionId];
+      }, { timeout: 5_000, interval: 20 }).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("ignores tmux kill-session cleanup failures", async () => {
     const dir = mkdtempSync(join(tmpdir(), "holp-direct-cleanup-"));
     try {
@@ -109,6 +203,7 @@ describe("direct tmux backend", () => {
       await expect(probeDirectTmux({
         tmuxCommand: tmux,
         agentCommand: kimi,
+        socketPath: join(dir, "tmux.sock"),
         cwd: dir,
         timeoutMs: 10_000,
         verifyCapabilities: true,
@@ -121,7 +216,7 @@ describe("direct tmux backend", () => {
         agentArgsForPrompt: (prompt) => ["-p", prompt],
         timeoutMs: 1_000,
         pollIntervalMs: 1,
-      })({ cwd: dir });
+      })({ cwd: dir, tmuxSocketPath: join(dir, "tmux.sock") });
       const { sessionId } = await backend.startSession();
       await backend.sendPrompt(sessionId, "hello");
       await expect(backend.dispose()).resolves.toBeUndefined();
@@ -138,7 +233,8 @@ function fakeTmux(dir: string, opts: { killFails?: boolean } = {}): string {
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 const statePath = ${JSON.stringify(statePath)};
 const killFails = ${JSON.stringify(opts.killFails === true)};
-const args = process.argv.slice(2);
+let args = process.argv.slice(2);
+if (args[0] === "-S") args = args.slice(2);
 function readState() {
   return existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : {};
 }
@@ -182,6 +278,27 @@ if (args[0] === "kill-session") {
   writeState(state);
   process.exit(killFails ? 9 : 0);
 }
+process.exit(64);
+`, "utf8");
+  chmodSync(script, 0o755);
+  return script;
+}
+
+function fakeTmuxEnvProbe(dir: string): string {
+  const script = join(dir, "fake-tmux-env.mjs");
+  const statePath = join(dir, "env-state.json");
+  writeFileSync(script, `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+const statePath = ${JSON.stringify(statePath)};
+let args = process.argv.slice(2);
+if (args[0] === "-S") args = args.slice(2);
+if (args[0] === "-V") { console.log("tmux fake"); process.exit(0); }
+if (args[0] === "new-session") {
+  writeFileSync(statePath, JSON.stringify({ tmux: process.env.TMUX ?? null }));
+  process.exit(0);
+}
+if (args[0] === "send-keys" || args[0] === "kill-session") process.exit(0);
+if (args[0] === "capture-pane") { process.stdout.write(""); process.exit(0); }
 process.exit(64);
 `, "utf8");
   chmodSync(script, 0o755);
