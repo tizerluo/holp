@@ -5,3 +5,8 @@ export * from "./roleSkins.js";
 export * from "./state.js";
 export * from "./renderModel.js";
 export * from "./fixtures.js";
+export * from "./theme.js";
+export * from "./width.js";
+export * from "./layout.js";
+export * from "./viewState.js";
+export * from "./frame.js";
