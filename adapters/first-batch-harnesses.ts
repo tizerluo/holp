@@ -46,7 +46,6 @@ export interface FirstBatchHarnessDefinition {
   readonly readOnlyReviewEnforced?: boolean;
   readonly probeHeadlessSmoke?: boolean;
   readonly probeAcpSmoke?: boolean;
-  readonly probeDirectReady?: boolean;
 }
 
 export type FirstBatchDirectSessionDeclaration =
@@ -69,11 +68,13 @@ export interface FirstBatchUnsupportedDirectDeclaration {
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;
-const FIRST_BATCH_DIRECT_UNSUPPORTED_MISSING = [
-  "issue-50:direct_user_session_parity",
+const FIRST_BATCH_DIRECT_SMOKE_MISSING = [
+  "HOLP_REAL_HARNESS_DIRECT_SMOKE",
   "agent_in_tmux_smoke",
   "owner_verified",
 ] as const;
+// Grounded in the local drive-opencode skill's known usable model examples.
+const OPENCODE_DIRECT_MODEL = "opencode/deepseek-v4-flash-free";
 
 export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
   {
@@ -88,7 +89,11 @@ export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
       timeoutMs: DEFAULT_TIMEOUT_MS,
     },
     acp: { transport: "cursor-agent", command: "cursor-agent", args: ["acp"] },
-    direct: unsupportedDirect("cursor-agent"),
+    direct: configuredDirect({
+      transport: "cursor-agent",
+      command: "cursor-agent",
+      argsForPrompt: (prompt) => ["-p", prompt, "--output-format", "text", "--force"],
+    }),
   },
   {
     transport: "kimi-code",
@@ -123,8 +128,8 @@ export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
           "text",
         ],
       },
-      reason: "direct_tmux_capability_not_proven",
-      missing: ["agent_in_tmux_smoke", "owner_verified"],
+      reason: "first_batch_direct_smoke_not_enabled",
+      missing: FIRST_BATCH_DIRECT_SMOKE_MISSING,
     },
   },
   {
@@ -139,7 +144,17 @@ export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
       timeoutMs: DEFAULT_TIMEOUT_MS,
     },
     acp: { transport: "opencode", command: "opencode", args: ["acp"] },
-    direct: unsupportedDirect("opencode"),
+    direct: configuredDirect({
+      transport: "opencode",
+      command: "opencode",
+      argsForPrompt: (prompt) => [
+        "run",
+        "--pure",
+        prompt,
+        "-m",
+        OPENCODE_DIRECT_MODEL,
+      ],
+    }),
   },
   {
     transport: "pi",
@@ -153,7 +168,20 @@ export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
       timeoutMs: DEFAULT_TIMEOUT_MS,
     },
     acp: { transport: "pi", command: "pi-acp" },
-    direct: unsupportedDirect("pi"),
+    direct: configuredDirect({
+      transport: "pi",
+      command: "pi",
+      argsForPrompt: (prompt) => [
+        "-p",
+        prompt,
+        "--mode",
+        "text",
+        "--provider",
+        "xiaomi-token-plan-sgp",
+        "--model",
+        "mimo-v2.5-pro",
+      ],
+    }),
   },
   {
     transport: "reasonix",
@@ -167,7 +195,11 @@ export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
       timeoutMs: DEFAULT_TIMEOUT_MS,
     },
     acp: { transport: "reasonix", command: "reasonix", args: ["acp"] },
-    direct: unsupportedDirect("reasonix"),
+    direct: configuredDirect({
+      transport: "reasonix",
+      command: "reasonix",
+      argsForPrompt: (prompt) => ["run", "--model", "deepseek-flash", prompt],
+    }),
   },
 ];
 
@@ -211,6 +243,7 @@ async function probeFirstBatchHarness(
   input: AgentProbeInput,
 ): Promise<AgentProbeResult> {
   const realSmokeEnabled = process.env.HOLP_REAL_HARNESS_SMOKE === "1";
+  const directSmokeEnabled = process.env.HOLP_REAL_HARNESS_DIRECT_SMOKE === "1";
   const headlessVersion = await probeCliBinary({
     command: definition.headless.command,
     versionArgs: definition.headless.versionArgs,
@@ -223,21 +256,17 @@ async function probeFirstBatchHarness(
     ? headlessReady ? undefined : "headless_smoke_not_enabled_or_failed"
     : headlessVersion.reason ?? "headless_unavailable";
 
-  const reasonixBinaryAvailable = definition.transport !== "reasonix" || headlessVersion.ok;
   const acpReady = definition.transport !== "reasonix" &&
     (definition.probeAcpSmoke || realSmokeEnabled) &&
     await acpSmokeReady(definition, input.cwd);
   const acpReason = definition.transport === "reasonix"
-    ? reasonixBinaryAvailable
-      ? await reasonixAcpDegradedReason(definition, input.cwd, definition.probeAcpSmoke || realSmokeEnabled)
-      : "reasonix_binary_unavailable"
+    ? await reasonixAcpDegradedReason(definition, input.cwd, definition.probeAcpSmoke || realSmokeEnabled)
     : acpReady ? undefined : "acp_smoke_not_enabled_or_failed";
 
-  const directReady = definition.direct.state === "configured"
-    ? await directProbeReady(definition, input.cwd, realSmokeEnabled)
-    : false;
-  const directReason = directReady ? undefined : definition.direct.reason;
-  const directMissing = directReady ? undefined : definition.direct.missing;
+  const directProbe = await directProbeResult(definition, input.cwd, directSmokeEnabled);
+  const directReady = directProbe.ready;
+  const directReason = directProbe.reason;
+  const directMissing = directProbe.missing;
 
   const runtimeSurfaces = [
     runtimeSurface({
@@ -277,7 +306,7 @@ async function probeFirstBatchHarness(
   const anyReady = headlessReady || acpReady || directReady;
   const anyPresent = headlessVersion.ok ||
     (definition.transport !== "reasonix" && acpReason !== "acp_smoke_not_enabled_or_failed") ||
-    definition.direct.state === "configured";
+    hasDirectPresenceEvidence(directReady, directReason, directSmokeEnabled);
   return {
     status: anyReady ? "ready" : anyPresent ? "degraded" : "rejected",
     harness_id: definition.harnessId,
@@ -363,13 +392,24 @@ async function reasonixAcpDegradedReason(
   }
 }
 
-async function directProbeReady(
+async function directProbeResult(
   definition: FirstBatchHarnessDefinition,
   cwd: string,
-  realSmokeEnabled: boolean,
-): Promise<boolean> {
-  if (definition.direct.state !== "configured" || (!definition.probeDirectReady && !realSmokeEnabled)) {
-    return false;
+  directSmokeEnabled: boolean,
+): Promise<{ ready: boolean; reason?: string; missing?: readonly string[] }> {
+  if (definition.direct.state !== "configured") {
+    return {
+      ready: false,
+      reason: definition.direct.reason,
+      missing: definition.direct.missing,
+    };
+  }
+  if (!directSmokeEnabled) {
+    return {
+      ready: false,
+      reason: definition.direct.reason ?? "first_batch_direct_smoke_not_enabled",
+      missing: definition.direct.missing ?? FIRST_BATCH_DIRECT_SMOKE_MISSING,
+    };
   }
   const direct = definition.direct.definition;
   const result = await probeDirectTmux({
@@ -378,7 +418,13 @@ async function directProbeReady(
     cwd,
     verifyCapabilities: true,
   });
-  if (!result.ready) return false;
+  if (!result.ready) {
+    return {
+      ready: false,
+      reason: result.reason ?? "direct_tmux_capability_not_proven",
+      missing: result.missing,
+    };
+  }
   const backend = createDirectTmuxBackendFactory(direct)({ cwd });
   const output: string[] = [];
   backend.onMessage((message) => {
@@ -389,9 +435,19 @@ async function directProbeReady(
   try {
     const session = await backend.startSession();
     await backend.sendPrompt(session.sessionId, "HOLP direct tmux smoke. Reply with HOLP_OK.");
-    return output.some((text) => text.includes("HOLP_OK"));
-  } catch {
-    return false;
+    return output.some((text) => text.includes("HOLP_OK"))
+      ? { ready: true }
+      : {
+          ready: false,
+          reason: "direct_agent_smoke_missing_holp_ok",
+          missing: ["agent_in_tmux_smoke:HOLP_OK"],
+        };
+  } catch (error) {
+    return {
+      ready: false,
+      reason: error instanceof Error ? error.message : String(error),
+      missing: ["direct_tmux_backend_smoke"],
+    };
   } finally {
     await backend.dispose().catch(() => undefined);
   }
@@ -483,13 +539,33 @@ function missingFor(
   return missing.length > 0 ? missing : undefined;
 }
 
-function unsupportedDirect(transport: FirstBatchTransport): FirstBatchUnsupportedDirectDeclaration {
+function hasDirectPresenceEvidence(
+  ready: boolean,
+  reason: string | undefined,
+  directSmokeEnabled: boolean,
+): boolean {
+  if (ready) return true;
+  if (!directSmokeEnabled) return false;
+  return reason !== undefined &&
+    reason !== "first_batch_direct_smoke_not_enabled" &&
+    reason !== "tmux_unavailable" &&
+    reason !== "direct_agent_unavailable";
+}
+
+function configuredDirect(args: {
+  readonly transport: FirstBatchTransport;
+  readonly command: string;
+  readonly argsForPrompt: (prompt: string) => readonly string[];
+}): FirstBatchDirectTmuxDeclaration {
   return {
-    state: "rejected",
-    runtimeKind: `${transport}_direct_unsupported_until_issue_50`,
-    surfaceSupport: "unsupported",
-    reason: "direct_user_session_not_declared_until_issue_50",
-    missing: FIRST_BATCH_DIRECT_UNSUPPORTED_MISSING,
+    state: "configured",
+    definition: {
+      transport: args.transport,
+      agentCommand: args.command,
+      agentArgsForPrompt: args.argsForPrompt,
+    },
+    reason: "first_batch_direct_smoke_not_enabled",
+    missing: FIRST_BATCH_DIRECT_SMOKE_MISSING,
   };
 }
 

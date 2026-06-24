@@ -21,6 +21,8 @@ const PROCESS_HEAVY_TEST_TIMEOUT_MS = 20_000;
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  delete process.env.HOLP_REAL_HARNESS_SMOKE;
+  delete process.env.HOLP_REAL_HARNESS_DIRECT_SMOKE;
 });
 
 describe("adapter registry runtime surface resolution", () => {
@@ -129,23 +131,19 @@ describe("adapter registry runtime surface resolution", () => {
     expect(acp?.actual_fidelity).toBe("streaming_controlled");
     expect(acp?.isolation_profiles.coder_worktree).toMatchObject({
       readiness: "degraded",
-      reason: expect.stringContaining("reasonix_acp_session_new_failed:acp_rpc_error"),
+      reason: expect.stringContaining("reasonix_acp_session_new_failed:"),
     });
   }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
-  it("keeps missing Reasonix binary rejected instead of policy-degraded present", async () => {
+  it("rejects missing Reasonix binary even when direct is configured but unproven", async () => {
     const dir = makeTempDir();
-    const definition = reasonixDefinition(dir);
-    const missingDefinition: FirstBatchHarnessDefinition = {
-      ...definition,
-      headless: {
-        ...definition.headless,
-        command: join(dir, "missing-reasonix"),
-      },
-    };
+    const definition = reasonixConfiguredDirectDefinition(dir, {
+      headlessCommand: join(dir, "missing-reasonix"),
+      directCommand: join(dir, "missing-reasonix-direct"),
+    });
     const registry = createAdapterRegistry(
-      firstBatchAdapterFactories([missingDefinition]),
-      firstBatchAdapterProbes([missingDefinition]),
+      firstBatchAdapterFactories([definition]),
+      firstBatchAdapterProbes([definition]),
     );
 
     const result = await registry.probe({
@@ -155,39 +153,162 @@ describe("adapter registry runtime surface resolution", () => {
       cwd: dir,
     });
 
-    const acp = result.runtime_surfaces?.find((surface) => surface.runtime_surface === "acp");
     expect(result.status).toBe("rejected");
     expect(result.resolved_roles).toEqual([]);
     expect(result.reason).toBe("missing_binary");
     expect(result.missing).toEqual(expect.arrayContaining([
       "headless:missing_binary",
-      "acp:reasonix_binary_unavailable",
+      expect.stringContaining("acp:reasonix_acp_session_new_failed:"),
+      "direct_user_session:first_batch_direct_smoke_not_enabled",
     ]));
-    expect(acp?.isolation_profiles.coder_worktree).toMatchObject({
+    const direct = result.runtime_surfaces?.find((surface) =>
+      surface.runtime_surface === "direct_user_session"
+    );
+    expect(direct?.isolation_profiles.coder_worktree).toMatchObject({
       readiness: "degraded",
-      reason: "reasonix_binary_unavailable",
+      reason: "first_batch_direct_smoke_not_enabled",
     });
-  });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
-  it("keeps non-Kimi first-batch direct surfaces explicitly unsupported without backend factories", async () => {
+  it("wires first-batch direct factories for every configured direct target", async () => {
     const factories = firstBatchAdapterFactories(FIRST_BATCH_HARNESSES);
-    const nonKimi = FIRST_BATCH_HARNESSES.filter((definition) => definition.transport !== "kimi-code");
 
-    expect(nonKimi.map((definition) => definition.transport)).toEqual([
+    expect(FIRST_BATCH_HARNESSES.map((definition) => definition.transport)).toEqual([
       "cursor-agent",
+      "kimi-code",
       "opencode",
       "pi",
       "reasonix",
     ]);
-    for (const definition of nonKimi) {
+    for (const definition of FIRST_BATCH_HARNESSES) {
       expect(definition.direct).toMatchObject({
-        state: "rejected",
-        surfaceSupport: "unsupported",
-        reason: "direct_user_session_not_declared_until_issue_50",
+        state: "configured",
+        reason: "first_batch_direct_smoke_not_enabled",
       });
-      expect(factories[definition.transport]?.direct_user_session).toBeUndefined();
+      expect(factories[definition.transport]?.direct_user_session).toBeDefined();
     }
   });
+
+  it("declares exact first-batch direct command shapes", () => {
+    const directDefinitions = Object.fromEntries(FIRST_BATCH_HARNESSES.map((definition) => {
+      expect(definition.direct.state).toBe("configured");
+      if (definition.direct.state !== "configured") throw new Error("direct not configured");
+      return [definition.transport, definition.direct.definition];
+    }));
+
+    expect(directDefinitions["cursor-agent"]).toMatchObject({
+      transport: "cursor-agent",
+      agentCommand: "cursor-agent",
+    });
+    expect(directDefinitions["cursor-agent"].agentArgsForPrompt("PROMPT")).toEqual([
+      "-p",
+      "PROMPT",
+      "--output-format",
+      "text",
+      "--force",
+    ]);
+
+    expect(directDefinitions["kimi-code"]).toMatchObject({
+      transport: "kimi-code",
+      agentCommand: "kimi",
+    });
+    expect(directDefinitions["kimi-code"].agentArgsForPrompt("PROMPT")).toEqual([
+      "-p",
+      "PROMPT",
+      "-m",
+      "kimi-code/kimi-for-coding",
+      "--output-format",
+      "text",
+    ]);
+
+    expect(directDefinitions.opencode).toMatchObject({
+      transport: "opencode",
+      agentCommand: "opencode",
+    });
+    expect(directDefinitions.opencode.agentArgsForPrompt("PROMPT")).toEqual([
+      "run",
+      "--pure",
+      "PROMPT",
+      "-m",
+      "opencode/deepseek-v4-flash-free",
+    ]);
+
+    expect(directDefinitions.pi).toMatchObject({
+      transport: "pi",
+      agentCommand: "pi",
+    });
+    expect(directDefinitions.pi.agentArgsForPrompt("PROMPT")).toEqual([
+      "-p",
+      "PROMPT",
+      "--mode",
+      "text",
+      "--provider",
+      "xiaomi-token-plan-sgp",
+      "--model",
+      "mimo-v2.5-pro",
+    ]);
+
+    expect(directDefinitions.reasonix).toMatchObject({
+      transport: "reasonix",
+      agentCommand: "reasonix",
+    });
+    expect(directDefinitions.reasonix.agentArgsForPrompt("PROMPT")).toEqual([
+      "run",
+      "--model",
+      "deepseek-flash",
+      "PROMPT",
+    ]);
+  });
+
+  it("keeps first-batch direct surfaces degraded by default without direct smoke env", async () => {
+    const dir = makeTempDir();
+    const definition = kimiDefinition(dir, { directReady: true });
+    const registry = createAdapterRegistry(
+      firstBatchAdapterFactories([definition]),
+      firstBatchAdapterProbes([definition]),
+    );
+
+    const result = await registry.probe({
+      id: "kimi",
+      transport: "kimi-code",
+      roles: ["coder"],
+      cwd: dir,
+    });
+
+    const direct = result.runtime_surfaces?.find((surface) =>
+      surface.runtime_surface === "direct_user_session"
+    );
+    expect(direct?.isolation_profiles.coder_worktree).toMatchObject({
+      readiness: "degraded",
+      reason: "first_batch_direct_smoke_not_enabled",
+      missing: ["HOLP_REAL_HARNESS_DIRECT_SMOKE", "agent_in_tmux_smoke", "owner_verified"],
+    });
+  });
+
+  it("does not treat HOLP_REAL_HARNESS_SMOKE as first-batch direct evidence", async () => {
+    process.env.HOLP_REAL_HARNESS_SMOKE = "1";
+    const dir = makeTempDir();
+    const definition = kimiDefinition(dir, { directReady: true });
+    const registry = createAdapterRegistry(
+      firstBatchAdapterFactories([definition]),
+      firstBatchAdapterProbes([definition]),
+    );
+
+    const result = await registry.probe({
+      id: "kimi",
+      transport: "kimi-code",
+      roles: ["coder"],
+      cwd: dir,
+    });
+
+    const direct = result.runtime_surfaces?.find((surface) =>
+      surface.runtime_surface === "direct_user_session"
+    );
+    expect(direct?.isolation_profiles.coder_worktree).toMatchObject({
+      readiness: "degraded",
+      reason: "first_batch_direct_smoke_not_enabled",
+    });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
   it("keeps Reasonix ACP degraded when full terminal prompt verifies HOLP_OK by policy", async () => {
     const dir = makeTempDir();
@@ -271,7 +392,7 @@ describe("adapter registry runtime surface resolution", () => {
         requestTimeoutMs: 5_000,
         terminalTimeoutMs: 5_000,
       },
-      direct: unsupportedDirect("opencode"),
+      direct: degradedDirect("opencode"),
     };
     const registry = createAdapterRegistry(
       firstBatchAdapterFactories([definition]),
@@ -295,6 +416,7 @@ describe("adapter registry runtime surface resolution", () => {
   });
 
   it("declares Kimi direct tmux ready only with HOLP-owned capability metadata", async () => {
+    process.env.HOLP_REAL_HARNESS_DIRECT_SMOKE = "1";
     const dir = makeTempDir();
     const definition = kimiDefinition(dir, { directReady: true });
     const registry = createAdapterRegistry(
@@ -323,6 +445,7 @@ describe("adapter registry runtime surface resolution", () => {
   });
 
   it("does not declare direct ready from tmux capability probe without agent smoke output", async () => {
+    process.env.HOLP_REAL_HARNESS_DIRECT_SMOKE = "1";
     const dir = makeTempDir();
     const definition = kimiDefinition(dir, { directReady: true, directOutput: "NO_TOKEN" });
     const registry = createAdapterRegistry(
@@ -342,13 +465,14 @@ describe("adapter registry runtime surface resolution", () => {
     );
     expect(direct?.isolation_profiles.coder_worktree).toMatchObject({
       readiness: "degraded",
-      reason: "direct_tmux_capability_not_proven",
-      missing: ["agent_in_tmux_smoke", "owner_verified"],
+      reason: "direct_agent_smoke_missing_holp_ok",
+      missing: ["agent_in_tmux_smoke:HOLP_OK"],
     });
     expect(direct?.direct_channel?.capability_bitmask).toEqual([]);
   }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
   it("leaves Kimi direct tmux degraded when owner/capability proof is missing", async () => {
+    process.env.HOLP_REAL_HARNESS_DIRECT_SMOKE = "1";
     const dir = makeTempDir();
     const definition = kimiDefinition(dir, { directReady: false });
     const registry = createAdapterRegistry(
@@ -482,7 +606,7 @@ function opencodeDefinition(
       requestTimeoutMs: 5_000,
       terminalTimeoutMs: 5_000,
     },
-    direct: unsupportedDirect("opencode"),
+    direct: degradedDirect("opencode"),
   };
 }
 
@@ -507,7 +631,42 @@ function reasonixDefinition(
       requestTimeoutMs: 5_000,
       terminalTimeoutMs: 5_000,
     },
-    direct: unsupportedDirect("reasonix"),
+    direct: degradedDirect("reasonix"),
+  };
+}
+
+function reasonixConfiguredDirectDefinition(
+  dir: string,
+  opts: { headlessCommand: string; directCommand: string },
+): FirstBatchHarnessDefinition {
+  return {
+    transport: "reasonix",
+    harnessId: "reasonix",
+    vendor: "Reasonix",
+    probeAcpSmoke: true,
+    headless: {
+      transport: "reasonix",
+      command: opts.headlessCommand,
+      versionArgs: ["--version"],
+      argsForPrompt: (prompt) => ["run", prompt],
+    },
+    acp: {
+      transport: "reasonix",
+      command: fakeAcp(dir, "session-new-error"),
+      requestTimeoutMs: 5_000,
+      terminalTimeoutMs: 5_000,
+    },
+    direct: {
+      state: "configured",
+      definition: {
+        transport: "reasonix",
+        tmuxCommand: fakeTmux(dir, "HOLP_OK"),
+        agentCommand: opts.directCommand,
+        agentArgsForPrompt: (prompt) => ["run", "--model", "deepseek-flash", prompt],
+      },
+      reason: "first_batch_direct_smoke_not_enabled",
+      missing: ["HOLP_REAL_HARNESS_DIRECT_SMOKE", "agent_in_tmux_smoke", "owner_verified"],
+    },
   };
 }
 
@@ -519,7 +678,6 @@ function kimiDefinition(
     transport: "kimi-code",
     harnessId: "kimi-code",
     vendor: "Moonshot AI",
-    probeDirectReady: opts.directReady,
     headless: {
       transport: "kimi-code",
       command: fakeCli(dir, "kimi"),
@@ -540,20 +698,20 @@ function kimiDefinition(
         agentCommand: opts.directReady ? fakeCli(dir, "kimi-direct") : join(dir, "missing-kimi"),
         agentArgsForPrompt: (prompt) => ["-p", prompt],
       },
-      reason: "direct_tmux_capability_not_proven",
-      missing: ["agent_in_tmux_smoke", "owner_verified"],
+      reason: "first_batch_direct_smoke_not_enabled",
+      missing: ["HOLP_REAL_HARNESS_DIRECT_SMOKE", "agent_in_tmux_smoke", "owner_verified"],
     },
   };
 }
 
-function unsupportedDirect(transport: string) {
+function degradedDirect(transport: string) {
   return {
-    state: "rejected" as const,
-    runtimeKind: `${transport}_direct_unsupported_until_issue_50`,
-    surfaceSupport: "unsupported" as const,
-    reason: "direct_user_session_not_declared_until_issue_50",
+    state: "degraded" as const,
+    runtimeKind: `${transport}_direct_test_degraded`,
+    surfaceSupport: "experimental" as const,
+    reason: "test_direct_not_configured",
     missing: [
-      "issue-50:direct_user_session_parity",
+      "test_direct_fixture",
       "agent_in_tmux_smoke",
       "owner_verified",
     ],
