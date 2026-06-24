@@ -6,8 +6,13 @@ import type {
   HarnessInspectModel,
   HarnessOverviewModel,
   HarnessWorkspaceState,
+  InspectAgentDetail,
+  InspectEvidenceRef,
+  InspectRow,
   OwnerVerificationState,
   RenderEvidenceSummary,
+  RuntimeSurfaceRow,
+  WorkerAnchor,
 } from "./types.js";
 
 export function deriveOverview(state: HarnessWorkspaceState): HarnessOverviewModel {
@@ -35,6 +40,7 @@ export function deriveInspect(
     title: t(state.locale, "titleInspect"),
     selectedAgentId,
     selectedAgent: agent ? selectedAgent(state, agent) : undefined,
+    inspect: agent ? inspectAgentDetail(state, agent) : undefined,
     empty: !agent,
   };
 }
@@ -104,6 +110,159 @@ function selectedAgent(state: HarnessWorkspaceState, agent: DiscoveredAgent): No
     runtime_surfaces: agent.runtime_surfaces ?? [],
     latestEvent: latestEventForAgent(state, agent.id),
   };
+}
+
+function inspectAgentDetail(state: HarnessWorkspaceState, agent: DiscoveredAgent): InspectAgentDetail {
+  const latestEvent = latestEventForAgent(state, agent.id);
+  const owner = ownerVerificationForAgent(state, agent.id);
+  const roleSkin = roleSkinFor(agent.role ?? agent.id);
+  const anchor = workerAnchorForAgent(state, agent.id);
+  const output = outputForAgent(state, agent.id);
+  const gate = state.gate;
+  const approval = state.approval;
+  const terminal = state.terminal;
+  const refs = evidenceRefs(state);
+  const failures = state.failures.length > 0
+    ? state.failures.map((failure) => failureLine(state, failure.messageKey as MessageKey, failure.reason)).join(" | ")
+    : t(state.locale, "inspectFailureNone");
+
+  return {
+    agent_id: agent.id,
+    output,
+    evidenceRefs: refs,
+    sections: [
+      {
+        title: t(state.locale, "inspectIdentity"),
+        rows: [
+          row("agent_id", agent.id, "identity", "identity"),
+          row(t(state.locale, "inspectStatus"), agent.status ?? t(state.locale, "unknown"), "identity", "identity"),
+          row(t(state.locale, "inspectRole"), roleSkin, "identity", "identity"),
+          row(t(state.locale, "inspectOwner"), owner, "identity", "identity"),
+          row(t(state.locale, "inspectLatestEvent"), latestEvent ? eventLabel(latestEvent) : "pending", "critical"),
+        ],
+      },
+      {
+        title: t(state.locale, "inspectRuntime"),
+        rows: [
+          row("runtime_surface", runtimeSurfaceForAgent(agent.runtime_surfaces), "normal"),
+          row(t(state.locale, "inspectDirectSession"), anchor?.worker_session ?? t(state.locale, "inspectNoDirectSession"), "normal"),
+          row(t(state.locale, "inspectAttachCommand"), anchor?.attach_command ?? t(state.locale, "inspectNoAttachCommand"), "normal"),
+          row(t(state.locale, "inspectCancelCapability"), cancelCapabilityForAgent(agent.runtime_surfaces, state.locale), "critical"),
+        ],
+      },
+      {
+        title: t(state.locale, "inspectOutput"),
+        rows: [
+          row("model_output.*", output.text, output.state === "unavailable" ? "critical" : "normal", "content"),
+        ],
+      },
+      {
+        title: t(state.locale, "inspectDecision"),
+        rows: [
+          row(t(state.locale, "inspectGate"), gateLine(gate), gate?.blockingReason ? "critical" : "normal"),
+          row(t(state.locale, "inspectApproval"), approvalLine(state, approval), approval?.state === "expired" || approval?.state === "cancelled" ? "critical" : "normal"),
+          row(t(state.locale, "inspectTerminal"), terminalLine(terminal), terminal && terminal.kind !== "merged" ? "critical" : "normal"),
+        ],
+      },
+      {
+        title: t(state.locale, "inspectFailure"),
+        rows: [
+          row(t(state.locale, "inspectReason"), failures, state.failures.length > 0 ? "critical" : "normal", "failure"),
+        ],
+      },
+      {
+        title: t(state.locale, "inspectEvidenceRefs"),
+        rows: refs.map((ref) => row(ref.ref, `run_id=${ref.run_id} seq=${ref.seq}`, "optional")),
+      },
+    ],
+  };
+}
+
+function row(
+  label: string,
+  value: string,
+  priority: InspectRow["priority"],
+  kind?: InspectRow["kind"],
+): InspectRow {
+  return kind ? { label, value, priority, kind } : { label, value, priority };
+}
+
+function outputForAgent(state: HarnessWorkspaceState, agentId: string): InspectAgentDetail["output"] {
+  if (state.workerPreview.producer_attribution !== "single" || agentId !== state.workerPreview.producer_agent_id) {
+    return {
+      state: "unavailable",
+      text: t(state.locale, "inspectNoOutputForAgent"),
+    };
+  }
+  const text = state.workerPreview.renderedText.trim() || "no model_output.text_delta yet";
+  return {
+    state: state.workerPreview.renderedText.trim() ? "captured" : "pending",
+    text,
+    truncated: state.workerPreview.truncated,
+  };
+}
+
+function workerAnchorForAgent(state: HarnessWorkspaceState, agentId: string): WorkerAnchor | undefined {
+  const anchor = state.workerAnchor;
+  if (!anchor) return undefined;
+  if (anchor.agent_id === agentId) return anchor;
+  if (!anchor.agent_id && state.run.selected_agent_id === agentId) return anchor;
+  return undefined;
+}
+
+function runtimeSurfaceForAgent(surfaces: readonly RuntimeSurfaceRow[] | undefined): string {
+  return surfaces?.map((surface) => surface.runtime_surface).filter(Boolean).join(",") || "unknown";
+}
+
+function cancelCapabilityForAgent(
+  surfaces: readonly RuntimeSurfaceRow[] | undefined,
+  locale: HarnessWorkspaceState["locale"],
+): string {
+  const supported = surfaces?.some((surface) => {
+    const direct = surface.direct_channel;
+    if (typeof direct !== "object" || direct === null) return false;
+    const bitmask = direct.capability_bitmask;
+    return Array.isArray(bitmask) && bitmask.includes("cancel");
+  }) ?? false;
+  return t(locale, supported ? "cancelSupported" : "cancelUnavailable");
+}
+
+function gateLine(gate: HarnessWorkspaceState["gate"]): string {
+  if (!gate) return "pending";
+  return [
+    gate.gateDisposition ?? "pending",
+    gate.reviewOutcome,
+    gate.blockingReason ? `blocking_reason=${gate.blockingReason}` : undefined,
+  ].filter(Boolean).join(" ");
+}
+
+function approvalLine(state: HarnessWorkspaceState, approval: HarnessWorkspaceState["approval"]): string {
+  if (!approval) return "pending";
+  const key = approval.state === "requested"
+    ? "approvalRequested"
+    : approval.state === "resolved"
+      ? "approvalResolved"
+      : approval.state === "expired"
+        ? "approvalExpired"
+        : "approvalCancelled";
+  return [
+    t(state.locale, key),
+    approval.approval_id ? `approval_id=${approval.approval_id}` : undefined,
+    approval.decision ? `decision=${approval.decision}` : undefined,
+  ].filter(Boolean).join(" ");
+}
+
+function terminalLine(terminal: HarnessWorkspaceState["terminal"]): string {
+  if (!terminal) return "pending";
+  return terminal.reason ? `${terminal.kind} reason=${terminal.reason}` : terminal.kind;
+}
+
+function evidenceRefs(state: HarnessWorkspaceState): readonly InspectEvidenceRef[] {
+  return state.rawEvidenceAnchors.slice(-8).map((anchor) => ({
+    ref: `${anchor.category}.${anchor.name}#${anchor.seq}`,
+    run_id: anchor.run_id,
+    seq: anchor.seq,
+  }));
 }
 
 function latestEventForAgent(state: HarnessWorkspaceState, agentId: string): EventFrame | undefined {

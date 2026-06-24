@@ -261,10 +261,48 @@ function recordModelOutput(state: HarnessWorkspaceState, event: EventFrame): Har
   const delta = stringField(payload, "text_delta");
   if (fullText === undefined && delta === undefined) return state;
   const nextText = fullText !== undefined ? fullText : `${state.workerPreview.fullText}${delta ?? ""}`;
+  const eventProducer = stringField(payload, "agent_id")
+    ?? stringField(payload, "agent")
+    ?? state.run.selected_agent_id;
+  const attribution = previewAttribution(state.workerPreview, fullText !== undefined, eventProducer);
   return {
     ...state,
-    workerPreview: renderPreview(nextText, state.previewLimit, fullText !== undefined || state.workerPreview.authoritativeSnapshot),
+    workerPreview: renderPreview(
+      nextText,
+      state.previewLimit,
+      fullText !== undefined || state.workerPreview.authoritativeSnapshot,
+      attribution.producer_attribution,
+      attribution.producer_agent_id,
+    ),
   };
+}
+
+function previewAttribution(
+  previous: WorkerPreview,
+  isFullText: boolean,
+  eventProducer: string | undefined,
+): Pick<WorkerPreview, "producer_attribution" | "producer_agent_id"> {
+  if (isFullText) {
+    return eventProducer
+      ? { producer_attribution: "single", producer_agent_id: eventProducer }
+      : { producer_attribution: "none" };
+  }
+  if (previous.producer_attribution === "mixed") {
+    return { producer_attribution: "mixed" };
+  }
+  if (previous.producer_attribution === "none" && previous.fullText.length === 0) {
+    return eventProducer
+      ? { producer_attribution: "single", producer_agent_id: eventProducer }
+      : { producer_attribution: "none" };
+  }
+  if (
+    previous.producer_attribution === "single"
+    && previous.producer_agent_id
+    && previous.producer_agent_id === eventProducer
+  ) {
+    return { producer_attribution: "single", producer_agent_id: previous.producer_agent_id };
+  }
+  return { producer_attribution: "mixed" };
 }
 
 function recordGateReport(state: HarnessWorkspaceState, event: EventFrame): HarnessWorkspaceState {
@@ -378,12 +416,31 @@ function isKnownEvent(event: EventFrame): boolean {
 }
 
 function emptyPreview(): WorkerPreview {
-  return { fullText: "", renderedText: "", truncated: false, authoritativeSnapshot: false };
+  return {
+    fullText: "",
+    renderedText: "",
+    truncated: false,
+    authoritativeSnapshot: false,
+    producer_attribution: "none",
+  };
 }
 
-function renderPreview(text: string, limit: number, authoritativeSnapshot: boolean): WorkerPreview {
+function renderPreview(
+  text: string,
+  limit: number,
+  authoritativeSnapshot: boolean,
+  producerAttribution: WorkerPreview["producer_attribution"],
+  producerAgentId: string | undefined,
+): WorkerPreview {
   if (text.length <= limit) {
-    return { fullText: text, renderedText: text, truncated: false, authoritativeSnapshot };
+    return {
+      fullText: text,
+      renderedText: text,
+      truncated: false,
+      authoritativeSnapshot,
+      producer_attribution: producerAttribution,
+      producer_agent_id: producerAgentId,
+    };
   }
   const sliceLength = Math.max(0, limit - TRUNCATION_MARKER.length);
   return {
@@ -391,6 +448,8 @@ function renderPreview(text: string, limit: number, authoritativeSnapshot: boole
     renderedText: `${text.slice(0, sliceLength)}${TRUNCATION_MARKER}`,
     truncated: true,
     authoritativeSnapshot,
+    producer_attribution: producerAttribution,
+    producer_agent_id: producerAgentId,
   };
 }
 

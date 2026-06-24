@@ -1,6 +1,6 @@
 import { ROLE_SKINS } from "./roleSkins.js";
 import { borderLine, createFocusShellTheme, roleBadge, type AnsiOptions, type FocusShellTheme } from "./theme.js";
-import type { ChainNode, HarnessInspectModel, HarnessOverviewModel, RoleSkinId } from "./types.js";
+import type { ChainNode, HarnessInspectModel, HarnessOverviewModel, InspectRow, RoleSkinId } from "./types.js";
 import { cellWidth, fitCell, padEndCell, truncateCell } from "./width.js";
 import { computeFocusShellLayout } from "./layout.js";
 
@@ -57,6 +57,7 @@ function renderSidecar(
 interface BodyLine {
   readonly text: string;
   readonly priority: "required" | "normal" | "optional";
+  readonly kind?: "identity" | "failure" | "provenance" | "content";
 }
 
 function prioritizedBody(
@@ -64,6 +65,10 @@ function prioritizedBody(
   width: number,
   theme: FocusShellTheme,
 ): readonly BodyLine[] {
+  if (model.mode === "inspect") {
+    return prioritizedInspectBody(model, width, theme);
+  }
+
   const evidence = model.evidence;
   const latest = evidence.latest_event ?? "pending";
   const gate = evidence.gate;
@@ -82,15 +87,30 @@ function prioritizedBody(
     { priority: "required", text: `${theme.chrome(model.labels.evidence)} run_id=${evidence.run_id ?? "unknown"}` },
     { priority: "required", text: `Runtime ${evidence.runtime_surface ?? "unknown"} | latest_event=${latest}` },
     { priority: "required", text: `Gate gate_report ${gateLine}` },
-    { priority: "required", text: `${theme.chrome(model.labels.failures)} ${failures}` },
-    { priority: "required", text: `Provenance ${evidence.provenance}: ${evidence.provenance_caveat}` },
+    { priority: "required", kind: "failure", text: `${theme.chrome(model.labels.failures)} ${failures}` },
+    { priority: "required", kind: "provenance", text: `Provenance ${evidence.provenance}: ${evidence.provenance_caveat}` },
     { priority: "normal", text: `Worker session ${evidence.worker_session ?? "unknown"}` },
     { priority: "normal", text: `Attach command ${evidence.attach_command ?? "external"}` },
     { priority: "normal", text: `Owner ${evidence.owner_verified}` },
     { priority: "normal", text: `Artifacts ${evidence.artifact_refs.length > 0 ? evidence.artifact_refs.join(",") : "none"}` },
     { priority: "normal", text: `Terminal ${evidence.terminal?.state ?? "pending"}${evidence.terminal?.reason ? ` reason=${evidence.terminal.reason}` : ""}` },
-    ...inspectLines(model),
     { priority: "optional", text: `Anchors run_id direct_user_session model_output.text_delta gate_report` },
+    { priority: "optional", text: roleAccentLine(theme) },
+    { priority: "optional", text: theme.muted("Controller region is external passthrough; no pane or CLI is spawned.") },
+  ];
+}
+
+function prioritizedInspectBody(
+  model: HarnessInspectModel,
+  width: number,
+  theme: FocusShellTheme,
+): readonly BodyLine[] {
+  return [
+    { priority: "required", text: `${theme.chrome("Sidecar")} ${modeLabel(model)}` },
+    ...inspectLines(model, width),
+    { priority: "normal", text: `${theme.chrome(model.labels.chain)} ${chainLine(model.chain, theme)}` },
+    { priority: "required", kind: "provenance", text: `Provenance ${model.evidence.provenance}: ${model.evidence.provenance_caveat}` },
+    { priority: "optional", text: `Anchors run_id direct_user_session model_output.text_delta gate_report approval_requested approval_resolved approval_expired approval_cancelled attach_command` },
     { priority: "optional", text: roleAccentLine(theme) },
     { priority: "optional", text: theme.muted("Controller region is external passthrough; no pane or CLI is spawned.") },
   ];
@@ -101,25 +121,78 @@ function selectBodyLines(lines: readonly BodyLine[], height: number): readonly s
   const required = lines.filter((line) => line.priority === "required");
   const normal = lines.filter((line) => line.priority === "normal");
   const optional = lines.filter((line) => line.priority === "optional");
-  const selected = [...required, ...normal, ...optional].slice(0, height).map((line) => line.text);
+  const selected = [...required, ...normal, ...optional].slice(0, height);
 
-  const provenance = required.find((line) => line.text.startsWith("Provenance "));
-  if (provenance && !selected.some((line) => line.startsWith("Provenance "))) {
-    selected[Math.max(0, selected.length - 1)] = provenance.text;
+  const identity = required.find((line) => line.kind === "identity");
+  const failure = required.find((line) => line.kind === "failure");
+  const provenance = required.find((line) => line.kind === "provenance");
+  if (identity && failure && provenance && height <= 3) {
+    if (height === 1) return [`${identity.text} | ${failure.text} | ${provenance.text}`];
+    if (height === 2) return [`${identity.text} | ${failure.text}`, provenance.text];
+    return [identity.text, failure.text, provenance.text];
   }
 
-  return selected;
+  preserveKind(selected, identity, "identity", Math.max(0, selected.length - 3));
+  preserveKind(selected, failure, "failure", Math.max(0, selected.length - 2));
+  preserveKind(selected, provenance, "provenance", Math.max(0, selected.length - 1));
+
+  return selected.map((line) => line.text);
 }
 
-function inspectLines(model: FocusShellRenderModel): readonly BodyLine[] {
-  if (model.mode !== "inspect") return [];
-  if (model.empty || !model.selectedAgent) {
-    return [{ priority: "normal", text: `${model.labels.inspectEmpty}: Inspect ${model.selectedAgentId ?? "unknown"}` }];
+function preserveKind(
+  selected: BodyLine[],
+  requiredLine: BodyLine | undefined,
+  kind: NonNullable<BodyLine["kind"]>,
+  index: number,
+): void {
+  if (!requiredLine || selected.some((line) => line.kind === kind)) return;
+  if (selected.length === 0) return;
+  selected[Math.min(index, selected.length - 1)] = requiredLine;
+}
+
+function lineKind(row: InspectRow): BodyLine["kind"] {
+  if (row.kind) return row.kind;
+  if (row.priority === "identity") return "identity";
+  if (row.priority === "critical") return "content";
+  return undefined;
+}
+
+function bodyLine(
+  text: string,
+  priority: BodyLine["priority"],
+  kind?: BodyLine["kind"],
+): BodyLine {
+  if (kind) {
+    return { text, priority, kind };
   }
-  return [
-    { priority: "normal", text: `Inspect agent=${model.selectedAgent.id} role=${model.selectedAgent.roleSkin}` },
-    { priority: "normal", text: `Inspect status=${model.selectedAgent.status ?? "unknown"} owner=${model.selectedAgent.owner_verified}` },
-  ];
+  return { text, priority };
+}
+
+function inspectLines(model: HarnessInspectModel, width: number): readonly BodyLine[] {
+  if (model.empty || !model.selectedAgent) {
+    return [bodyLine(`${model.labels.inspectEmpty}: Inspect ${model.selectedAgentId ?? "unknown"}`, "required", "identity")];
+  }
+  const detail = model.inspect;
+  if (!detail) {
+    return [
+      bodyLine(`Inspect agent=${model.selectedAgent.id} role=${model.selectedAgent.roleSkin}`, "required", "identity"),
+      bodyLine(`Inspect status=${model.selectedAgent.status ?? "unknown"} owner=${model.selectedAgent.owner_verified}`, "required", "identity"),
+    ];
+  }
+  return detail.sections.flatMap((section) =>
+    section.rows.map((inspectRow) => inspectBodyLine(section.title, inspectRow, width))
+  );
+}
+
+function inspectBodyLine(sectionTitle: string, row: InspectRow, width: number): BodyLine {
+  const value = truncateCell(row.value.replace(/\s+/g, " "), Math.max(8, width - sectionTitle.length - row.label.length - 5));
+  return bodyLine(`${sectionTitle} ${row.label}=${value}`, rowPriority(row.priority), lineKind(row));
+}
+
+function rowPriority(priority: InspectRow["priority"]): BodyLine["priority"] {
+  if (priority === "identity" || priority === "critical") return "required";
+  if (priority === "optional") return "optional";
+  return "normal";
 }
 
 function innerLine(theme: FocusShellTheme, width: number, text: string): string {
