@@ -558,7 +558,6 @@ async function runClientMode(args: {
         workerSession = attach.sessionId;
         attachCommand = attach.attachCommand;
         killCommand = attach.killCommand;
-        console.log(`attach_command=${attach.attachCommand}`);
       }
     }
 
