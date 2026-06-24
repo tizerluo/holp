@@ -101,6 +101,76 @@ describe("direct tmux backend", () => {
     }
   });
 
+  it("streams pipe-pane output as incremental text_delta while still emitting final full_text", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "holp-direct-stream-"));
+    try {
+      const tmux = fakeTmux(dir);
+      const backend = createDirectTmuxBackendFactory({
+        transport: "kimi-code",
+        tmuxCommand: tmux,
+        agentCommand: "kimi",
+        agentArgsForPrompt: (prompt) => ["-p", prompt],
+        timeoutMs: 1_000,
+        pollIntervalMs: 1,
+      })({ cwd: dir, tmuxSocketPath: join(dir, "tmux.sock") });
+      const messages: AgentMessage[] = [];
+      backend.onMessage((message) => messages.push(message));
+
+      const { sessionId } = await backend.startSession();
+      await backend.sendPrompt(sessionId, "hello");
+      await backend.dispose();
+
+      const deltas = messages.filter(
+        (m): m is Extract<AgentMessage, { type: "model-output" }> =>
+          m.type === "model-output" && typeof m.textDelta === "string",
+      );
+      const finals = messages.filter(
+        (m): m is Extract<AgentMessage, { type: "model-output" }> =>
+          m.type === "model-output" && typeof m.fullText === "string",
+      );
+      expect(deltas.some((m) => m.textDelta!.includes("direct output"))).toBe(true);
+      expect(finals).toHaveLength(1);
+      expect(finals[0].fullText).toBe("direct output");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to capture-pane diff for text_delta when pipe-pane is unsupported", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "holp-direct-capdiff-"));
+    try {
+      const tmux = fakeTmux(dir, { pipeFails: true });
+      const backend = createDirectTmuxBackendFactory({
+        transport: "kimi-code",
+        tmuxCommand: tmux,
+        agentCommand: "kimi",
+        agentArgsForPrompt: (prompt) => ["-p", prompt],
+        timeoutMs: 1_000,
+        pollIntervalMs: 1,
+      })({ cwd: dir, tmuxSocketPath: join(dir, "tmux.sock") });
+      const messages: AgentMessage[] = [];
+      backend.onMessage((message) => messages.push(message));
+
+      const { sessionId } = await backend.startSession();
+      await backend.sendPrompt(sessionId, "hello");
+      await backend.dispose();
+
+      const deltas = messages.filter(
+        (m): m is Extract<AgentMessage, { type: "model-output" }> =>
+          m.type === "model-output" && typeof m.textDelta === "string",
+      );
+      const finals = messages.filter(
+        (m): m is Extract<AgentMessage, { type: "model-output" }> =>
+          m.type === "model-output" && typeof m.fullText === "string",
+      );
+      expect(deltas.some((m) => m.textDelta!.includes("direct output"))).toBe(true);
+      expect(finals).toHaveLength(1);
+      expect(finals[0].fullText).toBe("direct output");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("emits an attach_target event carrying the caller socket and attach command", async () => {
     const dir = mkdtempSync(join(tmpdir(), "holp-direct-attach-"));
     try {
@@ -226,13 +296,14 @@ describe("direct tmux backend", () => {
   }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 });
 
-function fakeTmux(dir: string, opts: { killFails?: boolean } = {}): string {
+function fakeTmux(dir: string, opts: { killFails?: boolean; pipeFails?: boolean } = {}): string {
   const script = join(dir, "fake-tmux.mjs");
   const statePath = join(dir, "tmux-state.json");
   writeFileSync(script, `#!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 const statePath = ${JSON.stringify(statePath)};
 const killFails = ${JSON.stringify(opts.killFails === true)};
+const pipeFails = ${JSON.stringify(opts.pipeFails === true)};
 let args = process.argv.slice(2);
 if (args[0] === "-S") args = args.slice(2);
 function readState() {
@@ -253,6 +324,15 @@ if (args[0] === "new-session") {
   writeState({ ...state, sessions: { ...(state.sessions || {}), [session]: true }, session, pane: "" });
   process.exit(0);
 }
+if (args[0] === "pipe-pane") {
+  if (pipeFails) process.exit(1);
+  const cmd = args[args.indexOf("-o") + 1] || "";
+  const match = cmd.match(/cat >> '([^']+)'/);
+  const state = readState();
+  state.logFile = match ? match[1] : undefined;
+  writeState(state);
+  process.exit(0);
+}
 if (args[0] === "send-keys") {
   const command = args[args.indexOf("-t") + 2];
   const marker = command.match(/__(?:HOLP_DONE|HOLP_OWNER_VERIFIED)_[A-Za-z0-9_]+__/)?.[0] || "__HOLP_DONE_missing__";
@@ -261,6 +341,7 @@ if (args[0] === "send-keys") {
   state.pane = command + "\\ndirect output\\n" + marker + "\\n";
   state.captureCount = 0;
   writeState(state);
+  if (state.logFile) writeFileSync(state.logFile, "direct output\\n");
   process.exit(0);
 }
 if (args[0] === "capture-pane") {

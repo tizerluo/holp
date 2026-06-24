@@ -110,19 +110,31 @@ command is the honest ceiling.
   can still orphan one session for one window; the printed kill command is the
   manual fallback.
 
-## L3 — live stream via pipe-pane (NOT capture-pane diff)
+## L3 — live stream: pipe-pane primary, capture-pane diff fallback
 
-`capture-pane` diffing is rejected as fundamentally lossy: it returns the visible
-pane only (no scrollback), so burst output that scrolls off between 50ms polls is
-never captured, and repaints/spinners produce garbage deltas. `pipe-pane` tees the
-full PTY byte stream from session birth → append-only logfile → `slice(offset)`
-gives a trivially-correct monotonic delta.
+Primary: `pipe-pane` tees the full PTY byte stream from session birth →
+append-only logfile → `slice(offset)` gives a trivially-correct lossless monotonic
+delta. This is the standard-tmux path.
 
-Dual mechanism, clean separation:
-- `capture-pane` stays the **authoritative completion/marker** path → `full_text`
-  (post-`stripEchoedMarkerCommand`).
-- `pipe-pane` logfile tail is the **best-effort live** path → `text_delta` (raw,
-  includes echoed command + marker printf + ANSI; advisory).
+Fallback (added after real verification): **cmux ships its own tmux compatibility
+shim (`~/.cmuxterm/omo-bin/tmux`) that does NOT support `pipe-pane`** (it returns
+`Unsupported tmux compatibility command: pipe-pane`; it also lacks
+`ls`/`list-sessions`). Under that shim the pipe-pane logfile stays empty, so L3
+falls back to `capture-pane` diffing: each poll captures the visible pane and emits
+the appended suffix as `text_delta`. This is **lossy** (visible pane only, no
+scrollback; burst output scrolled off between polls is missed) but a lossy live
+process is strictly better than none in the cmux target environment. Verified: a
+real kimi worker under the cmux shim produced 6 `text_delta` events / 737 bytes via
+the capture-diff fallback.
+
+Selection is automatic: if `pipe-pane` succeeds and writes bytes, use the lossless
+logfile; otherwise fall back to capture-diff.
+
+Completion detection is unchanged either way:
+- `capture-pane` + standalone marker stays the **authoritative completion** path →
+  `full_text` (post-`stripEchoedMarkerCommand`).
+- `text_delta` is the **best-effort live** path (raw, includes echoed command +
+  marker printf + ANSI; advisory; lossless on standard tmux, lossy under cmux).
 
 ## Ordered risk list
 
@@ -154,13 +166,18 @@ option + reaper + probe socket + smoke attach/reap commands + tests.
 
 ## Honest Claim (when done)
 
-> **direct_user_session attachable worker (partial, substrate-only):**
+> **direct_user_session observable + attachable worker (partial, substrate-only):**
 > `DirectTmuxBackend` creates the worker on a caller-pinned tmux socket
 > (`tmux -S <abspath>`), strips the daemon-inherited `$TMUX`, and returns
 > fully-qualified attach/kill commands; `holdSession` keeps the session attachable
 > for a bounded, reaper-guarded window instead of zero. L3 streams the worker pane
-> byte stream via `pipe-pane` as `model_output.text_delta` (protocol unchanged;
-> `text_delta` is raw/advisory, `full_text` stays authoritative/cleaned).
-> **Still not `cmux-ready`**: cross-uid socket attach, ANSI sanitization, and
-> consumer rendering are not done; `attach` is an observation surface, not
-> injectable control; a second real direct_session provider remains M8.
+> as `model_output.text_delta` (protocol unchanged; `text_delta` raw/advisory,
+> `full_text` authoritative/cleaned): lossless via `pipe-pane` on standard tmux,
+> lossy via `capture-pane` diff under the cmux tmux shim (which lacks `pipe-pane`).
+> Verified: real worker emits text_delta under both — including 6 events under the
+> cmux shim fallback.
+> **Still not `cmux-ready`**: standard `tmux attach` does not work under the cmux
+> shim (sessions land on the cmux server); cross-uid socket attach, ANSI
+> sanitization, and consumer rendering are not done; `attach` is an observation
+> surface, not injectable control; a second real direct_session provider remains M8.
+> The consumer-facing path under cmux is the `text_delta` event stream, not attach.

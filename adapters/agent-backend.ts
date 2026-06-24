@@ -41,6 +41,7 @@ export type TransportClass = "native-claude" | "mcp-codex" | "acp" | (string & {
  *   permission-request → approval_requested, status → lifecycle 事件, model-output → step payload。
  */
 export type AgentMessage =
+  // text-delta: 0..N incremental/best-effort/raw chunks (Issue #65 L3 live stream); full-text: 0..1 authoritative cleaned terminal snapshot per prompt.
   | { type: "model-output"; textDelta?: string; fullText?: string }
   | { type: "status"; status: "starting" | "running" | "idle" | "stopped" | "error"; detail?: string }
   | { type: "tool-call"; toolName: string; args: Record<string, unknown>; callId: string }

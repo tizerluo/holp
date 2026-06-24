@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import type {
   AgentBackend,
@@ -139,6 +139,10 @@ class DirectTmuxBackend implements AgentBackend {
   private readonly socketPath: string;
   private readonly holdSession: boolean;
   private readonly holdTimeoutMs: number;
+  private readonly logFile: string;
+  private streamOffset = 0;
+  private pipePaneActive = false;
+  private lastCaptureLen = 0;
   private sessionId: string | undefined;
   private cancelled = false;
   private reaper: ReturnType<typeof setTimeout> | undefined;
@@ -151,10 +155,47 @@ class DirectTmuxBackend implements AgentBackend {
     this.socketPath = resolveTmuxSocketPath(opts, `${definition.transport}-${process.pid}`);
     this.holdSession = opts.holdSession === true;
     this.holdTimeoutMs = opts.holdTimeoutMs ?? DEFAULT_HOLD_TIMEOUT_MS;
+    this.logFile = `${this.socketPath}.${process.pid}.${Math.random().toString(16).slice(2)}.log`;
   }
 
   private tmux(args: readonly string[], timeoutMs: number) {
     return runCommand(this.tmuxCommand, [...socketArgs(this.socketPath), ...args], this.opts.cwd, timeoutMs);
+  }
+
+  private drainPipeLog(): boolean {
+    if (!existsSync(this.logFile)) return false;
+    let buffer: Buffer;
+    try {
+      buffer = readFileSync(this.logFile);
+    } catch {
+      return false;
+    }
+    if (buffer.length === 0) return false;
+    if (buffer.length > this.streamOffset) {
+      const chunk = buffer.subarray(this.streamOffset).toString("utf8");
+      this.streamOffset = buffer.length;
+      if (chunk.length > 0) this.emit({ type: "model-output", textDelta: chunk });
+    }
+    return true;
+  }
+
+  private async drainCaptureDiff(): Promise<void> {
+    if (!this.sessionId) return;
+    const capture = await this.tmux(["capture-pane", "-pt", this.sessionId], 5_000).catch(() => undefined);
+    if (!capture || capture.code !== 0 || capture.timedOut) return;
+    const text = capture.stdout;
+    if (text.length > this.lastCaptureLen) {
+      const chunk = text.slice(this.lastCaptureLen);
+      this.lastCaptureLen = text.length;
+      if (chunk.trim().length > 0) this.emit({ type: "model-output", textDelta: chunk });
+    } else if (text.length < this.lastCaptureLen) {
+      this.lastCaptureLen = text.length;
+    }
+  }
+
+  private async drainStream(): Promise<void> {
+    if (this.drainPipeLog()) return;
+    await this.drainCaptureDiff();
   }
 
   async startSession(): Promise<{ sessionId: string }> {
@@ -166,6 +207,11 @@ class DirectTmuxBackend implements AgentBackend {
       throw new Error(created.timedOut ? "direct_tmux_create_timeout" : "direct_tmux_create_failed");
     }
     this.sessionId = sessionId;
+    const pipe = await this.tmux(
+      ["pipe-pane", "-t", sessionId, "-o", `cat >> ${shellQuote(this.logFile)}`],
+      5_000,
+    ).catch(() => undefined);
+    this.pipePaneActive = pipe !== undefined && pipe.code === 0 && !pipe.timedOut;
     this.emit({ type: "status", status: "starting", detail: sessionId });
     this.emit({
       type: "event",
@@ -204,8 +250,10 @@ class DirectTmuxBackend implements AgentBackend {
       timeoutMs: this.definition.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       pollIntervalMs: this.definition.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
       shouldStop: () => this.cancelled,
+      onTick: () => this.drainStream(),
     });
     if (this.cancelled) return;
+    await this.drainStream();
     this.emit({ type: "model-output", fullText: output });
     this.emit({ type: "status", status: "idle" });
   }
@@ -216,6 +264,7 @@ class DirectTmuxBackend implements AgentBackend {
     this.clearReaper();
     await this.tmux(["send-keys", "-t", sessionId, "C-c"], 2_000).catch(() => undefined);
     await this.tmux(["kill-session", "-t", sessionId], 2_000).catch(() => undefined);
+    this.cleanupLog();
   }
 
   onMessage(handler: AgentMessageHandler): void {
@@ -244,12 +293,19 @@ class DirectTmuxBackend implements AgentBackend {
         },
       });
       this.reaper = setTimeout(() => {
-        void this.tmux(["kill-session", "-t", sessionId], 2_000).catch(() => undefined);
+        void this.tmux(["kill-session", "-t", sessionId], 2_000)
+          .catch(() => undefined)
+          .finally(() => this.cleanupLog());
       }, this.holdTimeoutMs);
       this.reaper.unref?.();
       return;
     }
     await this.tmux(["kill-session", "-t", this.sessionId], 2_000).catch(() => undefined);
+    this.cleanupLog();
+  }
+
+  private cleanupLog(): void {
+    rmSync(this.logFile, { force: true });
   }
 
   private clearReaper(): void {
@@ -273,10 +329,12 @@ async function waitForMarker(args: {
   readonly timeoutMs: number;
   readonly pollIntervalMs: number;
   readonly shouldStop: () => boolean;
+  readonly onTick?: () => void | Promise<void>;
 }): Promise<string> {
   const deadline = Date.now() + args.timeoutMs;
   while (Date.now() < deadline) {
     if (args.shouldStop()) return "";
+    await args.onTick?.();
     const capture = await runCommand(
       args.tmuxCommand,
       [...socketArgs(args.socketPath), "capture-pane", "-pt", args.sessionId],
@@ -287,7 +345,10 @@ async function waitForMarker(args: {
       throw new Error(capture.timedOut ? "direct_tmux_capture_timeout" : "direct_tmux_capture_failed");
     }
     const terminal = outputBeforeStandaloneMarker(capture.stdout, args.marker);
-    if (terminal !== undefined) return stripEchoedMarkerCommand(terminal, args.marker);
+    if (terminal !== undefined) {
+      await args.onTick?.();
+      return stripEchoedMarkerCommand(terminal, args.marker);
+    }
     await new Promise((resolve) => setTimeout(resolve, args.pollIntervalMs));
   }
   throw new Error("direct_tmux_terminal_timeout");
