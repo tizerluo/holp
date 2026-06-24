@@ -198,6 +198,10 @@ Gate ownership:
 - #52 may record `cmux-ready` only after real cmux automation or explicit user
   validation. No child PR in this phase builds a full cmux, Warp, or terminal
   product UI adapter.
+- #52 records the final phase result in
+  `docs/runtime-surface-validation-matrix.md`. That matrix is the source of
+  truth for whether #41 may declare learned-router training data sufficiency and
+  whether cmux remains pending user validation.
 
 ## Completion Criteria
 
