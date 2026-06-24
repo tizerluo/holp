@@ -41,6 +41,7 @@ export type TransportClass = "native-claude" | "mcp-codex" | "acp" | (string & {
  *   permission-request → approval_requested, status → lifecycle 事件, model-output → step payload。
  */
 export type AgentMessage =
+  // text-delta: 0..N incremental/best-effort/raw chunks (Issue #65 L3 live stream); full-text: 0..1 authoritative cleaned terminal snapshot per prompt.
   | { type: "model-output"; textDelta?: string; fullText?: string }
   | { type: "status"; status: "starting" | "running" | "idle" | "stopped" | "error"; detail?: string }
   | { type: "tool-call"; toolName: string; args: Record<string, unknown>; callId: string }
@@ -83,6 +84,12 @@ export interface AgentBackendOptions {
   readonly modelId?: string;
   /** 工具调用前介入;各 adapter 定义缺省策略。PR5 Codex adapter 缺省拒绝以避免无人值守放行。 */
   readonly permissionHandler?: PermissionHandler;
+  /** Issue #65 L1: direct-tmux only. Keep session attachable past run terminal (reaper-bounded); dispose() skips kill, cancel() still kills. */
+  readonly holdSession?: boolean;
+  /** Issue #65 L1: direct-tmux only. Bounded window before the hold reaper kills the held session. */
+  readonly holdTimeoutMs?: number;
+  /** Issue #65 L2: direct-tmux only. Absolute tmux socket (`tmux -S <path>`) so the worker lands on a user-attachable server, independent of the daemon's inherited $TMUX. */
+  readonly tmuxSocketPath?: string;
 }
 
 export interface AgentProbeInput {

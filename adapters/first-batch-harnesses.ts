@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type {
   AgentBackendFactory,
   AgentBackendProbe,
@@ -493,44 +496,51 @@ async function directProbeResult(
     };
   }
   const direct = definition.direct.definition;
-  const result = await probeDirectTmux({
-    tmuxCommand: direct.tmuxCommand,
-    agentCommand: direct.agentCommand,
-    cwd,
-    verifyCapabilities: true,
-  });
-  if (!result.ready) {
-    return {
-      ready: false,
-      reason: result.reason ?? "direct_tmux_capability_not_proven",
-      missing: result.missing,
-    };
-  }
-  const backend = createDirectTmuxBackendFactory(direct)({ cwd });
-  const output: string[] = [];
-  backend.onMessage((message) => {
-    if (message.type === "model-output" && typeof message.fullText === "string") {
-      output.push(message.fullText);
-    }
-  });
+  const probeSocketDir = mkdtempSync(path.join(tmpdir(), "holp-direct-probe-"));
+  const probeSocketPath = path.join(probeSocketDir, "tmux.sock");
   try {
-    const session = await backend.startSession();
-    await backend.sendPrompt(session.sessionId, "HOLP direct tmux smoke. Reply with HOLP_OK.");
-    return output.some((text) => text.includes("HOLP_OK"))
-      ? { ready: true }
-      : {
-          ready: false,
-          reason: "direct_agent_smoke_missing_holp_ok",
-          missing: ["agent_in_tmux_smoke:HOLP_OK"],
-        };
-  } catch (error) {
-    return {
-      ready: false,
-      reason: error instanceof Error ? error.message : String(error),
-      missing: ["direct_tmux_backend_smoke"],
-    };
+    const result = await probeDirectTmux({
+      tmuxCommand: direct.tmuxCommand,
+      socketPath: probeSocketPath,
+      agentCommand: direct.agentCommand,
+      cwd,
+      verifyCapabilities: true,
+    });
+    if (!result.ready) {
+      return {
+        ready: false,
+        reason: result.reason ?? "direct_tmux_capability_not_proven",
+        missing: result.missing,
+      };
+    }
+    const backend = createDirectTmuxBackendFactory(direct)({ cwd, tmuxSocketPath: probeSocketPath });
+    const output: string[] = [];
+    backend.onMessage((message) => {
+      if (message.type === "model-output" && typeof message.fullText === "string") {
+        output.push(message.fullText);
+      }
+    });
+    try {
+      const session = await backend.startSession();
+      await backend.sendPrompt(session.sessionId, "HOLP direct tmux smoke. Reply with HOLP_OK.");
+      return output.some((text) => text.includes("HOLP_OK"))
+        ? { ready: true }
+        : {
+            ready: false,
+            reason: "direct_agent_smoke_missing_holp_ok",
+            missing: ["agent_in_tmux_smoke:HOLP_OK"],
+          };
+    } catch (error) {
+      return {
+        ready: false,
+        reason: error instanceof Error ? error.message : String(error),
+        missing: ["direct_tmux_backend_smoke"],
+      };
+    } finally {
+      await backend.dispose().catch(() => undefined);
+    }
   } finally {
-    await backend.dispose().catch(() => undefined);
+    rmSync(probeSocketDir, { recursive: true, force: true });
   }
 }
 
@@ -592,17 +602,17 @@ function directChannel(ready: boolean): DirectChannelDeclaration {
   const support = ready ? "supported" : "unknown";
   return {
     channel_type: "tmux",
-    attach: support,
+    attach: "unknown",
     observe: support,
     read: support,
     inject: support,
-    interrupt: support,
+    interrupt: "unknown",
     cancel: support,
     owner_scope: ready ? "supported" : "unknown",
     session_origin: "holp_created",
     session_id_namespace: "holp-*",
     capability_bitmask: ready
-      ? ["observe", "read", "inject", "interrupt", "cancel", "owner_verified"]
+      ? ["observe", "read", "inject", "cancel", "owner_verified"]
       : [],
   };
 }

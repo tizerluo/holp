@@ -485,7 +485,9 @@ describe("adapter registry runtime surface resolution", () => {
       session_origin: "holp_created",
       session_id_namespace: "holp-*",
       owner_scope: "supported",
-      capability_bitmask: ["observe", "read", "inject", "interrupt", "cancel", "owner_verified"],
+      attach: "unknown",
+      interrupt: "unknown",
+      capability_bitmask: ["observe", "read", "inject", "cancel", "owner_verified"],
     });
   });
 
@@ -879,7 +881,8 @@ function fakeTmux(dir: string, directOutput: string): string {
   writeFileSync(script, `#!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 const statePath = ${JSON.stringify(statePath)};
-const args = process.argv.slice(2);
+let args = process.argv.slice(2);
+if (args[0] === "-S") args = args.slice(2);
 function readState() {
   return existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : {};
 }

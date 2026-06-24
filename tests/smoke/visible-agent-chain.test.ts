@@ -225,15 +225,21 @@ describe("visible agent chain smoke helpers", () => {
     expect(evaluateMarkerGate(undefined, "", "HOLP_CHAIN_MARKER_123")).toBe(false);
   });
 
-  it("recognizes codex and kimi-code as enabled controllers", () => {
+  it("recognizes codex, kimi-code, and claude-code as enabled controllers", () => {
     expect(isEnabledController("codex")).toBe(true);
     expect(isEnabledController("kimi-code")).toBe(true);
+    expect(isEnabledController("claude-code")).toBe(true);
     expect(ENABLED_CONTROLLERS).toContain("codex");
     expect(ENABLED_CONTROLLERS).toContain("kimi-code");
+    expect(ENABLED_CONTROLLERS).toContain("claude-code");
+  });
+
+  it("does not list claude-code as a disabled controller", () => {
+    expect(DISABLED_CONTROLLERS["claude-code"]).toBeUndefined();
   });
 
   it("reports known disabled controllers with consistent reason", () => {
-    for (const name of ["claude-code", "cursor-agent", "opencode", "pi", "reasonix"]) {
+    for (const name of ["cursor-agent", "opencode", "pi", "reasonix"]) {
       expect(isEnabledController(name)).toBe(false);
       expect(DISABLED_CONTROLLERS[name]).toBe(DISABLED_CONTROLLER_REASON);
     }
@@ -266,6 +272,7 @@ describe("visible agent chain smoke helpers", () => {
   it("maps controller to default worker transport", () => {
     expect(workerForController("codex")).toBe("kimi-code");
     expect(workerForController("kimi-code")).toBe("opencode");
+    expect(workerForController("claude-code")).toBe("kimi-code");
   });
 
   it("builds codex controller spec with correct flags and stdin ignored", () => {
@@ -291,6 +298,17 @@ describe("visible agent chain smoke helpers", () => {
     expect(spec.args).toContain("test prompt");
     expect(spec.args).toContain("--output-format");
     expect(spec.args).toContain("text");
+    expect(spec.ignoreStdin).toBe(true);
+  });
+
+  it("builds claude-code controller spec with -p prompt flag and stdin ignored", () => {
+    const spec = buildControllerSpec("claude-code", "test prompt", "/repo");
+    expect(spec.command).toBe("claude");
+    expect(spec.args).toContain("-p");
+    expect(spec.args).toContain("test prompt");
+    expect(spec.args).toContain("--output-format");
+    expect(spec.args).toContain("text");
+    expect(spec.cwd).toBe("/repo");
     expect(spec.ignoreStdin).toBe(true);
   });
 

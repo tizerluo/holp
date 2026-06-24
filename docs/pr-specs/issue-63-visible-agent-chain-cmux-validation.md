@@ -50,7 +50,7 @@ outcome.
 |-------------|----------|----------------------------------------------|
 | codex       | enabled  | —                                            |
 | kimi-code   | enabled  | —                                            |
-| claude-code | disabled | controller_driver_not_enabled_in_issue_63    |
+| claude-code | enabled  | — (added post-#63 follow-up)                 |
 | cursor-agent| disabled | controller_driver_not_enabled_in_issue_63    |
 | opencode    | disabled | controller_driver_not_enabled_in_issue_63    |
 | pi          | disabled | controller_driver_not_enabled_in_issue_63    |
@@ -58,10 +58,11 @@ outcome.
 
 ## Default Chains
 
-| Controller | Worker (default) |
-|------------|-----------------|
-| codex      | kimi-code       |
-| kimi-code  | opencode        |
+| Controller  | Worker (default) |
+|-------------|-----------------|
+| codex       | kimi-code       |
+| kimi-code   | opencode        |
+| claude-code | kimi-code       |
 
 ## Controller Commands
 
@@ -84,6 +85,16 @@ kimi -p <prompt> --output-format text
 ```
 (cwd = repo)
 
+**claude-code:**
+```
+claude -p <prompt> --output-format text
+```
+(cwd = repo, stdin ignored) — Claude Code headless one-shot print mode. Same
+verbatim-echo contract as the other controllers: it runs the client command in
+the repo and echoes the `HOLP_CHAIN_RESULT_BEGIN...END` block. Requires a logged-in
+Claude Code binary and consumes Claude quota; without it the controller spawn fails
+and the runner reports `fail`, never a fake PASS.
+
 ## PASS Gate
 
 All five conditions must hold:
@@ -101,7 +112,7 @@ HOLP_VISIBLE_AGENT_CHAIN_SMOKE=1 npm run smoke:visible-agent-chain
 ```
 
 Optional overrides:
-- `HOLP_VISIBLE_AGENT_CHAIN_CONTROLLER=codex|kimi-code`
+- `HOLP_VISIBLE_AGENT_CHAIN_CONTROLLER=codex|kimi-code|claude-code`
 - `HOLP_VISIBLE_AGENT_CHAIN_WORKER=<transport>`
 
 Default (no env): SKIP, exit 0.
