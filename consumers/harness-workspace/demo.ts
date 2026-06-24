@@ -7,9 +7,10 @@ import {
   recordRunAccepted,
 } from "./state.js";
 import { deriveInspect, deriveOverview } from "./renderModel.js";
+import { createReplaySnapshot, restoreReplaySnapshot } from "./replay.js";
 import { harnessDiscoveryFixture } from "./fixtures.js";
 import { renderFocusShell, type FocusShellRenderModel } from "./frame.js";
-import type { HarnessWorkspaceLocale } from "./types.js";
+import type { HarnessWorkspaceLocale, HarnessWorkspaceState } from "./types.js";
 import type { EventFrame } from "../cli/wire.js";
 
 interface DemoOptions {
@@ -17,12 +18,27 @@ interface DemoOptions {
   readonly width: number;
   readonly height: number;
   readonly noAnsi: boolean;
-  readonly mode: "overview" | "inspect";
+  readonly mode: "overview" | "inspect" | "replay";
   readonly agent?: string;
 }
 
 export function buildFocusShellDemoModel(options: Pick<DemoOptions, "locale" | "mode" | "agent">): FocusShellRenderModel {
-  let state = createHarnessWorkspaceState({ locale: options.locale, provenance: "smoke_script" });
+  const state = buildDemoState(options.locale);
+  if (options.mode === "replay") {
+    const snapshot = createReplaySnapshot(state, {
+      createdAt: "2026-06-25T00:00:00.000Z",
+      inspectAgentId: options.agent ?? "coder-1",
+    });
+    return restoreReplaySnapshot(snapshot).overview;
+  }
+
+  return options.mode === "inspect"
+    ? deriveInspect(state, options.agent ?? "coder-1")
+    : deriveOverview(state);
+}
+
+function buildDemoState(locale: HarnessWorkspaceLocale): HarnessWorkspaceState {
+  let state = createHarnessWorkspaceState({ locale, provenance: "smoke_script" });
   state = recordDiscovery(state, harnessDiscoveryFixture);
   state = recordRunAccepted(state, {
     run_id: "run_72_demo",
@@ -67,9 +83,7 @@ export function buildFocusShellDemoModel(options: Pick<DemoOptions, "locale" | "
     artifact_id: "art_terminal_demo",
   }));
 
-  return options.mode === "inspect"
-    ? deriveInspect(state, options.agent ?? "coder-1")
-    : deriveOverview(state);
+  return state;
 }
 
 export function runFocusShellDemo(argv: readonly string[] = process.argv.slice(2)): string {
@@ -97,7 +111,7 @@ function parseDemoOptions(argv: readonly string[]): DemoOptions {
     width: number;
     height: number;
     noAnsi: boolean;
-    mode: "overview" | "inspect";
+    mode: "overview" | "inspect" | "replay";
     agent?: string;
   } = { ...options };
 
@@ -115,7 +129,7 @@ function parseDemoOptions(argv: readonly string[]): DemoOptions {
     } else if (arg === "--height" && next) {
       mutable.height = parsePositiveInteger(next, mutable.height);
       index += 1;
-    } else if (arg === "--mode" && (next === "overview" || next === "inspect")) {
+    } else if (arg === "--mode" && (next === "overview" || next === "inspect" || next === "replay")) {
       mutable.mode = next;
       index += 1;
     } else if (arg === "--agent" && next) {

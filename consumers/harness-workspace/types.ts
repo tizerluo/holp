@@ -5,6 +5,17 @@ export type HarnessWorkspaceProvenance = "smoke_script" | "unknown";
 export type RoleSkinId = "CTRL" | "CODE" | "TEST" | "REV" | "ARCH" | "GATE";
 export type OwnerVerificationState = "verified" | "unverified" | "unknown";
 export type TerminalStateKind = "merged" | "blocked" | "gave_up" | "cancelled";
+export type HarnessTimelineSeverity = "info" | "warn" | "error";
+export type HarnessAffordanceState = "enabled" | "disabled" | "needs_confirmation" | "unsupported";
+export type HarnessOperatorAffordanceId =
+  | "copy_attach_command"
+  | "copy_run_id"
+  | "open_team_layout"
+  | "replay_evidence"
+  | "rerun_goal"
+  | "continue_run"
+  | "cancel_run"
+  | "interrupt_worker";
 export type FailureKind =
   | "run_blocked"
   | "run_gave_up"
@@ -99,6 +110,92 @@ export interface RawEvidenceAnchor {
   readonly name: string;
   readonly payload: unknown;
 }
+
+export interface ReplayTruncation {
+  readonly truncated: true;
+  readonly reason: string;
+  readonly original_count?: number;
+  readonly retained_count?: number;
+}
+
+export interface SanitizedEventSummary {
+  readonly run_id: string;
+  readonly seq: number;
+  readonly category: string;
+  readonly name: string;
+  readonly agent_id?: string;
+  readonly summary?: string;
+  readonly summary_truncated?: boolean;
+  readonly payload_preview?: string;
+  readonly payload_truncated: boolean;
+}
+
+export interface SanitizedEvidenceAnchor {
+  readonly source: RawEvidenceAnchor["source"];
+  readonly run_id: string;
+  readonly seq: number;
+  readonly category: string;
+  readonly name: string;
+  readonly payload_preview?: string;
+  readonly payload_truncated: boolean;
+}
+
+export interface HarnessTimelineEntry {
+  readonly run_id: string;
+  readonly seq: number;
+  readonly label: string;
+  readonly category: string;
+  readonly name: string;
+  readonly severity: HarnessTimelineSeverity;
+  readonly agent_id?: string;
+  readonly summary: string;
+  readonly summary_truncated?: boolean;
+}
+
+export interface HarnessTimelineModel {
+  readonly entries: readonly HarnessTimelineEntry[];
+  readonly truncated?: ReplayTruncation;
+}
+
+export interface HarnessSessionContinuity {
+  readonly run_id?: string;
+  readonly observed_agent_ids: readonly string[];
+  readonly selected_agent_id?: string;
+  readonly runtime_surface?: string;
+  readonly worker_session?: string;
+  readonly attach_command?: string;
+  readonly terminal_state?: TerminalStateKind;
+  readonly owner_verified: OwnerVerificationState;
+  readonly replay_created_at?: string;
+  readonly can_continue: boolean;
+  readonly can_rerun: boolean;
+  readonly can_inspect: boolean;
+  readonly can_copy: boolean;
+  readonly replay_only: boolean;
+  readonly reasons: readonly string[];
+}
+
+export interface HarnessOperatorAffordance {
+  readonly id: HarnessOperatorAffordanceId;
+  readonly label_key: MessageCatalogKey;
+  readonly label: string;
+  readonly state: HarnessAffordanceState;
+  readonly reason_key: MessageCatalogKey;
+  readonly reason_label: string;
+  readonly reason?: string;
+  readonly confirmation_required: boolean;
+  readonly destructive: boolean;
+  readonly focus_changing: boolean;
+  readonly command_text?: string;
+}
+
+export interface HarnessReplayRenderState {
+  readonly status: "live" | "replay";
+  readonly created_at?: string;
+  readonly summary: string;
+}
+
+export type MessageCatalogKey = string;
 
 export interface InspectEvidenceRef {
   readonly ref: string;
@@ -196,6 +293,10 @@ export interface HarnessOverviewModel {
   readonly evidence: RenderEvidenceSummary;
   readonly failures: readonly string[];
   readonly rawEvidenceAnchors: readonly RawEvidenceAnchor[];
+  readonly replay?: HarnessReplayRenderState;
+  readonly timeline?: HarnessTimelineModel;
+  readonly continuity?: HarnessSessionContinuity;
+  readonly operator_affordances?: readonly HarnessOperatorAffordance[];
 }
 
 export interface HarnessInspectModel extends Omit<HarnessOverviewModel, "mode"> {
@@ -211,4 +312,51 @@ export interface HarnessInspectModel extends Omit<HarnessOverviewModel, "mode"> 
   };
   readonly inspect?: InspectAgentDetail;
   readonly empty: boolean;
+}
+
+export interface ReplayStoredOverviewSummary {
+  readonly title: string;
+  readonly mode: HarnessOverviewModel["mode"];
+  readonly run_id?: string;
+  readonly chain: readonly ChainNode[];
+  readonly evidence: RenderEvidenceSummary;
+  readonly evidence_truncated?: ReplayTruncation;
+  readonly worker_preview?: string;
+  readonly worker_preview_truncated: boolean;
+  readonly terminal_state?: TerminalStateKind;
+  readonly failures: readonly string[];
+  readonly failures_truncated?: ReplayTruncation;
+}
+
+export interface ReplayStoredInspectSummary {
+  readonly title: string;
+  readonly mode: HarnessInspectModel["mode"];
+  readonly selectedAgentId?: string;
+  readonly empty: boolean;
+}
+
+export interface HarnessReplaySnapshotV1 {
+  readonly schema_version: "HarnessReplaySnapshot.v1";
+  readonly created_at: string;
+  readonly run: HarnessRunIdentity;
+  readonly locale: HarnessWorkspaceLocale;
+  readonly provenance: HarnessWorkspaceProvenance;
+  readonly events: readonly SanitizedEventSummary[];
+  readonly events_truncated?: ReplayTruncation;
+  readonly evidence: readonly SanitizedEvidenceAnchor[];
+  readonly evidence_truncated?: ReplayTruncation;
+  readonly overview: ReplayStoredOverviewSummary;
+  readonly inspect?: ReplayStoredInspectSummary;
+  readonly logs: HarnessTimelineModel;
+  readonly operator_affordances: readonly HarnessOperatorAffordance[];
+  readonly continuity: HarnessSessionContinuity;
+}
+
+export interface HarnessReplayRestoreResult {
+  readonly snapshot: HarnessReplaySnapshotV1;
+  readonly overview: HarnessOverviewModel;
+  readonly inspect?: HarnessInspectModel;
+  readonly timeline: HarnessTimelineModel;
+  readonly continuity: HarnessSessionContinuity;
+  readonly operator_affordances: readonly HarnessOperatorAffordance[];
 }
