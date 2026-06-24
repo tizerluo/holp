@@ -215,6 +215,182 @@ describe("harness workspace state projection", () => {
     expect(state.events).toHaveLength(3);
   });
 
+  it("attributes inspect output only to the actual selected worker", () => {
+    let state = seededState();
+    state = recordEvent(state, frame(1, "model_output", { full_text: "worker-only output" }, "agent"));
+
+    expect(deriveInspect(state, "coder-1").inspect?.output).toMatchObject({
+      state: "captured",
+      text: "worker-only output",
+    });
+    expect(deriveInspect(state, "reviewer-1").inspect?.output).toMatchObject({
+      state: "unavailable",
+      text: "no model_output captured for this agent",
+    });
+  });
+
+  it("marks matching attributed empty output as pending rather than unavailable", () => {
+    let state = seededState();
+    state = recordEvent(state, frame(1, "model_output", { full_text: "" }, "agent"));
+
+    expect(state.workerPreview.producer_attribution).toBe("single");
+    expect(state.workerPreview.producer_agent_id).toBe("coder-1");
+    expect(deriveInspect(state, "coder-1").inspect?.output).toMatchObject({
+      state: "pending",
+      text: "no model_output.text_delta yet",
+    });
+    expect(deriveInspect(state, "reviewer-1").inspect?.output).toMatchObject({
+      state: "unavailable",
+      text: "no model_output captured for this agent",
+    });
+  });
+
+  it("keeps captured output attribution stable after a later non-worker step becomes selected", () => {
+    let state = seededState();
+    state = recordEvent(state, frame(1, "model_output", { full_text: "coder output" }, "agent"));
+    state = recordEvent(state, frame(2, "step_started", {
+      agent_id: "reviewer-1",
+      detail: "review-started",
+    }, "agent"));
+
+    expect(state.run.selected_agent_id).toBe("reviewer-1");
+    expect(state.workerPreview.producer_agent_id).toBe("coder-1");
+    expect(deriveInspect(state, "reviewer-1").inspect?.output).toMatchObject({
+      state: "unavailable",
+      text: "no model_output captured for this agent",
+    });
+    expect(deriveInspect(state, "coder-1").inspect?.output).toMatchObject({
+      state: "captured",
+      text: "coder output",
+    });
+  });
+
+  it("reattributes later full_text replacement to the current selected agent", () => {
+    let state = seededState();
+    state = recordEvent(state, frame(1, "model_output", { full_text: "coder output" }, "agent"));
+    state = recordEvent(state, frame(2, "step_started", {
+      agent_id: "reviewer-1",
+      detail: "review-started",
+    }, "agent"));
+    state = recordEvent(state, frame(3, "model_output", { full_text: "reviewer output" }, "agent"));
+
+    expect(state.workerPreview.producer_agent_id).toBe("reviewer-1");
+    expect(deriveInspect(state, "reviewer-1").inspect?.output).toMatchObject({
+      state: "captured",
+      text: "reviewer output",
+    });
+    expect(deriveInspect(state, "coder-1").inspect?.output).toMatchObject({
+      state: "unavailable",
+      text: "no model_output captured for this agent",
+    });
+  });
+
+  it("fails closed for mixed text_delta output from different selected agents", () => {
+    let state = seededState();
+    state = recordEvent(state, frame(1, "model_output", { text_delta: "coder output" }, "agent"));
+    state = recordEvent(state, frame(2, "step_started", {
+      agent_id: "reviewer-1",
+      detail: "review-started",
+    }, "agent"));
+    state = recordEvent(state, frame(3, "model_output", { text_delta: " + reviewer output" }, "agent"));
+
+    expect(state.workerPreview.renderedText).toBe("coder output + reviewer output");
+    expect(state.workerPreview.producer_attribution).toBe("mixed");
+    expect(state.workerPreview.producer_agent_id).toBeUndefined();
+    expect(deriveInspect(state, "coder-1").inspect?.output).toMatchObject({
+      state: "unavailable",
+      text: "no model_output captured for this agent",
+    });
+    expect(deriveInspect(state, "reviewer-1").inspect?.output).toMatchObject({
+      state: "unavailable",
+      text: "no model_output captured for this agent",
+    });
+  });
+
+  it("keeps mixed text_delta attribution closed across later same-agent deltas", () => {
+    let state = seededState();
+    state = recordEvent(state, frame(1, "model_output", { text_delta: "coder out. " }, "agent"));
+    state = recordEvent(state, frame(2, "step_started", {
+      agent_id: "reviewer-1",
+      detail: "review-started",
+    }, "agent"));
+    state = recordEvent(state, frame(3, "model_output", { text_delta: "reviewer out. " }, "agent"));
+    state = recordEvent(state, frame(4, "model_output", { text_delta: "reviewer again." }, "agent"));
+
+    expect(state.workerPreview.renderedText).toBe("coder out. reviewer out. reviewer again.");
+    expect(state.workerPreview.producer_attribution).toBe("mixed");
+    expect(state.workerPreview.producer_agent_id).toBeUndefined();
+    expect(deriveInspect(state, "coder-1").inspect?.output).toMatchObject({
+      state: "unavailable",
+      text: "no model_output captured for this agent",
+    });
+    expect(deriveInspect(state, "reviewer-1").inspect?.output).toMatchObject({
+      state: "unavailable",
+      text: "no model_output captured for this agent",
+    });
+  });
+
+  it("keeps overview run-level while inspect latest event is scoped to the inspected agent", () => {
+    let state = seededState();
+    state = recordEvent(state, frame(1, "model_output", { text_delta: "worker output" }, "agent"));
+    state = recordEvent(state, frame(2, "step_started", {
+      agent_id: "reviewer-1",
+      detail: "review-started",
+    }, "agent"));
+
+    const overview = deriveOverview(state);
+    const inspect = deriveInspect(state, "reviewer-1");
+
+    expect(overview.evidence.latest_event).toBe("agent.step_started#2");
+    expect(overview.workerPreview.renderedText).toBe("worker output");
+    expect(inspect.selectedAgent?.latestEvent).toMatchObject({
+      seq: 2,
+      name: "step_started",
+    });
+    expect(inspect.inspect?.sections.flatMap((section) => section.rows)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "latest event", value: "agent.step_started#2" }),
+        expect.objectContaining({ label: "owner", value: "unknown" }),
+      ]),
+    );
+  });
+
+  it("derives bounded inspect evidence refs without raw payload JSON", () => {
+    let state = seededState();
+    state = recordEvent(state, frame(1, "gate_report", {
+      decision_surface: { gate_disposition: "blocked" },
+      blocking_reason: "secret_payload_must_not_render",
+    }));
+
+    const inspect = deriveInspect(state, "coder-1");
+    expect(inspect.inspect?.evidenceRefs).toEqual([
+      { ref: "gate.gate_report#1", run_id: "run_71", seq: 1 },
+    ]);
+    expect(JSON.stringify(inspect.inspect?.evidenceRefs)).not.toContain("secret_payload_must_not_render");
+  });
+
+  it("localizes inspect failure explanations while preserving raw reason tokens", () => {
+    let state = recordRunAccepted(
+      recordDiscovery(createHarnessWorkspaceState({ locale: "zh-CN" }), harnessDiscoveryFixture),
+      {
+        run_id: "run_71",
+        runtime: { agent_id: "coder-1", runtime_surface: "direct_user_session" },
+      },
+    );
+    state = recordEvent(state, frame(1, "gate_report", {
+      decision_surface: { gate_disposition: "blocked", review_outcome: "reject" },
+      blocking_reason: "consensus_reject",
+    }));
+    state = recordEvent(state, frame(2, "run_blocked", { reason: "gate_blocked" }));
+
+    expect(deriveInspect(state, "coder-1").inspect?.sections.flatMap((section) => section.rows)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: expect.stringContaining("Gate 阻塞: consensus_reject") }),
+        expect.objectContaining({ value: expect.stringContaining("运行被阻塞: gate_blocked") }),
+      ]),
+    );
+  });
+
   it("bounds model output preview with a truncation marker", () => {
     let state = recordDiscovery(createHarnessWorkspaceState({ previewLimit: 12 }), harnessDiscoveryFixture);
     state = recordEvent(state, frame(1, "model_output", { full_text: "abcdefghijklmnopqrstuvwxyz" }, "agent"));

@@ -5,10 +5,17 @@ import {
   ROLE_SKINS,
   cellWidth,
   computeFocusShellLayout,
+  createHarnessWorkspaceState,
   createFocusShellViewState,
+  deriveInspect,
   enterInspect,
   escapeToOverview,
+  frame,
+  harnessDiscoveryFixture,
   padEndCell,
+  recordDiscovery,
+  recordEvent,
+  recordRunAccepted,
   reduceFocusShellViewState,
   renderFocusShell,
   select,
@@ -42,6 +49,40 @@ describe("harness workspace focus shell frame", () => {
     expect(output).toContain("No selected agent evidence");
     expect(output).toContain("Sidecar");
     expect(output).toContain("Provenance smoke_script");
+  });
+
+  it("renders selected-worker inspect output without showing it under another agent", () => {
+    const worker = renderFocusShell(buildFocusShellDemoModel({ locale: "en-US", mode: "inspect", agent: "coder-1" }), {
+      width: 100,
+      height: 28,
+      noAnsi: true,
+    }).join("\n");
+    const reviewer = renderFocusShell(buildFocusShellDemoModel({ locale: "en-US", mode: "inspect", agent: "reviewer-1" }), {
+      width: 100,
+      height: 28,
+      noAnsi: true,
+    }).join("\n");
+
+    expect(worker).toContain("Output model_output.*=Rendering Focus Shell");
+    expect(reviewer).toContain("Output model_output.*=no model_output captured for this agent");
+    expect(reviewer).not.toContain("Rendering Focus Shell");
+  });
+
+  it("renders cancel capability as a token without a runnable kill command", () => {
+    const supported = renderFocusShell(buildFocusShellDemoModel({ locale: "en-US", mode: "inspect", agent: "coder-1" }), {
+      width: 100,
+      height: 28,
+      noAnsi: true,
+    }).join("\n");
+    const unavailable = renderFocusShell(buildFocusShellDemoModel({ locale: "en-US", mode: "inspect", agent: "reviewer-1" }), {
+      width: 100,
+      height: 28,
+      noAnsi: true,
+    }).join("\n");
+
+    expect(supported).toContain("cancel=cancel: supported");
+    expect(unavailable).toContain("cancel=cancel: unavailable");
+    expect(`${supported}\n${unavailable}`).not.toMatch(/\b(?:kill|pkill|killall)\b/);
   });
 
   it("computes controller, sidecar, and status regions with external controller passthrough", () => {
@@ -141,6 +182,108 @@ describe("harness workspace focus shell frame", () => {
     expect(output).toContain("Failures none");
     expect(output).toContain("Worker preview");
     expect(output).toContain("Provenance smoke_script");
+  });
+
+  it("renders approval states and bounded evidence refs in inspect frames", () => {
+    const states = [
+      ["approval_requested", "approval_requested approval_id=ap_1"],
+      ["approval_resolved", "approval_resolved approval_id=ap_1 decision=approve"],
+      ["approval_expired", "approval_expired approval_id=ap_1"],
+      ["approval_cancelled", "approval_cancelled approval_id=ap_1"],
+    ] as const;
+
+    for (const [eventName, expected] of states) {
+      let state = recordRunAccepted(
+        recordDiscovery(createHarnessWorkspaceState(), harnessDiscoveryFixture),
+        {
+          run_id: "run_71",
+          runtime: { agent_id: "coder-1", runtime_surface: "direct_user_session" },
+        },
+      );
+      state = recordEvent(state, frame(1, eventName, {
+        approval_id: "ap_1",
+        decision: eventName === "approval_resolved" ? "approve" : undefined,
+      }));
+      const output = renderFocusShell(deriveInspect(state, "coder-1"), { width: 110, height: 28, noAnsi: true }).join("\n");
+
+      expect(output).toContain(expected);
+      expect(output).toContain(`approval.${eventName}#1`);
+      expect(output).not.toContain("\"approval_id\"");
+    }
+  });
+
+  it("renders zh-CN gate and terminal failure explanations with raw reason tokens preserved", () => {
+    let state = recordRunAccepted(
+      recordDiscovery(createHarnessWorkspaceState({ locale: "zh-CN" }), harnessDiscoveryFixture),
+      {
+        run_id: "run_71",
+        runtime: { agent_id: "coder-1", runtime_surface: "direct_user_session" },
+      },
+    );
+    state = recordEvent(state, frame(1, "gate_report", {
+      decision_surface: { gate_disposition: "blocked", review_outcome: "reject" },
+      blocking_reason: "consensus_reject",
+    }));
+    state = recordEvent(state, frame(2, "run_blocked", { reason: "gate_blocked" }));
+
+    const output = renderFocusShell(deriveInspect(state, "coder-1"), { width: 110, height: 28, noAnsi: true }).join("\n");
+
+    expect(output).toContain("Gate 阻塞: consensus_reject");
+    expect(output).toContain("运行被阻塞: gate_blocked");
+    expect(output).toContain("run_id=run_71");
+    expect(output).toContain("gate_report");
+  });
+
+  it("keeps selected-agent identity, failure reason, and provenance in constrained inspect frames", () => {
+    let state = recordRunAccepted(
+      recordDiscovery(createHarnessWorkspaceState(), harnessDiscoveryFixture),
+      {
+        run_id: "run_71",
+        runtime: { agent_id: "coder-1", runtime_surface: "direct_user_session" },
+      },
+    );
+    state = recordEvent(state, frame(1, "run_blocked", { reason: "gate_blocked" }));
+
+    const output = renderFocusShell(deriveInspect(state, "coder-1"), { width: 72, height: 8, noAnsi: true }).join("\n");
+
+    expect(output).toContain("Agent agent_id=coder-1");
+    expect(output).toContain("Failure");
+    expect(output).toContain("gate_blocked");
+    expect(output).toContain("Provenance");
+  });
+
+  it("keeps zh-CN selected-agent identity, failure reason, and provenance in constrained inspect frames", () => {
+    let state = recordRunAccepted(
+      recordDiscovery(createHarnessWorkspaceState({ locale: "zh-CN" }), harnessDiscoveryFixture),
+      {
+        run_id: "run_71",
+        runtime: { agent_id: "coder-1", runtime_surface: "direct_user_session" },
+      },
+    );
+    state = recordEvent(state, frame(1, "run_blocked", { reason: "gate_blocked" }));
+
+    const output = renderFocusShell(deriveInspect(state, "coder-1"), { width: 90, height: 8, noAnsi: true }).join("\n");
+
+    expect(output).toContain("Agent agent_id=coder-1");
+    expect(output).toContain("原因=运行被阻塞: gate_blocked");
+    expect(output).toContain("Provenance");
+  });
+
+  it("uses compact survival rows for very tight inspect frames", () => {
+    let state = recordRunAccepted(
+      recordDiscovery(createHarnessWorkspaceState({ locale: "zh-CN" }), harnessDiscoveryFixture),
+      {
+        run_id: "run_71",
+        runtime: { agent_id: "coder-1", runtime_surface: "direct_user_session" },
+      },
+    );
+    state = recordEvent(state, frame(1, "run_blocked", { reason: "gate_blocked" }));
+
+    const output = renderFocusShell(deriveInspect(state, "coder-1"), { width: 120, height: 5, noAnsi: true }).join("\n");
+
+    expect(output).toContain("agent_id=coder-1");
+    expect(output).toContain("gate_blocked");
+    expect(output).toContain("Provenance");
   });
 
   it("keeps protocol anchors untranslated in zh-CN rendering", () => {

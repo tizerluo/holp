@@ -58,6 +58,8 @@ export interface WorkerPreview {
   readonly renderedText: string;
   readonly truncated: boolean;
   readonly authoritativeSnapshot: boolean;
+  readonly producer_attribution: "none" | "single" | "mixed";
+  readonly producer_agent_id?: string;
 }
 
 export interface GateState {
@@ -96,6 +98,38 @@ export interface RawEvidenceAnchor {
   readonly category: string;
   readonly name: string;
   readonly payload: unknown;
+}
+
+export interface InspectEvidenceRef {
+  readonly ref: string;
+  readonly run_id: string;
+  readonly seq: number;
+}
+
+export interface InspectRow {
+  readonly label: string;
+  readonly value: string;
+  readonly anchor?: string;
+  readonly priority: "identity" | "critical" | "normal" | "optional";
+  readonly kind?: "identity" | "failure" | "content";
+}
+
+export interface InspectSection {
+  readonly title: string;
+  readonly rows: readonly InspectRow[];
+}
+
+export interface InspectOutputDetail {
+  readonly state: "captured" | "pending" | "unavailable";
+  readonly text: string;
+  readonly truncated?: boolean;
+}
+
+export interface InspectAgentDetail {
+  readonly agent_id: string;
+  readonly sections: readonly InspectSection[];
+  readonly output: InspectOutputDetail;
+  readonly evidenceRefs: readonly InspectEvidenceRef[];
 }
 
 export interface ChainNode {
@@ -175,5 +209,6 @@ export interface HarnessInspectModel extends Omit<HarnessOverviewModel, "mode"> 
     readonly runtime_surfaces: readonly RuntimeSurfaceRow[];
     readonly latestEvent?: EventFrame;
   };
+  readonly inspect?: InspectAgentDetail;
   readonly empty: boolean;
 }
