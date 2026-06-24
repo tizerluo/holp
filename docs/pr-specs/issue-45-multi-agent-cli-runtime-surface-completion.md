@@ -111,9 +111,12 @@ schedulability. #50 owns direct-session parity for the same first-batch cohort.
   HOLP-owned namespace. Ready requires `observe`, `read`, `inject`,
   `interrupt`, `cancel`, cleanup, and `owner_verified`; any missing control
   capability is degraded or rejected, not ready.
-- Terminal consumer smoke: use HOLP public wire only. It may prove
-  `terminal-consumer-integration-ready`, but it cannot prove `cmux-ready`
-  unless real cmux automation or user validation is also recorded.
+- Terminal consumer smoke: use HOLP public wire only. The reproducible command
+  is owned by #54 and expected to be `npm run smoke:terminal-consumer`; the real
+  path is opt-in with `HOLP_TERMINAL_CONSUMER_SMOKE=1` plus the matching real
+  harness smoke env, such as `HOLP_REAL_HARNESS_SMOKE=1` for first-batch ACP.
+  It may prove `terminal-consumer-integration-ready`, but it cannot prove
+  `cmux-ready` unless real cmux automation or user validation is also recorded.
 
 ## External Agent Fallback Contract
 
@@ -186,7 +189,11 @@ specs for all eight children in this master spec.
 Gate ownership:
 
 - #54 owns `terminal-consumer-integration-ready`: a generic terminal-style
-  consumer smoke over HOLP public wire, not a cmux adapter.
+  consumer smoke over HOLP public wire, not a cmux adapter. Its output must
+  include a `PASS terminal-consumer-integration-ready` marker only after a real
+  #45-ready runtime surface is exercised end to end through public
+  `initialize`, `flock.discover`, `orchestrate.run`, `events.subscribe`, and
+  control/artifact/gate-report methods where emitted.
 - #52 owns `cmux-pending-user-validation` and the final #41 gate decision.
 - #52 may record `cmux-ready` only after real cmux automation or explicit user
   validation. No child PR in this phase builds a full cmux, Warp, or terminal
@@ -201,7 +208,9 @@ Gate ownership:
 - User validation records the local CLI versions, env flags, commands, outcomes,
   skipped paths, and hard stops.
 - A terminal-consumer smoke proves an external terminal-style consumer can use
-  HOLP public wire without reading daemon internals.
+  HOLP public wire without reading daemon internals. #52 consumes the #54 smoke
+  command, selected agent/surface, terminal event, gate/artifact summary,
+  degraded/rejected reason evidence, and cmux status marker in the final matrix.
 - The validation gate distinguishes `terminal-consumer-integration-ready`,
   `cmux-ready`, and `cmux-pending-user-validation`. It must not claim
   `cmux-ready` without real cmux automation or user validation.
