@@ -44,6 +44,35 @@ describe("ACP stdio client", () => {
     expect(output).toBe("kimi:hello");
   });
 
+  it("preserves default session/new params with empty mcpServers", async () => {
+    const client = new AcpClient({
+      command: fakeAcpServer("default-session-shape"),
+      cwd: process.cwd(),
+      requestTimeoutMs: 5_000,
+      terminalTimeoutMs: 5_000,
+    });
+
+    const { sessionId } = await client.startSession();
+    await client.dispose();
+
+    expect(sessionId).toBe("session-1");
+  });
+
+  it("can opt into Reasonix-style cwd-only session/new params", async () => {
+    const client = new AcpClient({
+      command: fakeAcpServer("cwd-only-session-shape"),
+      cwd: process.cwd(),
+      sessionNewShape: "cwd_only",
+      requestTimeoutMs: 5_000,
+      terminalTimeoutMs: 5_000,
+    });
+
+    const { sessionId } = await client.startSession();
+    await client.dispose();
+
+    expect(sessionId).toBe("session-1");
+  });
+
   it("backend emits streamed and final model output", async () => {
     const messages: AgentMessage[] = [];
     const backend = createAcpBackendFactory({
@@ -101,7 +130,7 @@ describe("ACP stdio client", () => {
 });
 
 function fakeAcpServer(
-  mode: "ok" | "kimi-stop" | "slow-prompt" | "missing-terminal" | "malformed" | "exit" | "prompt-error" | "stop-without-output" | "request-timeout",
+  mode: "ok" | "kimi-stop" | "default-session-shape" | "cwd-only-session-shape" | "slow-prompt" | "missing-terminal" | "malformed" | "exit" | "prompt-error" | "stop-without-output" | "request-timeout",
 ): string {
   const dir = mkdtempSync(join(tmpdir(), "holp-acp-client-"));
   tempDirs.push(dir);
@@ -125,6 +154,14 @@ rl.on("line", (line) => {
     return;
   }
   if (frame.method === "session/new") {
+    if (mode === "cwd-only-session-shape") {
+      if (typeof frame.params.cwd !== "string" || "mcpServers" in frame.params) {
+        send({ id: frame.id, error: { code: -32602, message: "expected cwd-only session/new params" } });
+        return;
+      }
+      send({ id: frame.id, result: { sessionId: "session-1" } });
+      return;
+    }
     if (typeof frame.params.cwd !== "string" || !Array.isArray(frame.params.mcpServers)) {
       send({ id: frame.id, error: { code: -32602, message: "invalid session/new params" } });
       return;

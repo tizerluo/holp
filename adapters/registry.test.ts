@@ -312,7 +312,7 @@ describe("adapter registry runtime surface resolution", () => {
 
   it("keeps Reasonix ACP degraded when full terminal prompt verifies HOLP_OK by policy", async () => {
     const dir = makeTempDir();
-    const definition = reasonixDefinition(dir, "ok");
+    const definition = reasonixDefinition(dir, "cwd-only-ok");
     const registry = createAdapterRegistry(
       firstBatchAdapterFactories([definition]),
       firstBatchAdapterProbes([definition]),
@@ -328,7 +328,7 @@ describe("adapter registry runtime surface resolution", () => {
     const acp = result.runtime_surfaces?.find((surface) => surface.runtime_surface === "acp");
     expect(acp?.isolation_profiles.coder_worktree).toMatchObject({
       readiness: "degraded",
-      reason: "reasonix_acp_prompt_terminal_token_verified_policy_degraded",
+      reason: "reasonix_acp_observed_ok_but_not_certified_this_pr",
     });
   }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
@@ -350,8 +350,31 @@ describe("adapter registry runtime surface resolution", () => {
     const acp = result.runtime_surfaces?.find((surface) => surface.runtime_surface === "acp");
     expect(acp?.isolation_profiles.coder_worktree).toMatchObject({
       readiness: "degraded",
-      reason: "acp_smoke_not_enabled_or_failed",
+      reason: "acp_prompt_missing_holp_ok",
     });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it("does not label non-Cursor ACP auth failures as Cursor auth", async () => {
+    const dir = makeTempDir();
+    const definition = opencodeDefinition(dir, "auth-error");
+    const registry = createAdapterRegistry(
+      firstBatchAdapterFactories([definition]),
+      firstBatchAdapterProbes([definition]),
+    );
+
+    const result = await registry.probe({
+      id: "opencode",
+      transport: "opencode",
+      roles: ["coder"],
+      cwd: dir,
+    });
+
+    const acp = result.runtime_surfaces?.find((surface) => surface.runtime_surface === "acp");
+    expect(acp?.isolation_profiles.coder_worktree).toMatchObject({
+      readiness: "degraded",
+      reason: "acp_auth_required",
+    });
+    expect(acp?.isolation_profiles.coder_worktree.reason).not.toBe("cursor_acp_auth_required");
   }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
   it("marks ACP ready when terminal output includes HOLP_OK", async () => {
@@ -583,11 +606,39 @@ describe("adapter registry runtime surface resolution", () => {
     expect(acpFactory).not.toBe(headlessFactory);
     expect(directFactory).not.toBe(headlessFactory);
   });
+
+  it("declares exact first-batch ACP command and session shapes", () => {
+    const definitions = Object.fromEntries(FIRST_BATCH_HARNESSES.map((definition) => [
+      definition.transport,
+      definition.acp,
+    ]));
+
+    expect(definitions["cursor-agent"]).toMatchObject({
+      command: "cursor-agent",
+      args: ["acp"],
+    });
+    expect(definitions["kimi-code"]).toMatchObject({
+      command: "kimi",
+      args: ["acp"],
+    });
+    expect(definitions.opencode).toMatchObject({
+      command: "opencode",
+      args: ["acp", "--pure"],
+    });
+    expect(definitions.pi).toMatchObject({
+      command: "pi-acp",
+    });
+    expect(definitions.reasonix).toMatchObject({
+      command: "reasonix",
+      args: ["acp", "--model", "deepseek-flash"],
+      sessionNewShape: "cwd_only",
+    });
+  });
 });
 
 function opencodeDefinition(
   dir: string,
-  acpMode: "ok" | "session-new-error" | "wrong-output" = "ok",
+  acpMode: "ok" | "session-new-error" | "wrong-output" | "auth-error" = "ok",
 ): FirstBatchHarnessDefinition {
   return {
     transport: "opencode",
@@ -612,7 +663,7 @@ function opencodeDefinition(
 
 function reasonixDefinition(
   dir: string,
-  acpMode: "ok" | "session-new-error" = "session-new-error",
+  acpMode: "ok" | "cwd-only-ok" | "session-new-error" = "session-new-error",
 ): FirstBatchHarnessDefinition {
   return {
     transport: "reasonix",
@@ -628,6 +679,7 @@ function reasonixDefinition(
     acp: {
       transport: "reasonix",
       command: fakeAcp(dir, acpMode),
+      sessionNewShape: "cwd_only",
       requestTimeoutMs: 5_000,
       terminalTimeoutMs: 5_000,
     },
@@ -653,6 +705,7 @@ function reasonixConfiguredDirectDefinition(
     acp: {
       transport: "reasonix",
       command: fakeAcp(dir, "session-new-error"),
+      sessionNewShape: "cwd_only",
       requestTimeoutMs: 5_000,
       terminalTimeoutMs: 5_000,
     },
@@ -731,7 +784,7 @@ console.log(${JSON.stringify(output)});
   return script;
 }
 
-function fakeAcp(dir: string, mode: "ok" | "session-new-error" | "wrong-output"): string {
+function fakeAcp(dir: string, mode: "ok" | "cwd-only-ok" | "session-new-error" | "wrong-output" | "auth-error"): string {
   const script = join(dir, `fake-acp-${mode}.mjs`);
   writeFileSync(script, `#!/usr/bin/env node
 import readline from "node:readline";
@@ -742,6 +795,17 @@ rl.on("line", (line) => {
   const frame = JSON.parse(line);
   if (frame.method === "initialize") return send({ id: frame.id, result: { ok: true } });
   if (frame.method === "session/new") {
+    if (mode === "auth-error") {
+      send({ id: frame.id, error: { code: -32001, message: "auth required" } });
+      process.exit(0);
+    }
+    if (mode === "cwd-only-ok") {
+      if (typeof frame.params.cwd !== "string" || "mcpServers" in frame.params) {
+        send({ id: frame.id, error: { code: -32602, message: "expected cwd-only params" } });
+        process.exit(0);
+      }
+      return send({ id: frame.id, result: { sessionId: "s1" } });
+    }
     if (mode === "session-new-error") {
       send({ id: frame.id, error: { code: -32000, message: "session/new failed" } });
       process.exit(0);

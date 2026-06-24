@@ -12,12 +12,14 @@ const DEFAULT_TERMINAL_TIMEOUT_MS = 120_000;
 
 type RequestId = string | number;
 type JsonObject = Record<string, unknown>;
+export type AcpSessionNewShape = "cwd_mcp_servers_empty" | "cwd_only";
 
 export interface AcpClientOptions {
   readonly command: string;
   readonly args?: readonly string[];
   readonly cwd: string;
   readonly env?: Readonly<Record<string, string>>;
+  readonly sessionNewShape?: AcpSessionNewShape;
   readonly requestTimeoutMs?: number;
   readonly terminalTimeoutMs?: number;
   readonly onUpdate?: (update: AcpSessionUpdate) => void;
@@ -27,6 +29,7 @@ export interface AcpBackendDefinition {
   readonly transport: string;
   readonly command: string;
   readonly args?: readonly string[];
+  readonly sessionNewShape?: AcpSessionNewShape;
   readonly requestTimeoutMs?: number;
   readonly terminalTimeoutMs?: number;
 }
@@ -64,10 +67,7 @@ export class AcpClient {
       clientInfo: { name: "holp", title: "HOLP", version: "0.1.6" },
       capabilities: {},
     });
-    const session = await this.request("session/new", {
-      cwd: this.options.cwd,
-      mcpServers: [],
-    });
+    const session = await this.request("session/new", sessionNewParams(this.options));
     const sessionId = extractSessionId(session);
     if (!sessionId) throw new Error("acp_session_new_missing_session_id");
     return { sessionId };
@@ -282,6 +282,7 @@ class AcpBackend implements AgentBackend {
       args: definition.args,
       cwd: opts.cwd,
       env: opts.env,
+      sessionNewShape: definition.sessionNewShape,
       requestTimeoutMs: definition.requestTimeoutMs,
       terminalTimeoutMs: definition.terminalTimeoutMs,
       onUpdate: (update) => {
@@ -364,6 +365,11 @@ function isTerminalPromptResult(value: unknown): boolean {
     stopReason === "complete" ||
     stopReason === "completed" ||
     stopReason === "done";
+}
+
+function sessionNewParams(options: Pick<AcpClientOptions, "cwd" | "sessionNewShape">): JsonObject {
+  if (options.sessionNewShape === "cwd_only") return { cwd: options.cwd };
+  return { cwd: options.cwd, mcpServers: [] };
 }
 
 function textFromContent(value: unknown): string | undefined {
