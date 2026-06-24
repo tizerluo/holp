@@ -14,7 +14,15 @@ export type CmuxDegradedReason =
   | "missing_workspace"
   | "execution_not_enabled"
   | "invalid_command"
-  | "cmux_command_failed";
+  | "cmux_command_failed"
+  | "missing_controller_binary"
+  | "missing_controller_auth"
+  | "missing_direct_worker_readiness"
+  | "missing_live_run_attach"
+  | "controller_manual_start_required"
+  | "unsupported_controller"
+  | "unsupported_controller_command"
+  | "controller_pane_failed";
 
 export interface CmuxCallerContext {
   readonly workspaceId?: string;
@@ -23,7 +31,7 @@ export interface CmuxCallerContext {
   readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
-export type CmuxLayoutTargetKind = "mission-control" | "role" | "evidence";
+export type CmuxLayoutTargetKind = "mission-control" | "role" | "evidence" | "controller" | "sidecar" | "replay";
 
 export interface CmuxLayoutTarget {
   readonly kind: CmuxLayoutTargetKind;

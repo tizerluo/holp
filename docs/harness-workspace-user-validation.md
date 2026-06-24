@@ -12,9 +12,9 @@ real-usage training-distribution evidence for #41.
 | Gate | Decision | Evidence |
 | --- | --- | --- |
 | Runtime-surface / public-wire gate | `allowed` | Reference-only: #52 recorded `terminal-consumer-integration-ready` and a complete bounded runtime-surface matrix in `docs/runtime-surface-validation-matrix.md`. |
-| Usable UI real-usage data collection | `pending-user-validation` | No explicit human-authored real-use validation record has been captured for the #71-#75 Harness Workspace UI stack. Automated smoke and Commander-run demos are not enough. |
+| Usable UI real-usage data collection | `blocked` | Human validation on 2026-06-25 confirmed that the available #71-#75 UI/smoke entry points do not provide a real interactive Controller Agent CLI entry through HOLP. |
 | cmux product readiness | `cmux-pending-user-validation` | Reference-only: #52 remains the canonical source for the current cmux product-readiness marker. #76 has not recorded a human cmux acceptance transcript. |
-| Learned-router real-usage data for #41 | `blocked` | #41 may rely on the #52 runtime-surface/public-wire gate, but future data cannot be counted as real-usage training-distribution evidence until this document records `usable-ui-real-usage-data-collection: allowed`. |
+| Learned-router real-usage data for #41 | `blocked` | #41 may rely on the #52 runtime-surface/public-wire gate, but future data cannot be counted as real-usage training-distribution evidence until HOLP has an accepted interactive UI entry and this document records `usable-ui-real-usage-data-collection: allowed`. |
 
 The #52 runtime-surface/public-wire `allowed` decision remains valid. It is a
 necessary but not sufficient condition for #41 real-usage dataset sufficiency.
@@ -70,8 +70,29 @@ Severity vocabulary:
 | Session continuity | Human can tell whether a worker session is replay-only, attachable, or continuation-capable, and why. | `not_run` | `P0` | No human record yet. |
 | zh-CN / en-US text sanity | Human confirms localized human text is readable while protocol fields, commands, paths, and IDs remain untranslated. | `not_run` | `P0` | No human record yet. |
 
-Because every required real-use scenario is currently `not_run`, the gate cannot
-be `allowed`.
+Because core interactive-entry scenarios are blocked or degraded, the gate
+cannot be `allowed`.
+
+### Validation Record - 2026-06-25 - Interactive Entry Blocker
+
+- Human operator: tizer_mac_studio
+- cmux version: available via local cmux automation socket
+- HOLP commit: `f41b60a`
+- Controller agent: codex / kimi-code smoke paths tested as scripted evidence
+- Worker agent: kimi-code / opencode scripted direct-session paths tested
+- Runtime surface: `direct_user_session`
+- Command / attach / pane evidence: `npm run harness:workspace`,
+  `npm run harness:workspace -- --mode inspect`,
+  `npm run harness:workspace -- --mode replay`,
+  `npm run harness:workspace:cmux-layout`,
+  `npm run smoke:visible-agent-chain`
+- Result: blocked
+- Severity: P1
+- Notes: The six available commands could render snapshots, create panes, and
+  run scripted visible-chain smokes, but the operator still did not see a UI
+  where they could directly interact with a native Controller Agent CLI through
+  HOLP. This is a product-entry blocker, not a smoke failure.
+- Follow-up owner: Issue #85 interactive Harness Workspace entry
 
 ## Human Validation Record Template
 
@@ -139,7 +160,7 @@ Before changing this record, run the docs-safe checks from the #76 spec:
 
 ```text
 runtime-surface-public-wire-gate: allowed
-usable-ui-real-usage-data-collection: pending-user-validation
+usable-ui-real-usage-data-collection: blocked
 cmux-product-readiness: cmux-pending-user-validation
 learned-router-real-usage-data-for-#41: blocked
 ```
