@@ -24,7 +24,8 @@
     "smoke:terminal-consumer": "tsx scripts/smoke/terminal-consumer.ts",
     "smoke:first-batch:direct": "tsx scripts/smoke/first-batch-direct.ts",
     "smoke:codex:surfaces": "tsx scripts/smoke/codex-surfaces.ts",
-    "smoke:claude:surfaces": "tsx scripts/smoke/claude-surfaces.ts"
+    "smoke:claude:surfaces": "tsx scripts/smoke/claude-surfaces.ts",
+    "smoke:visible-agent-chain": "tsx scripts/smoke/visible-agent-chain.ts"
   },
   "devDependencies": {
     "@types/node": "^22",
