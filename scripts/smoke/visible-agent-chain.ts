@@ -21,7 +21,7 @@ const CONTROLLER_TIMEOUT_MS = 360_000;
 
 // ── types ──────────────────────────────────────────────────────────────────
 
-export type ControllerTransport = "codex" | "kimi-code";
+export type ControllerTransport = "codex" | "kimi-code" | "claude-code";
 
 export interface ControllerSpec {
   readonly command: string;
@@ -42,12 +42,11 @@ interface DiscoveredAgent {
 
 // ── public registry constants ──────────────────────────────────────────────
 
-export const ENABLED_CONTROLLERS: readonly ControllerTransport[] = ["codex", "kimi-code"];
+export const ENABLED_CONTROLLERS: readonly ControllerTransport[] = ["codex", "kimi-code", "claude-code"];
 
 export const DISABLED_CONTROLLER_REASON = "controller_driver_not_enabled_in_issue_63";
 
 export const DISABLED_CONTROLLERS: Readonly<Record<string, string>> = {
-  "claude-code": DISABLED_CONTROLLER_REASON,
   "cursor-agent": DISABLED_CONTROLLER_REASON,
   opencode: DISABLED_CONTROLLER_REASON,
   pi: DISABLED_CONTROLLER_REASON,
@@ -57,6 +56,7 @@ export const DISABLED_CONTROLLERS: Readonly<Record<string, string>> = {
 const DEFAULT_WORKER_FOR_CONTROLLER: Readonly<Record<ControllerTransport, string>> = {
   codex: "kimi-code",
   "kimi-code": "opencode",
+  "claude-code": "kimi-code",
 };
 
 // ── exported pure helpers ──────────────────────────────────────────────────
@@ -376,6 +376,14 @@ export function buildControllerSpec(
         "-C", repo,
         prompt,
       ],
+      cwd: repo,
+      ignoreStdin: true,
+    };
+  }
+  if (controller === "claude-code") {
+    return {
+      command: "claude",
+      args: ["-p", prompt, "--output-format", "text"],
       cwd: repo,
       ignoreStdin: true,
     };
