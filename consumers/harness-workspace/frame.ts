@@ -94,6 +94,7 @@ function prioritizedBody(
     { priority: "normal", text: `Owner ${evidence.owner_verified}` },
     { priority: "normal", text: `Artifacts ${evidence.artifact_refs.length > 0 ? evidence.artifact_refs.join(",") : "none"}` },
     { priority: "normal", text: `Terminal ${evidence.terminal?.state ?? "pending"}${evidence.terminal?.reason ? ` reason=${evidence.terminal.reason}` : ""}` },
+    ...replayLines(model, theme),
     { priority: "optional", text: `Anchors run_id direct_user_session model_output.text_delta gate_report` },
     { priority: "optional", text: roleAccentLine(theme) },
     { priority: "optional", text: theme.muted("Controller region is external passthrough; no pane or CLI is spawned.") },
@@ -110,6 +111,7 @@ function prioritizedInspectBody(
     ...inspectLines(model, width),
     { priority: "normal", text: `${theme.chrome(model.labels.chain)} ${chainLine(model.chain, theme)}` },
     { priority: "required", kind: "provenance", text: `Provenance ${model.evidence.provenance}: ${model.evidence.provenance_caveat}` },
+    ...replayLines(model, theme),
     { priority: "optional", text: `Anchors run_id direct_user_session model_output.text_delta gate_report approval_requested approval_resolved approval_expired approval_cancelled attach_command` },
     { priority: "optional", text: roleAccentLine(theme) },
     { priority: "optional", text: theme.muted("Controller region is external passthrough; no pane or CLI is spawned.") },
@@ -195,6 +197,45 @@ function rowPriority(priority: InspectRow["priority"]): BodyLine["priority"] {
   return "normal";
 }
 
+function replayLines(model: FocusShellRenderModel, theme: FocusShellTheme): readonly BodyLine[] {
+  if (!model.replay && !model.timeline && !model.continuity && !model.operator_affordances) return [];
+  const lines: BodyLine[] = [];
+  if (model.replay) {
+    lines.push(bodyLine(`${theme.chrome("Replay")} ${model.replay.status} created_at=${model.replay.created_at ?? "unknown"}`, "required"));
+  }
+  if (model.timeline) {
+    for (const entry of model.timeline.entries.slice(0, 4)) {
+      lines.push(bodyLine(`Timeline ${entry.severity} ${entry.label} ${entry.summary}`, entry.severity === "error" ? "required" : "normal", entry.severity === "error" ? "failure" : undefined));
+    }
+    if (model.timeline.truncated) {
+      lines.push(bodyLine(`Timeline truncated reason=${model.timeline.truncated.reason} retained=${model.timeline.truncated.retained_count ?? "unknown"}`, "normal"));
+    }
+  }
+  if (model.continuity) {
+    lines.push(bodyLine(
+      `Continuity continue=${model.continuity.can_continue} rerun=${model.continuity.can_rerun} inspect=${model.continuity.can_inspect} replay_only=${model.continuity.replay_only}`,
+      "required",
+    ));
+    if (model.continuity.reasons.length > 0) {
+      lines.push(bodyLine(`Continuity reasons ${model.continuity.reasons.join(",")}`, "normal"));
+    }
+  }
+  if (model.operator_affordances) {
+    for (const affordance of model.operator_affordances) {
+      const flags = [
+        affordance.confirmation_required ? "confirm" : undefined,
+        affordance.destructive ? "destructive" : undefined,
+        affordance.focus_changing ? "focus-changing" : undefined,
+      ].filter(Boolean).join(",");
+      lines.push(bodyLine(
+        `Affordance ${affordance.label}=${affordance.state}${flags ? ` flags=${flags}` : ""} reason=${affordance.reason_label}`,
+        affordance.state === "needs_confirmation" ? "required" : "normal",
+      ));
+    }
+  }
+  return lines;
+}
+
 function innerLine(theme: FocusShellTheme, width: number, text: string): string {
   const innerWidth = Math.max(0, width - 4);
   const fitted = padEndCell(truncateCell(text, innerWidth), innerWidth);
@@ -210,9 +251,10 @@ function renderStatus(
     `run_id=${model.evidence.run_id ?? "unknown"}`,
     `runtime=${model.evidence.runtime_surface ?? "unknown"}`,
     `mode=${model.mode}`,
+    model.replay ? `replay=${model.replay.status}` : undefined,
     "hints=q/esc safe",
     "controller=external",
-  ].join("|");
+  ].filter(Boolean).join("|");
   return theme.status(fitCell(status, width));
 }
 
