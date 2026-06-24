@@ -377,6 +377,28 @@ describe("adapter registry runtime surface resolution", () => {
     expect(acp?.isolation_profiles.coder_worktree.reason).not.toBe("cursor_acp_auth_required");
   }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
+  it("labels Cursor Agent ACP auth failures with Cursor-specific reason", async () => {
+    const dir = makeTempDir();
+    const definition = cursorDefinition(dir, "auth-error");
+    const registry = createAdapterRegistry(
+      firstBatchAdapterFactories([definition]),
+      firstBatchAdapterProbes([definition]),
+    );
+
+    const result = await registry.probe({
+      id: "cursor",
+      transport: "cursor-agent",
+      roles: ["coder"],
+      cwd: dir,
+    });
+
+    const acp = result.runtime_surfaces?.find((surface) => surface.runtime_surface === "acp");
+    expect(acp?.isolation_profiles.coder_worktree).toMatchObject({
+      readiness: "degraded",
+      reason: "cursor_acp_auth_required",
+    });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
   it("marks ACP ready when terminal output includes HOLP_OK", async () => {
     const dir = makeTempDir();
     const definition = opencodeDefinition(dir, "ok");
@@ -658,6 +680,31 @@ function opencodeDefinition(
       terminalTimeoutMs: 5_000,
     },
     direct: degradedDirect("opencode"),
+  };
+}
+
+function cursorDefinition(
+  dir: string,
+  acpMode: "ok" | "auth-error" = "ok",
+): FirstBatchHarnessDefinition {
+  return {
+    transport: "cursor-agent",
+    harnessId: "cursor-agent",
+    vendor: "Cursor",
+    probeAcpSmoke: true,
+    headless: {
+      transport: "cursor-agent",
+      command: fakeCli(dir, "cursor-agent"),
+      versionArgs: ["--version"],
+      argsForPrompt: (prompt) => ["-p", prompt],
+    },
+    acp: {
+      transport: "cursor-agent",
+      command: fakeAcp(dir, acpMode),
+      requestTimeoutMs: 5_000,
+      terminalTimeoutMs: 5_000,
+    },
+    direct: degradedDirect("cursor-agent"),
   };
 }
 
