@@ -151,6 +151,64 @@ The reference UX may show attach commands, but for the cmux target the live
 consumer path is `model_output.text_delta` over HOLP public wire. #65 documents
 that standard tmux attach is not the reliable cmux-side observation path.
 
+## Charmbracelet Visual References
+
+Charmbracelet is the preferred visual reference for the Sidecar, Mission Control,
+Evidence, and Inspect surfaces. It is not a dependency decision in this docs PR.
+
+Useful references:
+
+- [Bubble Tea](https://github.com/charmbracelet/bubbletea): candidate TUI state
+  loop for Sidecar/Mission Control, if a future implementation chooses Go.
+- [Lip Gloss](https://github.com/charmbracelet/lipgloss): role skins, borders,
+  spacing, color treatment, and terminal layout vocabulary.
+- [Bubbles](https://github.com/charmbracelet/bubbles): likely component reference
+  for agent lists, worker output viewports, help rows, spinners, and progress.
+- [Glamour](https://github.com/charmbracelet/glamour): candidate renderer for
+  evidence summaries, gate reports, and review notes that are Markdown-shaped.
+- [Huh](https://github.com/charmbracelet/huh): later reference for explicit
+  operator confirmations such as cancel, interrupt, rerun, or expand team.
+- [Gum](https://github.com/charmbracelet/gum): reference for low-friction command
+  prompts and shell-scripted prototypes, not a substitute for the final Sidecar.
+- [Glow](https://github.com/charmbracelet/glow): reference for readable terminal
+  Markdown browsing and replay/evidence review.
+- [VHS](https://github.com/charmbracelet/vhs) and
+  [Freeze](https://github.com/charmbracelet/freeze): candidate tooling for
+  terminal demos, screenshots, and future docs assets.
+
+Design borrowing rules:
+
+- Borrow the terminal-native visual language: restrained color, semantic badges,
+  clear panes, readable typography, and calm status transitions.
+- Do not borrow a full-screen app model that hides the native Agent CLI.
+- Do not decide TS-vs-Go, Bubble Tea version, or dependency pinning here; that
+  belongs in the future Sidecar implementation spec.
+- Do not use Charmbracelet polish to imply runtime readiness. Visual clarity is
+  evidence presentation, not evidence generation.
+
+### Crush product interaction reference
+
+[Crush](https://github.com/charmbracelet/crush) is the closest Charmbracelet
+product reference for an agent-facing terminal experience. HOLP should study its
+product interactions, not treat it as a HOLP runtime dependency.
+
+Useful patterns to study:
+
+- session continuity: `--session` and `--continue` map well to future HOLP
+  run/workspace replay and continuation concepts;
+- command structure: interactive mode, `run`, `logs`, `models`, `projects`, and
+  `stats` show how terminal-first tools can expose both conversational and
+  operational entrypoints without turning into a dashboard dump;
+- permission clarity: explicit dangerous modes such as `--yolo` are a useful
+  reference for future HOLP operator actions like cancel, interrupt, inject, or
+  expand team;
+- status density: Crush is a reference for dense but readable terminal feedback,
+  especially tool calls, progress, session identity, and model/provider context.
+
+Do not copy the single-agent assistant model wholesale. HOLP's consumer problem
+is multi-agent harness visibility: native Agent CLIs remain visible, cmux owns
+workspace panes, and HOLP supplies the chain, evidence, role, and gate context.
+
 ## Candidate Follow-Up PRs
 
 These are candidate implementation slices, not committed architecture decisions:
