@@ -86,4 +86,6 @@ report must not invent attach, observe, inject, interrupt, or cancel behavior.
 PR14 later proved a first-batch harness pilot, not complete runtime-surface
 parity and not cmux readiness. Issue #45 tracks the bounded CLI cohort plus
 terminal-consumer smoke phase required before #41 can claim learned-router data
-sufficiency.
+sufficiency. The final #45 validation result lives in
+`docs/runtime-surface-validation-matrix.md`; this PR12 note remains the
+vocabulary/background reference.
