@@ -25,13 +25,10 @@ terminal-consumer smoke, claim `cmux-ready`, or unblock #41 data sufficiency.
     user shells.
   - Direct `ready` already requires both capability proof and
     agent-in-tmux `HOLP_OK` output.
-- `FIRST_BATCH_HARNESSES` currently declares:
-  - Cursor Agent: direct `rejected`, `direct_user_session_not_declared_until_issue_50`.
-  - Kimi Code: direct `configured`, but default degraded until real direct
-    smoke proves `HOLP_OK`.
-  - OpenCode: direct `rejected`, `direct_user_session_not_declared_until_issue_50`.
-  - Pi: direct `rejected`, `direct_user_session_not_declared_until_issue_50`.
-  - Reasonix: direct `rejected`, `direct_user_session_not_declared_until_issue_50`.
+- `FIRST_BATCH_HARNESSES` now declares configured direct factories for Cursor
+  Agent, Kimi Code, OpenCode, Pi, and Reasonix. They remain degraded by default
+  and upgrade only when `HOLP_REAL_HARNESS_DIRECT_SMOKE=1` proves the matching
+  HOLP-owned tmux direct path and `HOLP_OK`.
 - `scripts/smoke/harnesses.ts` is the existing PR14 first-batch harness smoke,
   but it mixes headless/ACP readiness and #51-owned ACP schedulability. #50
   needs a direct-only smoke or a direct-only mode so #50 evidence does not
@@ -72,11 +69,10 @@ Expected direct command shapes, based on local driver skills:
   - Keep coding-plan/provider caveats as evidence.
 - OpenCode:
   - command: `opencode`
-  - args: `["run", "--pure", prompt, "-m", <configured model>]` or an
-    equivalent repo-approved shape that keeps automation deterministic.
-  - The model must be explicit. If the implementation cannot identify a safe
-    default model from existing PR14 code/skills, mark direct degraded with a
-    missing `opencode:model`.
+  - args: `["run", "--pure", prompt, "-m", "opencode/deepseek-v4-flash-free"]`
+  - The model is explicit and grounded in the local `drive-opencode` skill's
+    known usable examples. This provenance only justifies the configured direct
+    factory; real direct smoke remains the only readiness proof.
 - Pi:
   - command: `pi`
   - args: `["-p", prompt, "--mode", "text", "--provider", "xiaomi-token-plan-sgp", "--model", "mimo-v2.5-pro"]`

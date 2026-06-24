@@ -46,7 +46,6 @@ export interface FirstBatchHarnessDefinition {
   readonly readOnlyReviewEnforced?: boolean;
   readonly probeHeadlessSmoke?: boolean;
   readonly probeAcpSmoke?: boolean;
-  readonly probeDirectReady?: boolean;
 }
 
 export type FirstBatchDirectSessionDeclaration =
@@ -74,6 +73,8 @@ const FIRST_BATCH_DIRECT_SMOKE_MISSING = [
   "agent_in_tmux_smoke",
   "owner_verified",
 ] as const;
+// Grounded in the local drive-opencode skill's known usable model examples.
+const OPENCODE_DIRECT_MODEL = "opencode/deepseek-v4-flash-free";
 
 export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
   {
@@ -151,7 +152,7 @@ export const FIRST_BATCH_HARNESSES: readonly FirstBatchHarnessDefinition[] = [
         "--pure",
         prompt,
         "-m",
-        "opencode/deepseek-v4-flash-free",
+        OPENCODE_DIRECT_MODEL,
       ],
     }),
   },
@@ -305,7 +306,7 @@ async function probeFirstBatchHarness(
   const anyReady = headlessReady || acpReady || directReady;
   const anyPresent = headlessVersion.ok ||
     (definition.transport !== "reasonix" && acpReason !== "acp_smoke_not_enabled_or_failed") ||
-    definition.direct.state === "configured";
+    hasDirectPresenceEvidence(directReady, directReason, directSmokeEnabled);
   return {
     status: anyReady ? "ready" : anyPresent ? "degraded" : "rejected",
     harness_id: definition.harnessId,
@@ -536,6 +537,19 @@ function missingFor(
     ...(directReason ? [`direct_user_session:${directReason}`] : []),
   ];
   return missing.length > 0 ? missing : undefined;
+}
+
+function hasDirectPresenceEvidence(
+  ready: boolean,
+  reason: string | undefined,
+  directSmokeEnabled: boolean,
+): boolean {
+  if (ready) return true;
+  if (!directSmokeEnabled) return false;
+  return reason !== undefined &&
+    reason !== "first_batch_direct_smoke_not_enabled" &&
+    reason !== "tmux_unavailable" &&
+    reason !== "direct_agent_unavailable";
 }
 
 function configuredDirect(args: {

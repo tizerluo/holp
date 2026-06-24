@@ -135,6 +135,41 @@ describe("adapter registry runtime surface resolution", () => {
     });
   }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
 
+  it("rejects missing Reasonix binary even when direct is configured but unproven", async () => {
+    const dir = makeTempDir();
+    const definition = reasonixConfiguredDirectDefinition(dir, {
+      headlessCommand: join(dir, "missing-reasonix"),
+      directCommand: join(dir, "missing-reasonix-direct"),
+    });
+    const registry = createAdapterRegistry(
+      firstBatchAdapterFactories([definition]),
+      firstBatchAdapterProbes([definition]),
+    );
+
+    const result = await registry.probe({
+      id: "reasonix",
+      transport: "reasonix",
+      roles: ["coder"],
+      cwd: dir,
+    });
+
+    expect(result.status).toBe("rejected");
+    expect(result.resolved_roles).toEqual([]);
+    expect(result.reason).toBe("missing_binary");
+    expect(result.missing).toEqual(expect.arrayContaining([
+      "headless:missing_binary",
+      expect.stringContaining("acp:reasonix_acp_session_new_failed:"),
+      "direct_user_session:first_batch_direct_smoke_not_enabled",
+    ]));
+    const direct = result.runtime_surfaces?.find((surface) =>
+      surface.runtime_surface === "direct_user_session"
+    );
+    expect(direct?.isolation_profiles.coder_worktree).toMatchObject({
+      readiness: "degraded",
+      reason: "first_batch_direct_smoke_not_enabled",
+    });
+  }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
   it("wires first-batch direct factories for every configured direct target", async () => {
     const factories = firstBatchAdapterFactories(FIRST_BATCH_HARNESSES);
 
@@ -600,6 +635,41 @@ function reasonixDefinition(
   };
 }
 
+function reasonixConfiguredDirectDefinition(
+  dir: string,
+  opts: { headlessCommand: string; directCommand: string },
+): FirstBatchHarnessDefinition {
+  return {
+    transport: "reasonix",
+    harnessId: "reasonix",
+    vendor: "Reasonix",
+    probeAcpSmoke: true,
+    headless: {
+      transport: "reasonix",
+      command: opts.headlessCommand,
+      versionArgs: ["--version"],
+      argsForPrompt: (prompt) => ["run", prompt],
+    },
+    acp: {
+      transport: "reasonix",
+      command: fakeAcp(dir, "session-new-error"),
+      requestTimeoutMs: 5_000,
+      terminalTimeoutMs: 5_000,
+    },
+    direct: {
+      state: "configured",
+      definition: {
+        transport: "reasonix",
+        tmuxCommand: fakeTmux(dir, "HOLP_OK"),
+        agentCommand: opts.directCommand,
+        agentArgsForPrompt: (prompt) => ["run", "--model", "deepseek-flash", prompt],
+      },
+      reason: "first_batch_direct_smoke_not_enabled",
+      missing: ["HOLP_REAL_HARNESS_DIRECT_SMOKE", "agent_in_tmux_smoke", "owner_verified"],
+    },
+  };
+}
+
 function kimiDefinition(
   dir: string,
   opts: { directReady: boolean; directOutput?: string },
@@ -608,7 +678,6 @@ function kimiDefinition(
     transport: "kimi-code",
     harnessId: "kimi-code",
     vendor: "Moonshot AI",
-    probeDirectReady: opts.directReady,
     headless: {
       transport: "kimi-code",
       command: fakeCli(dir, "kimi"),
