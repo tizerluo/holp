@@ -5,8 +5,8 @@ import {
   normalizeRuntimeSurface,
   runtimeSurfaceFromRunStarted,
   selectReadyAgent,
-  successMarkers,
   terminalConsumerSmokeEnabled,
+  terminalConsumerSuccessMarkers,
   waitForEventFromEvents,
 } from "../../scripts/smoke/terminal-consumer.js";
 
@@ -80,10 +80,17 @@ describe("terminal consumer smoke helpers", () => {
     expect(runtimeSurfaceFromRunStarted(event)).toBe("acp");
   });
 
-  it("does not emit cmux-ready unless explicitly requested", () => {
-    expect(successMarkers(false)).toContain("INFO cmux_status=cmux-pending-user-validation");
-    expect(successMarkers(false).join("\n")).not.toContain("cmux-ready");
-    expect(successMarkers(true)).toContain("INFO cmux_status=cmux-ready");
+  it("does not emit cmux-ready", () => {
+    const markers = terminalConsumerSuccessMarkers({ hasTerminal: true });
+    expect(markers).toContain("PASS terminal-consumer-integration-ready");
+    expect(markers).toContain("INFO cmux_status=cmux-pending-user-validation");
+    expect(markers.join("\n")).not.toContain("cmux-ready");
+  });
+
+  it("refuses PASS markers when terminal event is missing", () => {
+    expect(() => terminalConsumerSuccessMarkers({ hasTerminal: false })).toThrow(
+      /cannot emit PASS without a terminal event/,
+    );
   });
 
   it("uses a deterministic non-selected failure transport", () => {

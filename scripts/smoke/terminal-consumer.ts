@@ -71,7 +71,6 @@ interface SmokeEnv {
   readonly HOLP_TERMINAL_CONSUMER_TRANSPORT?: string;
   readonly HOLP_TERMINAL_CONSUMER_SURFACE?: string;
   readonly HOLP_TERMINAL_CONSUMER_FAILURE_TRANSPORT?: string;
-  readonly HOLP_TERMINAL_CONSUMER_CMUX_READY?: string;
 }
 
 interface ReadySelection {
@@ -121,10 +120,13 @@ export function runtimeSurfaceFromRunStarted(event: EventFrame): string | undefi
   return stringField(runtime, "runtime_surface");
 }
 
-export function successMarkers(cmuxReady: boolean): readonly string[] {
+export function terminalConsumerSuccessMarkers({ hasTerminal }: { hasTerminal: boolean }): readonly string[] {
+  if (!hasTerminal) {
+    throw new Error("cannot emit PASS without a terminal event");
+  }
   return [
     "PASS terminal-consumer-integration-ready",
-    cmuxReady ? "INFO cmux_status=cmux-ready" : "INFO cmux_status=cmux-pending-user-validation",
+    "INFO cmux_status=cmux-pending-user-validation",
   ];
 }
 
@@ -157,7 +159,6 @@ async function main(): Promise<number> {
     transport,
     process.env.HOLP_TERMINAL_CONSUMER_FAILURE_TRANSPORT,
   );
-  const cmuxReady = process.env.HOLP_TERMINAL_CONSUMER_CMUX_READY === "1";
   const smokeCwd = mkdtempSync(path.join(tmpdir(), "holp-terminal-consumer-"));
   const renderer = new RunRenderer();
   const events: EventFrame[] = [];
@@ -298,16 +299,11 @@ async function main(): Promise<number> {
     console.log("summary:");
     for (const line of renderSummaryReport(summary, "human")) console.log(line);
     for (const diagnostic of renderer.diagnostics()) console.log(`  seq diagnostic: ${diagnostic}`);
-    if (!summary.terminal) throw new Error("missing terminal event in rendered summary");
-
     console.log(
       `consumer_state: run_id=${run.run_id} events=${summary.seen_events} ` +
-        `terminal=${summary.terminal.name} gate=${summary.gate_report ? "present" : "none"}`,
+        `terminal=${summary.terminal?.name ?? "missing"} gate=${summary.gate_report ? "present" : "none"}`,
     );
-    for (const marker of successMarkers(cmuxReady)) console.log(marker);
-    if (cmuxReady) {
-      console.log("WARN cmux_status was supplied by env; ensure a real cmux automation/user validation record exists.");
-    }
+    for (const marker of terminalConsumerSuccessMarkers({ hasTerminal: Boolean(summary.terminal) })) console.log(marker);
     return 0;
   } catch (error) {
     console.error(`FAIL terminal-consumer-integration-ready ${describeError(error)}`);
