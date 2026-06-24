@@ -65,7 +65,7 @@ describe("harness workspace replay snapshots", () => {
     expect(restored.timeline.entries.map((entry) => entry.seq)).toEqual([1, 2, 3, 4, 5]);
     expect(output).toContain("Replay replay created_at=2026-06-25T01:02:03.000Z");
     expect(output).toContain("Timeline info agent.model_output#3 model output captured");
-    expect(output).toContain("Continuity continue=true");
+    expect(output).toContain("Continuity continue=false");
     expect(output).toContain("Affordance Copy attach command=enabled");
     expect(output).toContain("Affordance Cancel run=needs_confirmation");
     expect(json).not.toContain("secret_provider_blob_must_not_export");
@@ -287,5 +287,127 @@ describe("harness workspace replay snapshots", () => {
     const oversized = structuredClone(raw) as Record<string, unknown>;
     (((oversized.overview as Record<string, unknown>).evidence as Record<string, unknown>).terminal as Record<string, unknown>).reason = "x".repeat(513);
     expect(() => importReplaySnapshotJson(JSON.stringify(oversized))).toThrow(/terminal.reason exceeds cap/);
+  });
+
+  it("rejects forged imported continuity that overclaims continue", () => {
+    const snapshot = createReplaySnapshot(recordEvent(seededState(), frame(1, "run_started", {})), {
+      createdAt: "2026-06-25T00:00:00.000Z",
+    });
+    const raw = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
+    raw.continuity = {
+      ...(raw.continuity as Record<string, unknown>),
+      run_id: "run_75",
+      runtime_surface: "direct_user_session",
+      worker_session: "holp-direct-75",
+      attach_command: "tmux attach -t holp-direct-75",
+      owner_verified: "verified",
+      can_continue: true,
+    };
+
+    expect(() => importReplaySnapshotJson(JSON.stringify(raw))).toThrow(/can_continue is unsupported/);
+  });
+
+  it("exports replay continuity as importable replay-only state", () => {
+    let state = seededState();
+    state = recordEvent(state, frame(1, "agent_event", {
+      name: "attach_target",
+      payload: {
+        agent_id: "coder-1",
+        session_id: "holp-direct-75",
+        attach_command: "tmux attach -t holp-direct-75",
+      },
+    }, "agent"));
+    const snapshot = createReplaySnapshot(state, {
+      createdAt: "2026-06-25T00:00:00.000Z",
+    });
+
+    expect(snapshot.continuity.can_continue).toBe(false);
+    expect(snapshot.continuity.reasons).toContain("continue_disabled_in_replay_snapshot");
+    expect(() => importReplaySnapshotJson(exportReplaySnapshotJson(snapshot))).not.toThrow();
+  });
+
+  it("rejects oversized continuity strings and reason strings", () => {
+    const snapshot = createReplaySnapshot(recordEvent(seededState(), frame(1, "run_started", {})), {
+      createdAt: "2026-06-25T00:00:00.000Z",
+    });
+    const raw = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
+    (raw.continuity as Record<string, unknown>).attach_command = "x".repeat(513);
+    expect(() => importReplaySnapshotJson(JSON.stringify(raw))).toThrow(/continuity.attach_command exceeds cap/);
+
+    const reasonRaw = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
+    (reasonRaw.continuity as Record<string, unknown>).reasons = ["x".repeat(513)];
+    expect(() => importReplaySnapshotJson(JSON.stringify(reasonRaw))).toThrow(/continuity.reasons\[\] exceeds cap/);
+  });
+
+  it("rejects unknown continuity and inspect fields", () => {
+    const snapshot = createReplaySnapshot(recordEvent(seededState(), frame(1, "run_started", {})), {
+      createdAt: "2026-06-25T00:00:00.000Z",
+      inspectAgentId: "coder-1",
+    });
+    const raw = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
+    (raw.continuity as Record<string, unknown>).provider_blob = "secret";
+    expect(() => importReplaySnapshotJson(JSON.stringify(raw))).toThrow(/continuity contains unknown field provider_blob/);
+
+    const inspectRaw = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
+    (inspectRaw.inspect as Record<string, unknown>).provider_blob = "secret";
+    expect(() => importReplaySnapshotJson(JSON.stringify(inspectRaw))).toThrow(/inspect contains unknown field provider_blob/);
+  });
+
+  it("rejects oversized overview title and worker preview", () => {
+    const snapshot = createReplaySnapshot(recordEvent(seededState(), frame(1, "run_started", {})), {
+      createdAt: "2026-06-25T00:00:00.000Z",
+    });
+    const raw = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
+    (raw.overview as Record<string, unknown>).title = "x".repeat(513);
+    expect(() => importReplaySnapshotJson(JSON.stringify(raw))).toThrow(/overview.title exceeds cap/);
+
+    const previewRaw = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
+    (previewRaw.overview as Record<string, unknown>).worker_preview = "x".repeat(513);
+    expect(() => importReplaySnapshotJson(JSON.stringify(previewRaw))).toThrow(/overview.worker_preview exceeds cap/);
+  });
+
+  it("rejects invalid or unbounded chain node shape", () => {
+    const snapshot = createReplaySnapshot(recordEvent(seededState(), frame(1, "run_started", {})), {
+      createdAt: "2026-06-25T00:00:00.000Z",
+    });
+    const raw = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
+    ((raw.overview as Record<string, unknown>).chain as Array<Record<string, unknown>>)[0] = {
+      id: "human",
+      label: "human",
+      skin: "CTRL",
+      state: "active",
+      provider_blob: "secret",
+    };
+    expect(() => importReplaySnapshotJson(JSON.stringify(raw))).toThrow(/chain node contains unknown field provider_blob/);
+
+    const longRaw = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
+    ((longRaw.overview as Record<string, unknown>).chain as Array<Record<string, unknown>>)[0] = {
+      id: "x".repeat(513),
+      label: "human",
+      skin: "CTRL",
+      state: "active",
+    };
+    expect(() => importReplaySnapshotJson(JSON.stringify(longRaw))).toThrow(/overview.chain\[\].id exceeds cap/);
+  });
+
+  it("rejects unsafe truncation marker shape", () => {
+    const snapshot = createReplaySnapshot(recordEvent(seededState(), frame(1, "run_started", {})), {
+      createdAt: "2026-06-25T00:00:00.000Z",
+      eventLimit: 0,
+    });
+    const raw = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
+    raw.events_truncated = {
+      truncated: true,
+      reason: "x".repeat(513),
+    };
+    expect(() => importReplaySnapshotJson(JSON.stringify(raw))).toThrow(/events_truncated reason exceeds cap/);
+
+    const unknown = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
+    unknown.events_truncated = {
+      truncated: true,
+      reason: "event_summary_cap",
+      provider_blob: "secret",
+    };
+    expect(() => importReplaySnapshotJson(JSON.stringify(unknown))).toThrow(/events_truncated contains unknown field provider_blob/);
   });
 });

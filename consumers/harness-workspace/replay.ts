@@ -35,6 +35,12 @@ const OVERVIEW_EVIDENCE_KEYS = new Set(["run_id", "runtime_surface", "worker_ses
 const OVERVIEW_GATE_KEYS = new Set(["gate_disposition", "review_outcome", "blocking_reason"]);
 const OVERVIEW_APPROVAL_KEYS = new Set(["state", "approval_id", "decision"]);
 const OVERVIEW_TERMINAL_KEYS = new Set(["state", "reason"]);
+const OVERVIEW_KEYS = new Set(["title", "mode", "run_id", "chain", "evidence", "evidence_truncated", "worker_preview", "worker_preview_truncated", "terminal_state", "failures", "failures_truncated"]);
+const INSPECT_KEYS = new Set(["title", "mode", "selectedAgentId", "empty"]);
+const CHAIN_NODE_KEYS = new Set(["id", "label", "skin", "state", "agentId"]);
+const KNOWN_ROLE_SKINS = new Set(["CTRL", "CODE", "TEST", "REV", "ARCH", "GATE"]);
+const KNOWN_CHAIN_STATES = new Set(["idle", "active", "done", "failed", "unknown"]);
+const CONTINUITY_KEYS = new Set(["run_id", "observed_agent_ids", "selected_agent_id", "runtime_surface", "worker_session", "attach_command", "terminal_state", "owner_verified", "replay_created_at", "can_continue", "can_rerun", "can_inspect", "can_copy", "replay_only", "reasons"]);
 const KNOWN_AFFORDANCE_IDS = new Set([
   "copy_attach_command",
   "copy_run_id",
@@ -73,7 +79,7 @@ export function createReplaySnapshot(
   const previewLimit = options.previewLimit ?? DEFAULT_PREVIEW_LIMIT;
   const overview = deriveOverview(state);
   const inspect = options.inspectAgentId ? deriveInspect(state, options.inspectAgentId) : undefined;
-  const continuity = deriveContinuity(state, { replayCreatedAt: created_at });
+  const continuity = replayContinuity(deriveContinuity(state, { replayCreatedAt: created_at }));
   const operator_affordances = deriveOperatorAffordances(state, continuity);
   const logs = deriveTimeline(state.events, { limit: logLimit, previewLimit });
   const orderedEvents = [...state.events].sort((left, right) => left.seq - right.seq);
@@ -82,10 +88,12 @@ export function createReplaySnapshot(
   const evidence = orderedEvidence
     .slice(0, Math.max(0, evidenceLimit))
     .map((anchor) => evidenceAnchorSummary(anchor, previewLimit));
+  const title = boundedString(overview.title, previewLimit);
   const preview = boundedString(overview.workerPreview.renderedText, previewLimit);
   const failures = overview.failures.map((failure) => boundedString(failure, previewLimit));
   const failuresTruncated = failures.some((failure) => failure.truncated);
   const evidenceSummary = sanitizeEvidenceSummary(overview.evidence, previewLimit);
+  const chain = overview.chain.map((node) => sanitizeChainNode(node, previewLimit));
 
   return {
     schema_version: SNAPSHOT_SCHEMA,
@@ -100,10 +108,10 @@ export function createReplaySnapshot(
       ? { evidence_truncated: truncation("evidence_anchor_cap", orderedEvidence.length, evidence.length) }
       : {}),
     overview: {
-      title: overview.title,
+      title: title.value,
       mode: overview.mode,
       run_id: evidenceSummary.evidence.run_id,
-      chain: overview.chain,
+      chain,
       evidence: evidenceSummary.evidence,
       ...(evidenceSummary.truncated ? { evidence_truncated: truncation("overview_evidence_string_cap", 1, 1) } : {}),
       worker_preview: preview.value,
@@ -212,6 +220,16 @@ function replayOverview(
   };
 }
 
+function replayContinuity(continuity: HarnessSessionContinuity): HarnessSessionContinuity {
+  if (!continuity.can_continue) return continuity;
+  return {
+    ...continuity,
+    can_continue: false,
+    replay_only: !continuity.can_rerun,
+    reasons: [...new Set([...continuity.reasons, "continue_disabled_in_replay_snapshot"])],
+  };
+}
+
 function replayInspect(
   snapshot: HarnessReplaySnapshotV1,
   overview: HarnessOverviewModel,
@@ -313,6 +331,18 @@ function sanitizeEvidenceSummary(
   return { evidence: sanitized, truncated };
 }
 
+function sanitizeChainNode<T extends { readonly id: string; readonly label: string; readonly skin: string; readonly state: string; readonly agentId?: string }>(
+  node: T,
+  limit: number,
+): T {
+  return {
+    ...node,
+    id: boundedString(node.id, limit).value,
+    label: boundedString(node.label, limit).value,
+    ...(node.agentId ? { agentId: boundedString(node.agentId, limit).value } : {}),
+  };
+}
+
 function payloadPreview(payload: Record<string, unknown>, limit: number): { readonly value?: string; readonly truncated: boolean } {
   const fields: string[] = [];
   for (const key of ["reason", "blocking_reason", "approval_id", "decision", "artifact_id", "artifact_ref", "name", "agent_id", "agent", "detail"]) {
@@ -409,16 +439,21 @@ function validateSnapshot(value: unknown, options: ReplayJsonOptions = {}): asse
   if (events.length > eventLimit) throw new Error("Replay snapshot event summaries exceed cap");
   if (evidence.length > evidenceLimit) throw new Error("Replay snapshot evidence anchors exceed cap");
   if (entries.length > logLimit) throw new Error("Replay snapshot log entries exceed cap");
+  if (object.events_truncated !== undefined) validateTruncation(object.events_truncated, "events_truncated");
+  if (object.evidence_truncated !== undefined) validateTruncation(object.evidence_truncated, "evidence_truncated");
+  if (logs.truncated !== undefined) validateTruncation(logs.truncated, "logs.truncated");
   for (const entry of events) validateSanitizedEvent(entry, previewLimit);
   for (const anchor of evidence) validateSanitizedEvidence(anchor, previewLimit);
   for (const entry of entries) validateTimelineEntry(entry, previewLimit);
   const overview = requireObject(object.overview, "overview");
+  validateOverviewSummary(overview, previewLimit);
   validateOverviewEvidence(overview.evidence, previewLimit);
   if (overview.evidence_truncated !== undefined) validateTruncation(overview.evidence_truncated, "overview.evidence_truncated");
   validateOverviewFailures(overview, previewLimit);
+  if (object.inspect !== undefined) validateInspectSummary(object.inspect, previewLimit);
   const affordances = requireArray(object.operator_affordances, "operator_affordances");
   for (const affordance of affordances) validateAffordance(affordance, previewLimit);
-  requireObject(object.continuity, "continuity");
+  validateContinuity(object.continuity, previewLimit);
 }
 
 function validateSanitizedEvent(value: unknown, previewLimit: number): void {
@@ -490,6 +525,45 @@ function validateOverviewFailures(overview: Record<string, unknown>, previewLimi
   if (overview.failures_truncated !== undefined) validateTruncation(overview.failures_truncated, "overview.failures_truncated");
 }
 
+function validateOverviewSummary(overview: Record<string, unknown>, previewLimit: number): void {
+  rejectUnknownKeys(overview, OVERVIEW_KEYS, "Replay overview");
+  if (overview.mode !== "overview") throw new Error("Replay overview mode is invalid");
+  validateRequiredCappedString(overview.title, "overview.title", previewLimit);
+  validateOptionalEvidenceString(overview.run_id, "overview.run_id", previewLimit);
+  validateOptionalEvidenceString(overview.worker_preview, "overview.worker_preview", previewLimit);
+  if (typeof overview.worker_preview_truncated !== "boolean") {
+    throw new Error("Replay overview worker_preview_truncated must be boolean");
+  }
+  if (overview.terminal_state !== undefined && !["merged", "blocked", "gave_up", "cancelled"].includes(String(overview.terminal_state))) {
+    throw new Error("Replay overview terminal_state is invalid");
+  }
+  const chain = requireArray(overview.chain, "overview.chain");
+  for (const node of chain) validateChainNode(node, previewLimit);
+}
+
+function validateChainNode(value: unknown, previewLimit: number): void {
+  const node = requireObject(value, "overview.chain[]");
+  rejectUnknownKeys(node, CHAIN_NODE_KEYS, "Replay overview chain node");
+  validateRequiredCappedString(node.id, "overview.chain[].id", previewLimit);
+  validateRequiredCappedString(node.label, "overview.chain[].label", previewLimit);
+  if (typeof node.skin !== "string" || !KNOWN_ROLE_SKINS.has(node.skin)) {
+    throw new Error("Replay overview chain node skin is invalid");
+  }
+  if (typeof node.state !== "string" || !KNOWN_CHAIN_STATES.has(node.state)) {
+    throw new Error("Replay overview chain node state is invalid");
+  }
+  validateOptionalEvidenceString(node.agentId, "overview.chain[].agentId", previewLimit);
+}
+
+function validateInspectSummary(value: unknown, previewLimit: number): void {
+  const inspect = requireObject(value, "inspect");
+  rejectUnknownKeys(inspect, INSPECT_KEYS, "Replay inspect");
+  if (inspect.mode !== "inspect") throw new Error("Replay inspect mode is invalid");
+  validateRequiredCappedString(inspect.title, "inspect.title", previewLimit);
+  validateOptionalEvidenceString(inspect.selectedAgentId, "inspect.selectedAgentId", previewLimit);
+  if (typeof inspect.empty !== "boolean") throw new Error("Replay inspect empty must be boolean");
+}
+
 function validateOverviewEvidence(value: unknown, previewLimit: number): void {
   const evidence = requireObject(value, "overview.evidence");
   rejectUnknownKeys(evidence, OVERVIEW_EVIDENCE_KEYS, "Replay overview evidence");
@@ -531,16 +605,47 @@ function validateOverviewEvidence(value: unknown, previewLimit: number): void {
   }
 }
 
+function validateContinuity(value: unknown, previewLimit: number): void {
+  const continuity = requireObject(value, "continuity");
+  rejectUnknownKeys(continuity, CONTINUITY_KEYS, "Replay continuity");
+  for (const key of ["run_id", "selected_agent_id", "runtime_surface", "worker_session", "attach_command", "terminal_state", "replay_created_at"]) {
+    validateOptionalEvidenceString(continuity[key], `continuity.${key}`, previewLimit);
+  }
+  if (continuity.terminal_state !== undefined && !["merged", "blocked", "gave_up", "cancelled"].includes(String(continuity.terminal_state))) {
+    throw new Error("Replay continuity terminal_state is invalid");
+  }
+  if (continuity.owner_verified !== "verified" && continuity.owner_verified !== "unverified" && continuity.owner_verified !== "unknown") {
+    throw new Error("Replay continuity owner_verified is invalid");
+  }
+  const observed = requireArray(continuity.observed_agent_ids, "continuity.observed_agent_ids");
+  for (const agentId of observed) validateRequiredCappedString(agentId, "continuity.observed_agent_ids[]", previewLimit);
+  const reasons = requireArray(continuity.reasons, "continuity.reasons");
+  for (const reason of reasons) validateRequiredCappedString(reason, "continuity.reasons[]", previewLimit);
+  for (const key of ["can_continue", "can_rerun", "can_inspect", "can_copy", "replay_only"]) {
+    if (typeof continuity[key] !== "boolean") throw new Error(`Replay continuity ${key} must be boolean`);
+  }
+  if (continuity.can_continue === true) {
+    throw new Error("Replay continuity can_continue is unsupported for replay import");
+  }
+}
+
 function validateOptionalEvidenceString(value: unknown, label: string, previewLimit: number): void {
   if (value === undefined) return;
   if (typeof value !== "string") throw new Error(`Replay ${label} must be a string`);
   if (value.length > previewLimit) throw new Error(`Replay ${label} exceeds cap`);
 }
 
+function validateRequiredCappedString(value: unknown, label: string, previewLimit: number): void {
+  if (typeof value !== "string") throw new Error(`Replay ${label} must be a string`);
+  if (value.length > previewLimit) throw new Error(`Replay ${label} exceeds cap`);
+}
+
 function validateTruncation(value: unknown, label: string): void {
   const marker = requireObject(value, label);
+  rejectUnknownKeys(marker, new Set(["truncated", "reason", "original_count", "retained_count"]), `Replay ${label}`);
   if (marker.truncated !== true) throw new Error(`Replay ${label} marker must be truncated`);
   if (typeof marker.reason !== "string") throw new Error(`Replay ${label} reason must be a string`);
+  if (marker.reason.length > DEFAULT_PREVIEW_LIMIT) throw new Error(`Replay ${label} reason exceeds cap`);
   if (marker.original_count !== undefined && !Number.isSafeInteger(marker.original_count)) {
     throw new Error(`Replay ${label} original_count is invalid`);
   }
