@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { attachJsonLineSocket, writeJsonLine } from "./socketJson.js";
 import type { BrokerCommand, BrokerResponse } from "./broker.js";
+import { isWorkspaceTuiFrameV1, type WorkspaceTuiFrameV1 } from "./tuiFrame.js";
 
 const DEFAULT_TIMEOUT_MS = 3000;
 const __filename = fileURLToPath(import.meta.url);
@@ -15,6 +16,11 @@ export interface ControllerRunOptions {
   readonly timeoutMs?: number;
 }
 
+export interface WorkersOptions {
+  readonly socketPath?: string;
+  readonly timeoutMs?: number;
+}
+
 export async function runControllerCommand(options: ControllerRunOptions): Promise<BrokerResponse> {
   const socketPath = options.socketPath ?? process.env.HOLP_HARNESS_BROKER_SOCKET;
   if (!socketPath) {
@@ -22,6 +28,14 @@ export async function runControllerCommand(options: ControllerRunOptions): Promi
   }
   const command: BrokerCommand = { type: "run", goal: options.goal, worker: options.worker };
   return sendBrokerCommand(socketPath, command, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+}
+
+export async function listWorkersCommand(options: WorkersOptions = {}): Promise<WorkspaceTuiFrameV1> {
+  const socketPath = options.socketPath ?? process.env.HOLP_HARNESS_BROKER_SOCKET;
+  if (!socketPath) {
+    throw new Error("HOLP_HARNESS_BROKER_SOCKET is required");
+  }
+  return readInitialTuiFrame(socketPath, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 }
 
 export function sendBrokerCommand(
@@ -59,17 +73,65 @@ export function sendBrokerCommand(
   });
 }
 
+function readInitialTuiFrame(socketPath: string, timeoutMs: number): Promise<WorkspaceTuiFrameV1> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(socketPath);
+    let settled = false;
+    const finish = (frame: WorkspaceTuiFrameV1) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.end();
+      resolve(frame);
+    };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      reject(new Error(`broker socket unavailable: ${error.message}`));
+    };
+    const timer = setTimeout(() => fail(new Error(`no live broker frame within ${timeoutMs}ms`)), timeoutMs);
+    socket.once("error", fail);
+    attachJsonLineSocket(socket, {
+      onMessage: (message) => {
+        if (isWorkspaceTuiFrameV1(message)) finish(message);
+        else fail(new Error("malformed broker frame"));
+      },
+      onMalformed: () => fail(new Error("malformed broker frame")),
+    });
+  });
+}
+
 export async function runClientCli(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   const parsed = parseClientArgs(argv);
+  if (parsed.command === "workers") {
+    const frame = await listWorkersCommand(parsed);
+    process.stdout.write(parsed.json ? `${JSON.stringify(workersJson(frame))}\n` : formatWorkers(frame));
+    return 0;
+  }
   const response = await runControllerCommand(parsed);
   process.stdout.write(`${JSON.stringify(response)}\n`);
   return 0;
 }
 
-function parseClientArgs(argv: readonly string[]): ControllerRunOptions {
+type ParsedClientArgs =
+  | ({ readonly command: "run" } & ControllerRunOptions)
+  | ({ readonly command: "workers"; readonly json: boolean } & WorkersOptions);
+
+function parseClientArgs(argv: readonly string[]): ParsedClientArgs {
   const args = [...argv];
   const command = args.shift();
-  if (command !== "run") throw new Error("usage: harness workspace client run --goal <goal> --worker <agent>");
+  if (command !== "run" && command !== "workers") {
+    throw new Error("usage: harness workspace client run --goal <goal> --worker <agent> | workers [--json]");
+  }
+  if (command === "workers") {
+    let json = false;
+    for (const arg of args) {
+      if (arg === "--json") json = true;
+    }
+    return { command, json };
+  }
   let goal: string | undefined;
   let worker: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
@@ -84,13 +146,46 @@ function parseClientArgs(argv: readonly string[]): ControllerRunOptions {
   }
   if (!goal) throw new Error("--goal is required");
   if (!worker) throw new Error("--worker is required");
-  return { goal, worker };
+  return { command, goal, worker };
 }
 
 function isBrokerResponse(value: unknown): value is BrokerResponse {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<BrokerResponse>;
   return candidate.type === "ack" || candidate.type === "error";
+}
+
+function workersJson(frame: WorkspaceTuiFrameV1): {
+  readonly selected_agent?: string;
+  readonly degraded_reasons: readonly string[];
+  readonly agents: WorkspaceTuiFrameV1["agents"];
+  readonly readiness: WorkspaceTuiFrameV1["continuity"];
+  readonly continuity: WorkspaceTuiFrameV1["continuity"];
+} {
+  return {
+    selected_agent: frame.selected_agent,
+    degraded_reasons: frame.degraded_reasons,
+    agents: frame.agents,
+    readiness: frame.continuity,
+    continuity: frame.continuity,
+  };
+}
+
+function formatWorkers(frame: WorkspaceTuiFrameV1): string {
+  const readinessReasons = frame.continuity.reasons.length > 0 ? frame.continuity.reasons.join(", ") : "none";
+  const lines = [
+    `Selected: ${frame.selected_agent ?? "none"}`,
+    frame.degraded_reasons.length > 0 ? `Degraded: ${frame.degraded_reasons.join(", ")}` : "Degraded: none",
+    `Readiness: owner=${frame.continuity.owner_verified} continue=${frame.continuity.can_continue} rerun=${frame.continuity.can_rerun} inspect=${frame.continuity.can_inspect} replay_only=${frame.continuity.replay_only} reasons=${readinessReasons}`,
+    "Workers:",
+  ];
+  for (const agent of frame.agents) {
+    const runtime = agent.runtime_surfaces?.map((surface) => surface.runtime_kind ?? surface.runtime_surface ?? "unknown").join(", ") || "unknown";
+    const selected = agent.id === frame.selected_agent ? " selected" : "";
+    lines.push(`- ${agent.id}${selected} status=${agent.status ?? "unknown"} role=${agent.role ?? "unknown"} runtime=${runtime}`);
+  }
+  if (frame.agents.length === 0) lines.push("- none");
+  return `${lines.join("\n")}\n`;
 }
 
 function isMain(): boolean {

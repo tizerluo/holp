@@ -45,6 +45,22 @@ This current stack is the one a human operator must validate. It still does not
 prove that a human operator has used it for real multi-agent work in cmux and
 accepted the experience as good enough to generate training-distribution data.
 
+The Issue #93 entry repair found concrete operator-entry blockers in the
+#87/#89/#91 stack:
+
+- `cmux send` controller boot payloads used shell text with literal escaped
+  newline sequences, which could be split or submitted incorrectly by terminal
+  injection.
+- Controller panes ended with `exec codex` / `exec kimi`, so a controller CLI
+  exit or missing runtime could collapse the pane instead of preserving an
+  instructions shell.
+- The cmux launcher and actions defaulted worker selection to `kimi-code`, while
+  the broker may not advertise that worker, producing an unsupported-worker
+  mismatch before the operator could inspect available agents.
+- Demo mode was not deterministic because fake broker transport, fake registry,
+  fake worker selection, and missing local controller binaries were not handled
+  as one consistent path.
+
 Until that human validation exists:
 
 - smoke/script runs remain supporting evidence only;

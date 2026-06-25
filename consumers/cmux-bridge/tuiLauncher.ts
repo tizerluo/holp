@@ -25,7 +25,7 @@ import type { CmuxCommandResult, CmuxDegradedReason, CmuxLayoutCommand } from ".
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), "..", "..");
 const DEFAULT_GOAL = "Use HOLP through the broker and report the worker result marker.";
-const DEFAULT_WORKER = "kimi-code";
+const DEMO_WORKER = "fake-agent";
 
 export interface CmuxTuiLauncherOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
@@ -92,7 +92,7 @@ export async function runCmuxTuiLauncher(options: CmuxTuiLauncherOptions = {}): 
   const controller = parsed.controller ?? "codex";
   const controllerBinary = controllerBinaryName(controller);
   const isOnPath = options.isOnPath ?? defaultIsOnPath;
-  if (!isOnPath(controllerBinary)) {
+  if (!parsed.demo && !isOnPath(controllerBinary)) {
     manifest = addManifestDegradedReason(manifest, "missing_controller_binary");
     return finish("degraded");
   }
@@ -127,7 +127,14 @@ export async function runCmuxTuiLauncher(options: CmuxTuiLauncherOptions = {}): 
   });
   writeCmuxTuiSessionManifest(manifest);
 
-  const tuiCommand = buildTuiStartupCommand({ brokerSocket, sessionId, startBroker: shouldStartBroker });
+  const tuiCommand = buildTuiStartupCommand({
+    brokerSocket,
+    sessionId,
+    startBroker: shouldStartBroker,
+    transport: parsed.demo ? "fake" : parsed.transport,
+    locale: parsed.locale,
+    env: parsed.demo ? { HOLP_REGISTRY: "fake" } : undefined,
+  });
   const tuiSend = sendCommand(workspaceId, tui.surfaceId, tuiCommand, { kind: "mission-control", title: "HOLP TUI" });
   assertValidCmuxLayoutCommand(tuiSend);
   manifest = recordCmuxMutationResult(manifest, await runner(cmuxCommand, cmuxCommandArgs(tuiSend), cwd));
@@ -156,8 +163,9 @@ export async function runCmuxTuiLauncher(options: CmuxTuiLauncherOptions = {}): 
   const bootPrompt = buildControllerBootPrompt({
     brokerSocket,
     goal: parsed.goal ?? DEFAULT_GOAL,
-    worker: parsed.worker ?? DEFAULT_WORKER,
+    worker: parsed.demo ? DEMO_WORKER : parsed.worker,
     controller,
+    controllerAutostart: parsed.controllerAutostart,
   });
   const controllerSend = sendCommand(workspaceId, controllerSurface.surfaceId, bootPrompt, {
     kind: "mission-control",
@@ -203,36 +211,60 @@ export async function probeCmuxTuiCapabilities(options: {
 export function buildControllerBootPrompt(options: {
   readonly brokerSocket: string;
   readonly goal: string;
-  readonly worker: string;
+  readonly worker?: string;
   readonly controller: "codex" | "kimi-code";
+  readonly controllerAutostart?: boolean;
 }): string {
-  const runCommand = `HOLP_HARNESS_BROKER_SOCKET=${shellQuote(options.brokerSocket)} npm run harness:workspace:client -- run --goal ${shellQuote(options.goal)} --worker ${shellQuote(options.worker)}`;
+  const instructionRepoRoot = cmuxSafeText(repoRoot);
+  const brokerSocket = cmuxSafeText(options.brokerSocket);
+  const goal = cmuxSafeText(options.goal);
+  const worker = options.worker ? cmuxSafeText(options.worker) : undefined;
+  const workersCommand = `HOLP_HARNESS_BROKER_SOCKET=${shellQuote(brokerSocket)} npm run harness:workspace:client -- workers`;
+  const runCommand = worker
+    ? `HOLP_HARNESS_BROKER_SOCKET=${shellQuote(brokerSocket)} npm run harness:workspace:client -- run --goal ${shellQuote(goal)} --worker ${shellQuote(worker)}`
+    : undefined;
   const controllerCommand = options.controller === "codex" ? "codex" : "kimi";
-  return [
-    `cd ${shellQuote(repoRoot)}`,
-    `printf '%s\\n' ${shellQuote("HOLP Harness Workspace Controller")}`,
-    `printf '%s\\n' ${shellQuote(`Broker: ${options.brokerSocket}`)}`,
-    `printf '%s\\n' ${shellQuote("Use HOLP public wire through the broker; do not start a second daemon.")}`,
-    `printf '%s\\n' ${shellQuote(`Run command: ${runCommand}`)}`,
-    `printf '%s\\n' ${shellQuote(`Controller CLI: ${controllerCommand}`)}`,
-    `exec ${controllerCommand}`,
-  ].join(" && ");
+  const instructions = [
+    "HOLP Harness Workspace Controller",
+    `Repo: ${instructionRepoRoot}`,
+    `Broker: ${brokerSocket}`,
+    "Use HOLP public wire through the broker; do not start a second daemon.",
+    `List workers first: ${workersCommand}`,
+    runCommand ? `Run command: ${runCommand}` : "No worker is selected yet. Run the workers command first, then choose a listed worker id.",
+    `Controller CLI: ${controllerCommand}`,
+  ];
+  const printInstructions = `node -e ${shellQuote(`console.log(${JSON.stringify(instructions)}.join(String.fromCharCode(10)))`)}`;
+  const autostart = options.controllerAutostart ? ` && ${controllerCommand}` : "";
+  return `cd ${shellQuote(repoRoot)} && ${printInstructions}${autostart}\n`;
 }
 
 export function buildTuiStartupCommand(options: {
   readonly brokerSocket: string;
   readonly sessionId: string;
   readonly startBroker?: boolean;
+  readonly transport?: string;
+  readonly locale?: string;
+  readonly env?: Readonly<Record<string, string | undefined>>;
 }): string {
   const brokerLog = path.join(sessionDirForSession(options.sessionId), "broker.log");
+  const envPrefix = shellEnvPrefix({
+    ...options.env,
+    ...(options.locale ? { HOLP_HARNESS_LOCALE: options.locale } : {}),
+  });
+  const brokerArgs = [
+    "--session-id",
+    shellQuote(options.sessionId),
+    ...(options.transport ? ["--transport", shellQuote(options.transport)] : []),
+    ...(options.locale ? ["--locale", shellQuote(options.locale)] : []),
+  ].join(" ");
   const lines = [
     `cd ${shellQuote(repoRoot)} || exit 1`,
     `for i in $(seq 1 80); do [ -S ${shellQuote(options.brokerSocket)} ] && break; sleep 0.25; done`,
-    `HOLP_HARNESS_BROKER_SOCKET=${shellQuote(options.brokerSocket)} npm run harness:workspace:tui`,
+    `${shellEnvPrefix({ HOLP_HARNESS_BROKER_SOCKET: options.brokerSocket, ...(options.locale ? { HOLP_HARNESS_LOCALE: options.locale } : {}) })}npm run harness:workspace:tui`,
     "\n",
   ];
   if (options.startBroker !== false) {
-    lines.splice(1, 0, `npm run harness:workspace:broker -- --session-id ${shellQuote(options.sessionId)} > ${shellQuote(brokerLog)} 2>&1 &`);
+    lines.splice(1, 0, `${envPrefix}npm run harness:workspace:broker -- ${brokerArgs} > ${shellQuote(brokerLog)} 2>&1 &`);
   }
   return lines.join("\n");
 }
@@ -295,6 +327,10 @@ function parseLauncherArgs(argv: readonly string[]): {
   readonly controller?: "codex" | "kimi-code";
   readonly worker?: string;
   readonly goal?: string;
+  readonly demo: boolean;
+  readonly controllerAutostart: boolean;
+  readonly transport?: string;
+  readonly locale?: string;
 } {
   let workspace: string | undefined;
   let sessionId: string | undefined;
@@ -302,6 +338,10 @@ function parseLauncherArgs(argv: readonly string[]): {
   let controller: "codex" | "kimi-code" | undefined;
   let worker: string | undefined;
   let goal: string | undefined;
+  let demo = false;
+  let controllerAutostart = false;
+  let transport: string | undefined;
+  let locale: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const value = argv[index + 1];
@@ -323,9 +363,19 @@ function parseLauncherArgs(argv: readonly string[]): {
     } else if (arg === "--goal" && value) {
       goal = value;
       index += 1;
+    } else if (arg === "--demo") {
+      demo = true;
+    } else if (arg === "--controller-autostart") {
+      controllerAutostart = true;
+    } else if (arg === "--transport" && value) {
+      transport = value;
+      index += 1;
+    } else if (arg === "--locale" && value) {
+      locale = value;
+      index += 1;
     }
   }
-  return { workspace, sessionId, brokerSocket, controller, worker, goal };
+  return { workspace, sessionId, brokerSocket, controller, worker, goal, demo, controllerAutostart, transport, locale };
 }
 
 function controllerBinaryName(controller: "codex" | "kimi-code"): string {
@@ -353,6 +403,17 @@ function sessionIdFromExistingBroker(brokerSocket: string | undefined): string |
 
 function shellQuote(value: string): string {
   return /^[A-Za-z0-9_./:=@%+-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function shellEnvPrefix(env: Readonly<Record<string, string | undefined>>): string {
+  const assignments = Object.entries(env)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== "")
+    .map(([key, value]) => `${key}=${shellQuote(value)}`);
+  return assignments.length > 0 ? `${assignments.join(" ")} ` : "";
+}
+
+function cmuxSafeText(value: string): string {
+  return value.replaceAll(/[\n\r\t]+/g, " ");
 }
 
 async function runCli(): Promise<number> {
