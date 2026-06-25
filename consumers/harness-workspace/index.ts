@@ -14,3 +14,5 @@ export * from "./width.js";
 export * from "./layout.js";
 export * from "./viewState.js";
 export * from "./frame.js";
+export * from "./tuiFrame.js";
+export * from "./socketJson.js";
