@@ -260,6 +260,7 @@ export async function runBrokerCli(argv: readonly string[] = process.argv.slice(
   const broker = new HarnessWorkspaceBroker({
     transport: options.transport,
     probe: options.probe,
+    sessionId: options.sessionId,
     log: (line) => process.stdout.write(`${line}\n`),
   });
   const shutdown = async () => {
@@ -280,8 +281,10 @@ async function prepareSessionDirectory(sessionDir: string): Promise<void> {
   const baseDir = path.dirname(sessionDir);
   await mkdir(baseDir, { recursive: true, mode: 0o700 });
   await chmod(baseDir, 0o700).catch(() => undefined);
-  if (existsSync(sessionDir)) throw new Error(`broker session directory already exists: ${sessionDir}`);
-  await mkdir(sessionDir, { mode: 0o700 });
+  if (existsSync(path.join(sessionDir, "broker.sock"))) {
+    throw new Error(`broker socket already exists: ${path.join(sessionDir, "broker.sock")}`);
+  }
+  await mkdir(sessionDir, { recursive: true, mode: 0o700 });
   await chmod(sessionDir, 0o700);
 }
 
@@ -304,19 +307,23 @@ function commandType(value: unknown): BrokerCommand["type"] | undefined {
   return type === "run" || type === "cancel" || type === "follow" || type === "snapshot" ? type : undefined;
 }
 
-function parseBrokerArgs(argv: readonly string[]): { readonly transport?: string; readonly probe: boolean } {
+function parseBrokerArgs(argv: readonly string[]): { readonly transport?: string; readonly probe: boolean; readonly sessionId?: string } {
   let transport: string | undefined;
+  let sessionId: string | undefined;
   let probe = true;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--transport" && argv[index + 1]) {
       transport = argv[index + 1];
       index += 1;
+    } else if (arg === "--session-id" && argv[index + 1]) {
+      sessionId = argv[index + 1];
+      index += 1;
     } else if (arg === "--probe=false") {
       probe = false;
     }
   }
-  return { transport, probe };
+  return { transport, probe, sessionId };
 }
 
 function isMain(): boolean {

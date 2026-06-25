@@ -19,6 +19,8 @@
     "harness:workspace:broker": "tsx consumers/harness-workspace/broker.ts",
     "harness:workspace:client": "tsx consumers/harness-workspace/client.ts",
     "harness:workspace:tui": "cd consumers/harness-workspace/tui && go run .",
+    "harness:workspace:tui:cmux": "tsx consumers/cmux-bridge/tuiLauncher.ts",
+    "harness:workspace:tui:action": "tsx consumers/cmux-bridge/tuiAction.ts",
     "harness:workspace:cmux-layout": "tsx consumers/cmux-bridge/demo.ts",
     "demo:m5": "tsx consumers/cli/m5-consensus-demo.ts",
     "smoke:codex": "tsx scripts/smoke/codex-approval-patch.e2e.ts",

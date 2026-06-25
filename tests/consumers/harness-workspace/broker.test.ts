@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -39,6 +39,41 @@ describe("harness workspace broker", () => {
       schema_version: "WorkspaceTuiFrame.v1",
       selected_agent: "fake-agent",
     });
+  });
+
+  it("adopts a pre-existing launcher session directory without an existing socket", async () => {
+    const baseDir = mkdtempSync(path.join(tmpdir(), "holp-broker-adopt-"));
+    const sessionDir = path.join(baseDir, "session-adopted");
+    mkdirSync(sessionDir, { recursive: true });
+    writeFileSync(path.join(sessionDir, "cmux-surfaces.json"), "{}\n", "utf8");
+    const broker = new HarnessWorkspaceBroker({
+      baseDir,
+      sessionId: "session-adopted",
+      transport: "fake",
+      daemonFactory: () => fakeDaemon(),
+    });
+    brokers.push(broker);
+
+    await broker.start();
+
+    expect(broker.socketPath).toBe(path.join(sessionDir, "broker.sock"));
+    expect(statSync(sessionDir).mode & 0o777).toBe(0o700);
+  });
+
+  it("rejects a pre-existing broker socket instead of reusing a stale or live session", async () => {
+    const baseDir = mkdtempSync(path.join(tmpdir(), "holp-broker-stale-"));
+    const sessionDir = path.join(baseDir, "session-stale");
+    mkdirSync(sessionDir, { recursive: true });
+    closeSync(openSync(path.join(sessionDir, "broker.sock"), "w"));
+    const broker = new HarnessWorkspaceBroker({
+      baseDir,
+      sessionId: "session-stale",
+      transport: "fake",
+      daemonFactory: () => fakeDaemon(),
+    });
+
+    await expect(broker.start()).rejects.toThrow(/broker socket already exists/);
+    await broker.close();
   });
 
   it("fails closed on malformed commands and unsupported workers", async () => {
