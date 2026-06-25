@@ -5,6 +5,7 @@ export type CmuxLayoutCommandName =
   | "new-surface"
   | "new-split"
   | "markdown open"
+  | "send"
   | "set-status"
   | "set-progress"
   | "log"
@@ -14,7 +15,17 @@ export type CmuxDegradedReason =
   | "missing_workspace"
   | "execution_not_enabled"
   | "invalid_command"
-  | "cmux_command_failed";
+  | "cmux_command_failed"
+  | "missing_broker_socket"
+  | "missing_controller_binary"
+  | "missing_cmux_capability"
+  | "missing_surface_handle"
+  | "missing_session_selector"
+  | "missing_worker_session"
+  | "non_holp_worker_session"
+  | "surface_not_owned"
+  | "unsupported_action"
+  | "confirmation_required";
 
 export interface CmuxCallerContext {
   readonly workspaceId?: string;
@@ -59,6 +70,8 @@ export interface CmuxCommandResult {
   readonly command: string;
   readonly ok: boolean;
   readonly error?: string;
+  readonly stdout?: string;
+  readonly stderr?: string;
 }
 
 export interface CmuxExecutionResult {

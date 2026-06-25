@@ -8,6 +8,7 @@ export const CMUX_COMMAND_ALLOWLIST: readonly CmuxLayoutCommandName[] = [
   "new-surface",
   "new-split",
   "markdown open",
+  "send",
   "set-status",
   "set-progress",
   "log",
@@ -40,7 +41,6 @@ const FORBIDDEN_TOKENS = new Set([
   "join-pane",
   "respawn-pane",
   "find-window",
-  "send",
   "send-key",
   "clear-history",
   "set-hook",
@@ -130,6 +130,60 @@ export function runCmuxBestEffort(
   });
 }
 
+export function runCmuxCapturingOutput(
+  command: string,
+  args: readonly string[],
+  cwd: string,
+  timeoutMs = 10_000,
+): Promise<CmuxCommandResult> {
+  return new Promise((resolve) => {
+    const proc = spawn(command, [...args], {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env },
+    });
+    let stdout = "";
+    let stderr = "";
+    let killed = false;
+    proc.stdout.setEncoding("utf8");
+    proc.stderr.setEncoding("utf8");
+    proc.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    proc.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    const timer = setTimeout(() => {
+      killed = true;
+      proc.kill("SIGTERM");
+    }, timeoutMs);
+    proc.once("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0 && !killed) {
+        resolve({ command: `${command} ${args.join(" ")}`, ok: true, stdout, stderr });
+      } else {
+        resolve({
+          command: `${command} ${args.join(" ")}`,
+          ok: false,
+          error: killed ? "timed out" : `exit_code=${code ?? "unknown"}`,
+          stdout,
+          stderr,
+        });
+      }
+    });
+    proc.once("error", (error) => {
+      clearTimeout(timer);
+      resolve({
+        command: `${command} ${args.join(" ")}`,
+        ok: false,
+        error: error.message,
+        stdout,
+        stderr,
+      });
+    });
+  });
+}
+
 export function cmuxCommandArgs(command: CmuxLayoutCommand): readonly string[] {
   return command.name === "markdown open"
     ? ["markdown", "open", ...command.args]
@@ -145,6 +199,8 @@ export function validateCmuxLayoutCommand(command: CmuxLayoutCommand): readonly 
   if (!CMUX_COMMAND_ALLOWLIST.includes(command.name)) {
     errors.push(`command_not_allowlisted:${command.name}`);
   }
+
+  if (command.name === "send") return validateCmuxSendCommand(command, errors);
 
   const args = cmuxCommandArgs(command);
   for (const token of args) {
@@ -164,6 +220,18 @@ export function validateCmuxLayoutCommand(command: CmuxLayoutCommand): readonly 
     errors.push("missing_focus_false");
   }
 
+  return errors;
+}
+
+function validateCmuxSendCommand(command: CmuxLayoutCommand, errors: string[]): readonly string[] {
+  const delimiter = command.args.indexOf("--");
+  if (delimiter === -1) errors.push("missing_send_payload_delimiter");
+  const structuralArgs = delimiter === -1 ? command.args : command.args.slice(0, delimiter);
+  for (const token of structuralArgs) {
+    if (FORBIDDEN_TOKENS.has(token)) errors.push(`forbidden_token:${token}`);
+  }
+  if (!hasOptionValue(structuralArgs, "--workspace")) errors.push("missing_workspace");
+  if (!hasOptionValue(structuralArgs, "--surface")) errors.push("missing_surface");
   return errors;
 }
 

@@ -179,4 +179,48 @@ describe("cmux Team Layout planner", () => {
       "open",
     ]);
   });
+
+  it("validates cmux send structurally without scanning opaque payload text", () => {
+    const command = {
+      name: "send" as const,
+      args: [
+        "--workspace",
+        "workspace:1",
+        "--surface",
+        "surface:worker",
+        "--",
+        "tmux attach -t holp-worker\nsend-key is just text after delimiter\n",
+      ],
+      target: { kind: "mission-control" as const, title: "worker attach" },
+    };
+
+    expect(validateCmuxLayoutCommand(command)).toEqual([]);
+    expect(cmuxCommandArgs(command)).toEqual([
+      "send",
+      "--workspace",
+      "workspace:1",
+      "--surface",
+      "surface:worker",
+      "--",
+      "tmux attach -t holp-worker\nsend-key is just text after delimiter\n",
+    ]);
+  });
+
+  it("rejects unsafe cmux send structure before the payload delimiter", () => {
+    expect(validateCmuxLayoutCommand({
+      name: "send",
+      args: ["--workspace", "workspace:1", "--", "echo hi\n"],
+      target: { kind: "mission-control", title: "missing surface" },
+    })).toContain("missing_surface");
+    expect(validateCmuxLayoutCommand({
+      name: "send",
+      args: ["--workspace", "workspace:1", "--surface", "surface:1", "send-key", "--", "echo hi\n"],
+      target: { kind: "mission-control", title: "bad structure" },
+    })).toContain("forbidden_token:send-key");
+    expect(validateCmuxLayoutCommand({
+      name: "send",
+      args: ["--workspace", "workspace:owned", "--", "--surface", "surface:controller", "echo hi\n"],
+      target: { kind: "mission-control", title: "payload surface bypass" },
+    })).toContain("missing_surface");
+  });
 });
