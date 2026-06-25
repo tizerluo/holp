@@ -3,7 +3,7 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { HarnessWorkspaceBroker, type HarnessWorkspaceBrokerOptions } from "../../../consumers/harness-workspace/broker.js";
+import { HarnessWorkspaceBroker, runBrokerCli, type HarnessWorkspaceBrokerOptions } from "../../../consumers/harness-workspace/broker.js";
 import { runControllerCommand } from "../../../consumers/harness-workspace/client.js";
 import { attachJsonLineSocket, writeJsonLine } from "../../../consumers/harness-workspace/socketJson.js";
 import { isWorkspaceTuiFrameV1, type WorkspaceTuiFrameV1 } from "../../../consumers/harness-workspace/tuiFrame.js";
@@ -37,8 +37,43 @@ describe("harness workspace broker", () => {
     expect(statSync(broker.sessionDir).mode & 0o777).toBe(0o700);
     expect(broker.frame()).toMatchObject({
       schema_version: "WorkspaceTuiFrame.v1",
+      locale: "en-US",
       selected_agent: "fake-agent",
     });
+  });
+
+  it("passes explicit and environment locale into WorkspaceTuiFrame.v1", async () => {
+    const explicit = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-locale-")),
+      transport: "fake",
+      locale: "zh-CN",
+      daemonFactory: () => fakeDaemon(),
+    });
+    brokers.push(explicit);
+    await explicit.start();
+    expect(explicit.frame().locale).toBe("zh-CN");
+
+    const fromEnv = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-locale-env-")),
+      transport: "fake",
+      env: { HOLP_HARNESS_LOCALE: "zh-CN" },
+      daemonFactory: () => fakeDaemon(),
+    });
+    brokers.push(fromEnv);
+    await fromEnv.start();
+    expect(fromEnv.frame().locale).toBe("zh-CN");
+  });
+
+  it("fails closed for unsupported environment locale", () => {
+    expect(() => new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-bad-locale-")),
+      env: { HOLP_HARNESS_LOCALE: "fr-FR" },
+      daemonFactory: () => fakeDaemon(),
+    })).toThrow(/unsupported HOLP_HARNESS_LOCALE/);
+  });
+
+  it("fails closed for unsupported CLI locale before starting a broker", async () => {
+    await expect(runBrokerCli(["--locale", "fr-FR"])).rejects.toThrow(/unsupported --locale/);
   });
 
   it("adopts a pre-existing launcher session directory without an existing socket", async () => {

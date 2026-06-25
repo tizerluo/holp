@@ -25,8 +25,93 @@ const (
 	modeHelp     mode = "help"
 )
 
+type chromeMessages struct {
+	AppTitle      string
+	Overview      string
+	Inspect       string
+	Replay        string
+	Help          string
+	Chain         string
+	Summary       string
+	Timeline      string
+	Evidence      string
+	Failures      string
+	Affordances   string
+	Continuity    string
+	SelectedAgent string
+	NoFailures    string
+	Pending       string
+	None          string
+	Keys          string
+	HelpText      []string
+}
+
+var chromeCatalog = map[string]chromeMessages{
+	"en-US": {
+		AppTitle:      "HOLP Harness Workspace",
+		Overview:      "Overview",
+		Inspect:       "Inspect",
+		Replay:        "Replay",
+		Help:          "Help",
+		Chain:         "Agent chain",
+		Summary:       "Run summary",
+		Timeline:      "Timeline",
+		Evidence:      "Evidence",
+		Failures:      "Failures",
+		Affordances:   "Operator actions",
+		Continuity:    "Session continuity",
+		SelectedAgent: "Selected agent",
+		NoFailures:    "No blocking failure recorded",
+		Pending:       "pending",
+		None:          "none",
+		Keys:          "tab mode | j/k select | enter inspect | r replay | f follow | c copy marker | ? help | q quit",
+		HelpText: []string{
+			"tab: cycle overview / inspect / replay / help",
+			"j/k or arrows: select an agent and open inspect",
+			"enter: inspect selected agent",
+			"esc: return to overview",
+			"r: open replay review",
+			"f: ask broker to follow selected agent",
+			"c: marks copy intent only; real clipboard integration is not implied",
+			"q: quit the TUI",
+			"cancel remains confirmation-driven; interrupt stays unsupported unless public-wire evidence says otherwise",
+		},
+	},
+	"zh-CN": {
+		AppTitle:      "HOLP Harness Workspace",
+		Overview:      "总览",
+		Inspect:       "检查",
+		Replay:        "复盘",
+		Help:          "帮助",
+		Chain:         "Agent 链路",
+		Summary:       "运行摘要",
+		Timeline:      "时间线",
+		Evidence:      "证据",
+		Failures:      "失败",
+		Affordances:   "操作动作",
+		Continuity:    "会话连续性",
+		SelectedAgent: "选中 agent",
+		NoFailures:    "没有记录阻塞失败",
+		Pending:       "pending",
+		None:          "none",
+		Keys:          "tab 切换 | j/k 选择 | enter inspect | r replay | f follow | c copy marker | ? help | q quit",
+		HelpText: []string{
+			"tab: 切换 overview / inspect / replay / help",
+			"j/k 或方向键: 选择 agent 并进入 inspect",
+			"enter: inspect selected agent",
+			"esc: 回到 overview",
+			"r: 打开 replay 复盘",
+			"f: 让 broker follow selected agent",
+			"c: 只记录 copy intent；不暗示真实剪贴板集成",
+			"q: 退出 TUI",
+			"cancel 仍需要二次确认；interrupt 仍 unsupported，除非 public-wire evidence 证明可用",
+		},
+	},
+}
+
 type frame struct {
 	SchemaVersion  string       `json:"schema_version"`
+	Locale         string       `json:"locale"`
 	Mode           mode         `json:"mode"`
 	SelectedAgent  string       `json:"selected_agent"`
 	Agents         []agent      `json:"agents"`
@@ -41,13 +126,17 @@ type frame struct {
 	Affordances    []affordance `json:"affordances"`
 	DegradedReason []string     `json:"degraded_reasons"`
 	ReplayPath     string       `json:"replay_path"`
+	ReplayWritten  string       `json:"replay_written_at"`
 	Overview       overview     `json:"overview"`
+	Inspect        inspectFrame `json:"inspect"`
+	Continuity     continuity   `json:"continuity"`
 }
 
 type agent struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-	Role   string `json:"role"`
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	Role     string `json:"role"`
+	RoleSkin string `json:"role_skin"`
 }
 
 type timeline struct {
@@ -69,8 +158,17 @@ type affordance struct {
 
 type overview struct {
 	Title         string        `json:"title"`
+	Chain         []chainNode   `json:"chain"`
 	WorkerPreview workerPreview `json:"worker_preview"`
 	Evidence      evidence      `json:"evidence"`
+}
+
+type chainNode struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Skin    string `json:"skin"`
+	State   string `json:"state"`
+	AgentID string `json:"agentId"`
 }
 
 type workerPreview struct {
@@ -83,6 +181,62 @@ type evidence struct {
 }
 
 type valueMap map[string]any
+
+type inspectFrame struct {
+	SelectedAgentID string        `json:"selectedAgentId"`
+	SelectedAgent   inspectAgent  `json:"selectedAgent"`
+	Inspect         inspectDetail `json:"inspect"`
+	Empty           bool          `json:"empty"`
+}
+
+type inspectAgent struct {
+	ID              string           `json:"id"`
+	Status          string           `json:"status"`
+	RoleSkin        string           `json:"roleSkin"`
+	OwnerVerified   string           `json:"owner_verified"`
+	RuntimeSurfaces []map[string]any `json:"runtime_surfaces"`
+}
+
+type inspectDetail struct {
+	AgentID      string           `json:"agent_id"`
+	Sections     []inspectSection `json:"sections"`
+	Output       inspectOutput    `json:"output"`
+	EvidenceRefs []evidenceRef    `json:"evidenceRefs"`
+}
+
+type inspectSection struct {
+	Title string       `json:"title"`
+	Rows  []inspectRow `json:"rows"`
+}
+
+type inspectRow struct {
+	Label    string `json:"label"`
+	Value    string `json:"value"`
+	Anchor   string `json:"anchor"`
+	Priority string `json:"priority"`
+	Kind     string `json:"kind"`
+}
+
+type inspectOutput struct {
+	State string `json:"state"`
+	Text  string `json:"text"`
+}
+
+type evidenceRef struct {
+	Ref   string `json:"ref"`
+	RunID string `json:"run_id"`
+	Seq   int    `json:"seq"`
+}
+
+type continuity struct {
+	ReplayOnly    bool   `json:"replay_only"`
+	CanContinue   bool   `json:"can_continue"`
+	CanRerun      bool   `json:"can_rerun"`
+	CanInspect    bool   `json:"can_inspect"`
+	CanCopy       bool   `json:"can_copy"`
+	OwnerVerified string `json:"owner_verified"`
+	TerminalState string `json:"terminal_state"`
+}
 
 type frameMsg frame
 type errMsg error
@@ -187,12 +341,19 @@ func (m model) View() string {
 	if m.quitting {
 		return ""
 	}
-	title := "HOLP Harness Workspace"
+	msg := m.chrome()
+	title := msg.AppTitle
 	if m.frame.Overview.Title != "" {
 		title = m.frame.Overview.Title
 	}
-	header := style(m.noANSI, true).Render(fmt.Sprintf("%s | %s", title, m.mode))
-	status := fmt.Sprintf("run_id=%s selected=%s q=quit ?=help", fallback(m.frame.RunID, "pending"), m.selectedAgentID())
+	header := headerStyle(m.noANSI).Render(fmt.Sprintf("%s | %s", title, m.mode))
+	status := subtleStyle(m.noANSI).Render(fmt.Sprintf(
+		"run_id=%s selected=%s mode=%s | %s",
+		fallback(m.frame.RunID, msg.Pending),
+		m.selectedAgentID(),
+		m.mode,
+		msg.Keys,
+	))
 	if m.lastError != "" {
 		status += " degraded=" + m.lastError
 	}
@@ -242,18 +403,28 @@ func (m model) body() string {
 }
 
 func (m model) overviewBody() string {
+	msg := m.chrome()
 	lines := []string{
-		"Overview",
-		"run_id: " + fallback(m.frame.RunID, "pending"),
-		"worker_session: " + fallback(m.frame.WorkerSession, "pending"),
-		"attach_command: " + fallback(m.frame.AttachCommand, "pending"),
-		"latest_event: " + fallback(m.frame.Overview.Evidence.LatestEvent, "pending"),
-		"preview: " + fallback(flatten(m.frame.Overview.WorkerPreview.RenderedText), "pending"),
+		panelTitle(m.noANSI, "CTRL", msg.Overview+" - "+msg.Summary),
+		"run_id: " + fallback(m.frame.RunID, msg.Pending),
+		"schema_version: " + fallback(m.frame.SchemaVersion, msg.Pending),
+		"worker_session: " + fallback(m.frame.WorkerSession, msg.Pending),
+		"attach_command: " + fallback(m.frame.AttachCommand, msg.Pending),
+		"latest_event: " + fallback(m.frame.Overview.Evidence.LatestEvent, msg.Pending),
+		"terminal: " + summarizeMap(m.frame.Terminal, msg.Pending),
+		"gate: " + summarizeMap(m.frame.Gate, msg.Pending),
+		"preview: " + fallback(flatten(m.frame.Overview.WorkerPreview.RenderedText), msg.Pending),
+		"",
+		panelTitle(m.noANSI, "GATE", msg.Chain),
 	}
+	lines = append(lines, m.chainLines()...)
+	lines = append(lines, "", panelTitle(m.noANSI, "REV", msg.Failures))
 	if len(m.frame.Failures) == 0 {
-		lines = append(lines, "failures: none")
+		lines = append(lines, msg.NoFailures)
 	} else {
-		lines = append(lines, "failures: "+strings.Join(m.frame.Failures, " | "))
+		for _, failure := range m.frame.Failures {
+			lines = append(lines, "- "+failure)
+		}
 	}
 	if m.lastError != "" {
 		lines = append(lines, "degraded: "+m.lastError)
@@ -262,14 +433,47 @@ func (m model) overviewBody() string {
 }
 
 func (m model) inspectBody() string {
-	lines := []string{"Inspect", "agent: " + m.selectedAgentID()}
+	msg := m.chrome()
+	selected := m.selectedAgent()
+	lines := []string{
+		panelTitle(m.noANSI, selected.RoleSkin, msg.Inspect+" - "+msg.SelectedAgent),
+		"selected: " + m.selectedAgentID(),
+		fmt.Sprintf("id=%s status=%s role=%s role_skin=%s", fallback(selected.ID, m.selectedAgentID()), fallback(selected.Status, msg.Pending), fallback(selected.Role, msg.Pending), fallback(selected.RoleSkin, "neutral")),
+		"run_id: " + fallback(m.frame.RunID, msg.Pending),
+		"worker_session: " + fallback(m.frame.WorkerSession, msg.Pending),
+		"attach_command: " + fallback(m.frame.AttachCommand, msg.Pending),
+		"",
+		panelTitle(m.noANSI, selected.RoleSkin, msg.Chain),
+	}
 	for _, a := range m.frame.Agents {
 		marker := " "
 		if a.ID == m.selectedAgentID() {
 			marker = ">"
 		}
-		lines = append(lines, fmt.Sprintf("%s %s status=%s role=%s", marker, a.ID, fallback(a.Status, "unknown"), fallback(a.Role, "unknown")))
+		lines = append(lines, roleStyle(m.noANSI, a.RoleSkin).Render(fmt.Sprintf(
+			"%s [%s] %s status=%s role=%s",
+			marker,
+			fallback(a.RoleSkin, "----"),
+			a.ID,
+			fallback(a.Status, "unknown"),
+			fallback(a.Role, "unknown"),
+		)))
 	}
+	lines = append(lines, "", panelTitle(m.noANSI, selected.RoleSkin, msg.Evidence))
+	if m.frame.Inspect.Empty {
+		lines = append(lines, "empty=true")
+	} else {
+		for _, section := range m.frame.Inspect.Inspect.Sections {
+			lines = append(lines, section.Title)
+			for _, row := range section.Rows {
+				lines = append(lines, fmt.Sprintf("- %s=%s", row.Label, row.Value))
+			}
+		}
+		if m.frame.Inspect.Inspect.Output.Text != "" {
+			lines = append(lines, "model_output: "+flatten(m.frame.Inspect.Inspect.Output.Text))
+		}
+	}
+	lines = append(lines, "", panelTitle(m.noANSI, "GATE", msg.Timeline))
 	for _, entry := range m.frame.Timeline.Entries {
 		lines = append(lines, fmt.Sprintf("%s %s %s", entry.Severity, entry.Label, entry.Summary))
 	}
@@ -277,18 +481,39 @@ func (m model) inspectBody() string {
 }
 
 func (m model) replayBody() string {
-	lines := []string{"Replay", "path: " + fallback(m.frame.ReplayPath, "pending")}
+	msg := m.chrome()
+	lines := []string{
+		panelTitle(m.noANSI, "GATE", msg.Replay),
+		"path: " + fallback(m.frame.ReplayPath, msg.Pending),
+		"written_at: " + fallback(m.frame.ReplayWritten, msg.Pending),
+		"terminal: " + summarizeMap(m.frame.Terminal, msg.Pending),
+		"gate: " + summarizeMap(m.frame.Gate, msg.Pending),
+		"",
+		panelTitle(m.noANSI, "CTRL", msg.Continuity),
+		fmt.Sprintf("replay_only=%v", m.frame.Continuity.ReplayOnly),
+		fmt.Sprintf("can_continue=%v can_rerun=%v can_copy=%v", m.frame.Continuity.CanContinue, m.frame.Continuity.CanRerun, m.frame.Continuity.CanCopy),
+		"owner_verified=" + fallback(m.frame.Continuity.OwnerVerified, msg.Pending),
+		"terminal_state=" + fallback(m.frame.Continuity.TerminalState, msg.Pending),
+	}
 	for _, reason := range m.frame.DegradedReason {
 		lines = append(lines, "reason: "+reason)
 	}
+	lines = append(lines, "", panelTitle(m.noANSI, "TEST", msg.Affordances))
 	for _, a := range m.frame.Affordances {
 		lines = append(lines, fmt.Sprintf("%s=%s reason=%s", a.Label, a.State, a.ReasonLabel))
+	}
+	lines = append(lines, "", panelTitle(m.noANSI, "GATE", msg.Timeline))
+	for _, entry := range m.frame.Timeline.Entries {
+		lines = append(lines, fmt.Sprintf("%s %s %s", entry.Severity, entry.Label, entry.Summary))
 	}
 	return strings.Join(lines, "\n")
 }
 
 func (m model) helpBody() string {
-	return "Help\nTab changes mode\nj/k or arrows select agents\nEnter inspects\nEsc returns to overview\nr shows replay\nf follows selected agent\nc marks copy action\nq quits"
+	msg := m.chrome()
+	lines := []string{panelTitle(m.noANSI, "CTRL", msg.Help)}
+	lines = append(lines, msg.HelpText...)
+	return strings.Join(lines, "\n")
 }
 
 func nextMode(current mode) mode {
@@ -304,11 +529,107 @@ func nextMode(current mode) mode {
 	}
 }
 
-func style(noANSI bool, bold bool) lipgloss.Style {
+func (m model) chrome() chromeMessages {
+	if messages, ok := chromeCatalog[m.frame.Locale]; ok {
+		return messages
+	}
+	return chromeCatalog["en-US"]
+}
+
+func (m model) selectedAgent() agent {
+	if len(m.frame.Agents) == 0 {
+		return agent{ID: m.selectedAgentID()}
+	}
+	return m.frame.Agents[m.selected]
+}
+
+func (m model) chainLines() []string {
+	if len(m.frame.Overview.Chain) == 0 {
+		lines := make([]string, 0, len(m.frame.Agents))
+		for _, a := range m.frame.Agents {
+			lines = append(lines, roleStyle(m.noANSI, a.RoleSkin).Render(fmt.Sprintf(
+				"[%s] %s status=%s role=%s",
+				fallback(a.RoleSkin, "----"),
+				a.ID,
+				fallback(a.Status, "unknown"),
+				fallback(a.Role, "unknown"),
+			)))
+		}
+		return lines
+	}
+	lines := make([]string, 0, len(m.frame.Overview.Chain))
+	for _, node := range m.frame.Overview.Chain {
+		lines = append(lines, roleStyle(m.noANSI, node.Skin).Render(fmt.Sprintf(
+			"[%s] %s state=%s id=%s",
+			fallback(node.Skin, "----"),
+			fallback(node.Label, node.ID),
+			fallback(node.State, "unknown"),
+			fallback(node.AgentID, node.ID),
+		)))
+	}
+	return lines
+}
+
+func headerStyle(noANSI bool) lipgloss.Style {
 	if noANSI {
 		return lipgloss.NewStyle()
 	}
-	return lipgloss.NewStyle().Bold(bold).Foreground(lipgloss.Color("39"))
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
+}
+
+func subtleStyle(noANSI bool) lipgloss.Style {
+	if noANSI {
+		return lipgloss.NewStyle()
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+}
+
+func panelTitle(noANSI bool, skin string, value string) string {
+	return roleStyle(noANSI, skin).Bold(true).Render(value)
+}
+
+func roleStyle(noANSI bool, skin string) lipgloss.Style {
+	if noANSI {
+		return lipgloss.NewStyle()
+	}
+	color := "250"
+	switch strings.ToUpper(skin) {
+	case "CTRL":
+		color = "45"
+	case "CODE":
+		color = "42"
+	case "TEST":
+		color = "220"
+	case "REV":
+		color = "141"
+	case "ARCH":
+		color = "208"
+	case "GATE":
+		color = "245"
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+}
+
+func summarizeMap(value valueMap, fallbackValue string) string {
+	if len(value) == 0 {
+		return fallbackValue
+	}
+	preferred := []string{"state", "gate_disposition", "review_outcome", "blocking_reason", "reason", "decision", "approval_id"}
+	parts := []string{}
+	for _, key := range preferred {
+		if raw, ok := value[key]; ok {
+			parts = append(parts, fmt.Sprintf("%s=%v", key, raw))
+		}
+	}
+	if len(parts) == 0 {
+		for key, raw := range value {
+			parts = append(parts, fmt.Sprintf("%s=%v", key, raw))
+			if len(parts) >= 3 {
+				break
+			}
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func fallback(value string, fallback string) string {
@@ -325,12 +646,34 @@ func flatten(value string) string {
 func demoFrame() frame {
 	return frame{
 		SchemaVersion: "WorkspaceTuiFrame.v1",
+		Locale:        "en-US",
 		Mode:          modeOverview,
-		SelectedAgent: "fake-agent",
+		SelectedAgent: "coder-1",
 		Agents: []agent{{
-			ID:     "fake-agent",
-			Status: "ready",
-			Role:   "coder",
+			ID:       "controller",
+			Status:   "ready",
+			Role:     "controller",
+			RoleSkin: "CTRL",
+		}, {
+			ID:       "coder-1",
+			Status:   "active",
+			Role:     "coder",
+			RoleSkin: "CODE",
+		}, {
+			ID:       "tester-1",
+			Status:   "ready",
+			Role:     "tester",
+			RoleSkin: "TEST",
+		}, {
+			ID:       "reviewer-1",
+			Status:   "ready",
+			Role:     "reviewer",
+			RoleSkin: "REV",
+		}, {
+			ID:       "architect-1",
+			Status:   "ready",
+			Role:     "architect",
+			RoleSkin: "ARCH",
 		}},
 		RunID:         "run_demo",
 		WorkerSession: "holp-worker-demo",
@@ -342,10 +685,56 @@ func demoFrame() frame {
 		}}},
 		Overview: overview{
 			Title: "HOLP Harness Workspace",
+			Chain: []chainNode{{
+				ID: "controller", Label: "Controller", Skin: "CTRL", State: "active", AgentID: "controller",
+			}, {
+				ID: "agent:coder-1", Label: "Coder", Skin: "CODE", State: "active", AgentID: "coder-1",
+			}, {
+				ID: "agent:tester-1", Label: "Tester", Skin: "TEST", State: "idle", AgentID: "tester-1",
+			}, {
+				ID: "agent:reviewer-1", Label: "Reviewer", Skin: "REV", State: "idle", AgentID: "reviewer-1",
+			}, {
+				ID: "architect", Label: "Architect", Skin: "ARCH", State: "done", AgentID: "architect-1",
+			}, {
+				ID: "gate", Label: "Gate", Skin: "GATE", State: "unknown", AgentID: "gate",
+			}},
 			WorkerPreview: workerPreview{
 				RenderedText: "deterministic demo frame",
 			},
 			Evidence: evidence{LatestEvent: "run.run_started#1", Provenance: "smoke_script"},
+		},
+		Inspect: inspectFrame{
+			SelectedAgentID: "coder-1",
+			SelectedAgent: inspectAgent{
+				ID:            "coder-1",
+				Status:        "active",
+				RoleSkin:      "CODE",
+				OwnerVerified: "verified",
+			},
+			Inspect: inspectDetail{
+				AgentID: "coder-1",
+				Sections: []inspectSection{{
+					Title: "identity",
+					Rows: []inspectRow{{
+						Label: "runtime_surface", Value: "direct_user_session", Priority: "identity",
+					}, {
+						Label: "attach_command", Value: "tmux attach -t holp-worker-demo", Anchor: "attach_command",
+					}},
+				}},
+				Output: inspectOutput{State: "captured", Text: "deterministic demo frame"},
+				EvidenceRefs: []evidenceRef{{
+					Ref: "run.run_started#1", RunID: "run_demo", Seq: 1,
+				}},
+			},
+		},
+		Continuity: continuity{
+			ReplayOnly:    false,
+			CanContinue:   true,
+			CanRerun:      false,
+			CanInspect:    true,
+			CanCopy:       true,
+			OwnerVerified: "verified",
+			TerminalState: "merged",
 		},
 		ReplayPath: "/tmp/holp-harness-workspace/demo/replay.json",
 	}

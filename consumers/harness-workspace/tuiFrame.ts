@@ -2,6 +2,7 @@ import { deriveOperatorAffordances } from "./affordances.js";
 import { deriveContinuity } from "./continuity.js";
 import { deriveTimeline } from "./logs.js";
 import { deriveInspect, deriveOverview } from "./renderModel.js";
+import { roleSkinFor } from "./roleSkins.js";
 import type {
   DiscoveredAgent,
   HarnessInspectModel,
@@ -10,17 +11,21 @@ import type {
   HarnessSessionContinuity,
   HarnessTimelineModel,
   HarnessWorkspaceState,
+  RoleSkinId,
   RenderEvidenceSummary,
   WorkerPreview,
 } from "./types.js";
 
 export type WorkspaceTuiMode = "overview" | "inspect" | "replay" | "help";
+export type WorkspaceTuiLocale = HarnessWorkspaceState["locale"];
+export type WorkspaceTuiAgent = DiscoveredAgent & { readonly role_skin?: RoleSkinId };
 
 export interface WorkspaceTuiFrameV1 {
   readonly schema_version: "WorkspaceTuiFrame.v1";
+  readonly locale?: WorkspaceTuiLocale;
   readonly mode: WorkspaceTuiMode;
   readonly selected_agent?: string;
-  readonly agents: readonly DiscoveredAgent[];
+  readonly agents: readonly WorkspaceTuiAgent[];
   readonly run_id?: string;
   readonly worker_session?: string;
   readonly attach_command?: string;
@@ -66,7 +71,13 @@ export function createWorkspaceTuiFrame(
     schema_version: "WorkspaceTuiFrame.v1",
     mode: options.mode ?? "overview",
     selected_agent: selectedAgentId,
-    agents: Object.values(state.agents).sort((left, right) => left.id.localeCompare(right.id)),
+    locale: state.locale,
+    agents: Object.values(state.agents)
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((agent) => ({
+        ...agent,
+        role_skin: roleSkinFor(agent.role ?? agent.id),
+      })),
     run_id: evidence.run_id,
     worker_session: evidence.worker_session,
     attach_command: evidence.attach_command,
