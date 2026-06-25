@@ -89,12 +89,14 @@ export async function runCmuxTuiAction(options: CmuxTuiActionOptions = {}): Prom
       return openWorkerAttachPane({ manifest, parsed, cmuxCommand, runner, cwd });
     case "start_run_via_broker": {
       const goal = parsed.goal ?? "Use HOLP through the broker and report the worker result marker.";
-      const worker = parsed.worker ?? "kimi-code";
+      const worker = parsed.worker;
+      if (!worker) return { action: parsed.action, ok: false, degraded_reasons: ["invalid_command"], manifest, output: "--worker is required" };
       return sendBrokerAction(parsed.action, manifest, () =>
         sender(manifest.broker_socket, { type: "run", goal, worker }, parsed.timeoutMs ?? RUN_TIMEOUT_MS));
     }
     case "follow_run_id": {
-      const agent = parsed.agent ?? parsed.worker ?? "kimi-code";
+      const agent = parsed.agent ?? parsed.worker;
+      if (!agent) return { action: parsed.action, ok: false, degraded_reasons: ["invalid_command"], manifest, output: "--agent or --worker is required" };
       return sendBrokerAction(parsed.action, manifest, () =>
         sender(manifest.broker_socket, { type: "follow", agent }, 10_000));
     }
@@ -135,7 +137,7 @@ async function sendControllerBootPrompt(options: ActionRuntime): Promise<CmuxTui
   const text = buildControllerBootPrompt({
     brokerSocket: options.manifest.broker_socket,
     goal: options.parsed.goal ?? "Use HOLP through the broker and report the worker result marker.",
-    worker: options.parsed.worker ?? "kimi-code",
+    worker: options.parsed.worker,
     controller: options.parsed.controller ?? manifestControllerAgent(surface.agent) ?? "codex",
   });
   const command = sendCommand(options.manifest.workspace_id, surface.surface_id, text, "HOLP Controller");

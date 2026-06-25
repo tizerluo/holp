@@ -130,8 +130,10 @@ describe("cmux TUI operator actions", () => {
 
       expect(result.ok).toBe(true);
       expect(override.ok).toBe(true);
-      expect(calls[0]?.at(-1)).toMatch(/&& exec kimi$/);
-      expect(calls[1]?.at(-1)).toMatch(/&& exec codex$/);
+      expect(calls[0]?.at(-1)).toContain("Controller CLI: kimi");
+      expect(calls[1]?.at(-1)).toContain("Controller CLI: codex");
+      expect(calls[0]?.at(-1)).not.toContain("exec kimi");
+      expect(calls[1]?.at(-1)).not.toContain("exec codex");
     } finally {
       rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
     }
@@ -217,6 +219,20 @@ describe("cmux TUI operator actions", () => {
       });
       expect(interrupt.ok).toBe(false);
       expect(interrupt.degraded_reasons).toContain("unsupported_action");
+
+      const missingWorker = await runCmuxTuiAction({
+        argv: ["start_run_via_broker", "--session-id", id, "--goal", "demo"],
+        env: { HOLP_HARNESS_WORKSPACE_TUI: "1" },
+      });
+      expect(missingWorker.ok).toBe(false);
+      expect(missingWorker.degraded_reasons).toContain("invalid_command");
+
+      const missingAgent = await runCmuxTuiAction({
+        argv: ["follow_run_id", "--session-id", id],
+        env: { HOLP_HARNESS_WORKSPACE_TUI: "1" },
+      });
+      expect(missingAgent.ok).toBe(false);
+      expect(missingAgent.degraded_reasons).toContain("invalid_command");
     } finally {
       rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
     }
@@ -227,7 +243,7 @@ describe("cmux TUI operator actions", () => {
     try {
       createManifest(id);
       for (const argv of [
-        ["start_run_via_broker", "--session-id", id, "--goal", "demo"],
+        ["start_run_via_broker", "--session-id", id, "--goal", "demo", "--worker", "fake-agent"],
         ["follow_run_id", "--session-id", id, "--agent", "coder-1"],
         ["cancel_run", "--session-id", id, "--run-id", "run_1", "--confirm"],
       ]) {
@@ -256,7 +272,7 @@ describe("cmux TUI operator actions", () => {
       createManifest(id);
       for (const timeout of ["NaN", "0", "-1"]) {
         const result = await runCmuxTuiAction({
-          argv: ["start_run_via_broker", "--session-id", id, "--timeout-ms", timeout],
+          argv: ["start_run_via_broker", "--session-id", id, "--worker", "fake-agent", "--timeout-ms", timeout],
           env: { HOLP_HARNESS_WORKSPACE_TUI: "1" },
           brokerCommandSender: async (_socket, _command, timeoutMs) => {
             timeouts.push(timeoutMs);

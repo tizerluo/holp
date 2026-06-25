@@ -144,6 +144,7 @@ describe("cmux TUI launcher", () => {
       expect(sends).toHaveLength(2);
       expect(sends.every((args) => args.includes("--workspace") && args.includes("--surface"))).toBe(true);
       expect(sends.some((args) => args.join(" ").includes("harness:workspace:client"))).toBe(true);
+      expect(calls.every((args) => !(args[0] === "new-surface" && args.includes("--provider")))).toBe(true);
     } finally {
       rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
     }
@@ -167,11 +168,10 @@ describe("cmux TUI launcher", () => {
     expect(zsh.status).toBe(0);
   });
 
-  it("prints broker instructions and then launches the real controller CLI", () => {
+  it("builds a cmux-safe controller instruction payload with one final submit", () => {
     const codex = buildControllerBootPrompt({
       brokerSocket: "/tmp/holp-harness-workspace/session-controller/broker.sock",
-      goal: "demo goal",
-      worker: "kimi-code",
+      goal: "demo\ngoal\twith controls",
       controller: "codex",
     });
     const kimi = buildControllerBootPrompt({
@@ -182,15 +182,38 @@ describe("cmux TUI launcher", () => {
     });
 
     expect(codex).toContain("harness:workspace:client");
+    expect(codex).toContain("Repo: ");
     expect(codex).toContain("HOLP_HARNESS_BROKER_SOCKET=/tmp/holp-harness-workspace/session-controller/broker.sock");
-    expect(codex).toMatch(/&& exec codex$/);
-    expect(kimi).toMatch(/&& exec kimi$/);
+    expect(codex).toContain("workers");
+    expect(codex).toContain("No worker is selected yet");
+    expect(codex).not.toContain("run --goal");
+    expect(kimi).toContain("--worker opencode");
     for (const script of [codex, kimi]) {
+      expect(script).not.toMatch(/\\[nrt]/);
+      expect(script).not.toContain("exec codex");
+      expect(script).not.toContain("exec kimi");
+      expect(script.endsWith("\n")).toBe(true);
+      expect([...script.matchAll(/\n/g)]).toHaveLength(1);
       const zsh = spawnSync("zsh", ["-n"], { input: script, encoding: "utf8" });
       if (zsh.error && "code" in zsh.error && zsh.error.code === "ENOENT") continue;
       expect(`${zsh.stderr}${zsh.stdout}`).toBe("");
       expect(zsh.status).toBe(0);
     }
+  });
+
+  it("can optionally autostart a controller command without exec", () => {
+    const script = buildControllerBootPrompt({
+      brokerSocket: "/tmp/holp-harness-workspace/session-controller/broker.sock",
+      goal: "demo goal",
+      worker: "fake-agent",
+      controller: "codex",
+      controllerAutostart: true,
+    });
+
+    expect(script).toMatch(/&& codex\n$/);
+    expect(script).not.toContain("exec codex");
+    expect(script).not.toMatch(/\\[nrt]/);
+    expect([...script.matchAll(/\n/g)]).toHaveLength(1);
   });
 
   it("builds an existing-broker startup payload without starting a second broker", () => {
@@ -238,6 +261,47 @@ describe("cmux TUI launcher", () => {
       const payload = tuiSend?.at(-1) ?? "";
       expect(payload).not.toContain("harness:workspace:broker");
       expect(payload).toContain(`HOLP_HARNESS_BROKER_SOCKET=${brokerSocket} npm run harness:workspace:tui`);
+    } finally {
+      rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
+    }
+  });
+
+  it("demo mode starts a fake broker, uses fake-agent, and bypasses the controller binary gate", async () => {
+    const id = sessionId("demo");
+    const calls: string[][] = [];
+    try {
+      const result = await runCmuxTuiLauncher({
+        argv: ["--session-id", id, "--workspace", "workspace:1", "--demo"],
+        env: { HOLP_HARNESS_WORKSPACE_TUI: "1" },
+        isOnPath: () => false,
+        runner: async (command, args) => {
+          calls.push([...args]);
+          if (args[0] === "new-pane" && args.includes("--direction") && args.includes("right")) {
+            return ok(command, args, "created pane:pane-tui surface:surface-tui");
+          }
+          if (args[0] === "new-pane" && args.includes("--direction") && args.includes("down")) {
+            return ok(command, args, "created pane:pane-controller surface:surface-controller");
+          }
+          if (args[0] === "new-pane" || args[0] === "send") {
+            return ok(command, args, "Usage: cmux new-pane --workspace --focus --type <terminal|browser>\nUsage: cmux send --workspace --surface");
+          }
+          return ok(command, args);
+        },
+      });
+
+      expect(result.mode).toBe("planned");
+      expect(result.degraded_reasons).not.toContain("missing_controller_binary");
+      const sends = calls.filter((args) => args[0] === "send" && !args.includes("--help"));
+      const tuiPayload = sends.find((args) => args.includes("surface:surface-tui"))?.at(-1) ?? "";
+      const controllerPayload = sends.find((args) => args.includes("surface:surface-controller"))?.at(-1) ?? "";
+      expect(tuiPayload).toContain("HOLP_REGISTRY=fake npm run harness:workspace:broker -- --session-id");
+      expect(tuiPayload).toContain("--transport fake");
+      expect(controllerPayload).toContain("--worker fake-agent");
+      expect(controllerPayload).not.toContain("exec codex");
+      expect(calls.every((args) => args.includes("--help") || args.includes("--workspace"))).toBe(true);
+      expect(calls.every((args) => args[0] !== "new-surface" || !args.includes("--provider"))).toBe(true);
+      const newPaneCalls = calls.filter((args) => args[0] === "new-pane" && !args.includes("--help"));
+      expect(newPaneCalls.every((args) => args.includes("--focus") && args[args.indexOf("--focus") + 1] === "false")).toBe(true);
     } finally {
       rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
     }

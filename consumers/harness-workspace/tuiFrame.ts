@@ -107,9 +107,20 @@ export function createWorkspaceTuiFrame(
 }
 
 export function isWorkspaceTuiFrameV1(value: unknown): value is WorkspaceTuiFrameV1 {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<WorkspaceTuiFrameV1>;
   return (
-    typeof value === "object"
-    && value !== null
-    && (value as { schema_version?: unknown }).schema_version === "WorkspaceTuiFrame.v1"
+    candidate.schema_version === "WorkspaceTuiFrame.v1"
+    && typeof candidate.mode === "string"
+    && Array.isArray(candidate.agents)
+    && typeof candidate.timeline === "object"
+    && candidate.timeline !== null
+    && Array.isArray(candidate.failures)
+    && Array.isArray(candidate.affordances)
+    && Array.isArray(candidate.degraded_reasons)
+    && typeof candidate.overview === "object"
+    && candidate.overview !== null
+    && typeof candidate.continuity === "object"
+    && candidate.continuity !== null
   );
 }
