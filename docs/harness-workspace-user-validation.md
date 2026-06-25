@@ -12,16 +12,16 @@ real-usage training-distribution evidence for #41.
 | Gate | Decision | Evidence |
 | --- | --- | --- |
 | Runtime-surface / public-wire gate | `allowed` | Reference-only: #52 recorded `terminal-consumer-integration-ready` and a complete bounded runtime-surface matrix in `docs/runtime-surface-validation-matrix.md`. |
-| Usable UI real-usage data collection | `pending-user-validation` | No explicit human-authored real-use validation record has been captured for the #71-#75 Harness Workspace UI stack. Automated smoke and Commander-run demos are not enough. |
+| Usable UI real-usage data collection | `pending-user-validation` | No explicit human-authored real-use validation record has been captured for the current #87/#89/#91 Go TUI Harness Workspace stack. Automated smoke and Commander-run demos are not enough. |
 | cmux product readiness | `cmux-pending-user-validation` | Reference-only: #52 remains the canonical source for the current cmux product-readiness marker. #76 has not recorded a human cmux acceptance transcript. |
-| Learned-router real-usage data for #41 | `blocked` | #41 may rely on the #52 runtime-surface/public-wire gate, but future data cannot be counted as real-usage training-distribution evidence until this document records `usable-ui-real-usage-data-collection: allowed`. |
+| Learned-router real-usage data for #41 | `blocked` | #41 may rely on the #52 runtime-surface/public-wire gate, but future data cannot be counted as real-usage training-distribution evidence until this document records the usable UI gate as allowed. |
 
 The #52 runtime-surface/public-wire `allowed` decision remains valid. It is a
 necessary but not sufficient condition for #41 real-usage dataset sufficiency.
 
 ## Current Rationale
 
-#71 through #75 implemented the usable UI substrate:
+#71 through #75 implemented the earlier usable UI substrate:
 
 - public-wire Sidecar state and render model;
 - Focus Shell and Sidecar rendering;
@@ -29,8 +29,20 @@ necessary but not sufficient condition for #41 real-usage dataset sufficiency.
 - cmux Team Layout planning/integration;
 - replay, session continuity, logs, and safe operator affordances.
 
-Those PRs make the Harness Workspace inspectable and script-verifiable. They do
-not prove that a human operator has used it for real multi-agent work in cmux and
+Those PRs made the Harness Workspace inspectable and script-verifiable, but the
+first human validation attempt showed that static/script views were not enough
+as the operator entry. The current artifact under validation is now the Go TUI
+line:
+
+- #87 broker/TUI foundation: consumer-owned broker, controller helper client,
+  and Bubble Tea/Lip Gloss TUI shell.
+- #89 cmux real-pane integration: HOLP-owned TUI, Controller, and Worker attach
+  panes plus bounded operator actions.
+- #91 visual polish and validation gate: role skins, localized chrome, improved
+  Overview/Inspect/Replay/Help presentation, and readiness-claim guard.
+
+This current stack is the one a human operator must validate. It still does not
+prove that a human operator has used it for real multi-agent work in cmux and
 accepted the experience as good enough to generate training-distribution data.
 
 Until that human validation exists:
@@ -104,6 +116,7 @@ itself:
 - #52 `terminal-consumer-integration-ready`;
 - #63/#65 visible/attachable worker smokes;
 - #71-#75 local tests and demos;
+- #87/#89/#91 Go TUI tests, cmux launcher/action tests, and demos;
 - Commander-run cmux automation;
 - `npm run harness:workspace` and `npm run harness:workspace:cmux-layout`.
 

@@ -16,7 +16,7 @@ import {
 import { createReplaySnapshot, exportReplaySnapshotJson } from "./replay.js";
 import { attachJsonLineSocket, writeJsonLine } from "./socketJson.js";
 import { createWorkspaceTuiFrame, type WorkspaceTuiFrameV1, type WorkspaceTuiMode } from "./tuiFrame.js";
-import type { DiscoveredAgent, HarnessWorkspaceState } from "./types.js";
+import type { DiscoveredAgent, HarnessWorkspaceLocale, HarnessWorkspaceState } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), "..", "..");
@@ -38,6 +38,7 @@ export type BrokerResponse =
 export interface HarnessWorkspaceBrokerOptions {
   readonly transport?: string;
   readonly probe?: boolean;
+  readonly locale?: HarnessWorkspaceLocale;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly daemonFactory?: () => Pick<DaemonClient, "call" | "onEvent" | "close">;
   readonly sessionId?: string;
@@ -55,11 +56,12 @@ export class HarnessWorkspaceBroker {
 
   private readonly transport: string;
   private readonly probe: boolean;
+  private readonly locale: HarnessWorkspaceLocale;
   private readonly log?: (line: string) => void;
   private readonly daemon: BrokerDaemonClient;
   private readonly sockets = new Set<net.Socket>();
   private server?: net.Server;
-  private state: HarnessWorkspaceState = createHarnessWorkspaceState({ provenance: "unknown" });
+  private state: HarnessWorkspaceState;
   private selectedAgentId: string | undefined;
   private mode: WorkspaceTuiMode = "overview";
   private replayWrittenAt: string | undefined;
@@ -67,9 +69,12 @@ export class HarnessWorkspaceBroker {
   private replayWriteChain: Promise<void> = Promise.resolve();
 
   constructor(options: HarnessWorkspaceBrokerOptions = {}) {
-    this.transport = options.transport ?? defaultTransport(options.env ?? process.env);
+    const env = options.env ?? process.env;
+    this.transport = options.transport ?? defaultTransport(env);
     this.probe = options.probe ?? true;
+    this.locale = options.locale ?? localeFromEnv(env) ?? "en-US";
     this.log = options.log;
+    this.state = createHarnessWorkspaceState({ locale: this.locale, provenance: "unknown" });
     this.sessionId = options.sessionId ?? randomUUID();
     const baseDir = options.baseDir ?? BASE_DIR;
     this.sessionDir = path.join(baseDir, this.sessionId);
@@ -79,7 +84,7 @@ export class HarnessWorkspaceBroker {
       command: "tsx",
       args: [serverEntry],
       cwd: repoRoot,
-      env: cleanEnv(options.env ?? process.env),
+      env: cleanEnv(env),
     });
     this.daemon.onEvent((event) => {
       this.state = recordEvent(this.state, event);
@@ -261,6 +266,7 @@ export async function runBrokerCli(argv: readonly string[] = process.argv.slice(
     transport: options.transport,
     probe: options.probe,
     sessionId: options.sessionId,
+    locale: options.locale,
     log: (line) => process.stdout.write(`${line}\n`),
   });
   const shutdown = async () => {
@@ -275,6 +281,13 @@ export async function runBrokerCli(argv: readonly string[] = process.argv.slice(
 
 function defaultTransport(env: Readonly<Record<string, string | undefined>>): string {
   return env.HOLP_HARNESS_WORKSPACE_TRANSPORT ?? (env.HOLP_REGISTRY === "fake" ? "fake" : "mcp-codex");
+}
+
+function localeFromEnv(env: Readonly<Record<string, string | undefined>>): HarnessWorkspaceLocale | undefined {
+  const locale = env.HOLP_HARNESS_LOCALE;
+  if (locale === undefined || locale === "") return undefined;
+  if (isHarnessWorkspaceLocale(locale)) return locale;
+  throw new Error(`unsupported HOLP_HARNESS_LOCALE '${locale}'`);
 }
 
 async function prepareSessionDirectory(sessionDir: string): Promise<void> {
@@ -307,9 +320,15 @@ function commandType(value: unknown): BrokerCommand["type"] | undefined {
   return type === "run" || type === "cancel" || type === "follow" || type === "snapshot" ? type : undefined;
 }
 
-function parseBrokerArgs(argv: readonly string[]): { readonly transport?: string; readonly probe: boolean; readonly sessionId?: string } {
+function parseBrokerArgs(argv: readonly string[]): {
+  readonly transport?: string;
+  readonly probe: boolean;
+  readonly sessionId?: string;
+  readonly locale?: HarnessWorkspaceLocale;
+} {
   let transport: string | undefined;
   let sessionId: string | undefined;
+  let locale: HarnessWorkspaceLocale | undefined;
   let probe = true;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -319,11 +338,22 @@ function parseBrokerArgs(argv: readonly string[]): { readonly transport?: string
     } else if (arg === "--session-id" && argv[index + 1]) {
       sessionId = argv[index + 1];
       index += 1;
+    } else if (arg === "--locale" && argv[index + 1]) {
+      const candidate = argv[index + 1];
+      if (!isHarnessWorkspaceLocale(candidate)) {
+        throw new Error(`unsupported --locale '${candidate}'`);
+      }
+      locale = candidate;
+      index += 1;
     } else if (arg === "--probe=false") {
       probe = false;
     }
   }
-  return { transport, probe, sessionId };
+  return { transport, probe, sessionId, locale };
+}
+
+function isHarnessWorkspaceLocale(value: string): value is HarnessWorkspaceLocale {
+  return value === "en-US" || value === "zh-CN";
 }
 
 function isMain(): boolean {

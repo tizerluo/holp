@@ -10,6 +10,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 func TestViewModesRender(t *testing.T) {
@@ -26,7 +28,11 @@ func TestViewModesRender(t *testing.T) {
 
 func TestKeyboardNavigationAndModeSwitching(t *testing.T) {
 	f := demoFrame()
-	f.Agents = append(f.Agents, agent{ID: "reviewer-1", Status: "ready", Role: "reviewer"})
+	f.SelectedAgent = "fake-agent"
+	f.Agents = []agent{
+		{ID: "fake-agent", Status: "ready", Role: "coder", RoleSkin: "CODE"},
+		{ID: "reviewer-1", Status: "ready", Role: "reviewer", RoleSkin: "REV"},
+	}
 	m := initialModel(f, true)
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
@@ -68,7 +74,11 @@ func TestFrameMessageUpdatesModel(t *testing.T) {
 
 func TestIncomingFramePreservesStillValidLocalSelection(t *testing.T) {
 	f := demoFrame()
-	f.Agents = append(f.Agents, agent{ID: "reviewer-1", Status: "ready", Role: "reviewer"})
+	f.SelectedAgent = "fake-agent"
+	f.Agents = []agent{
+		{ID: "fake-agent", Status: "ready", Role: "coder", RoleSkin: "CODE"},
+		{ID: "reviewer-1", Status: "ready", Role: "reviewer", RoleSkin: "REV"},
+	}
 	m := initialModel(f, true)
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
@@ -113,7 +123,11 @@ func TestFollowKeySendsBrokerFollowCommand(t *testing.T) {
 	}()
 
 	f := demoFrame()
-	f.Agents = append(f.Agents, agent{ID: "reviewer-1", Status: "ready", Role: "reviewer"})
+	f.SelectedAgent = "fake-agent"
+	f.Agents = []agent{
+		{ID: "fake-agent", Status: "ready", Role: "coder", RoleSkin: "CODE"},
+		{ID: "reviewer-1", Status: "ready", Role: "reviewer", RoleSkin: "REV"},
+	}
 	m := initialModel(f, true)
 	m.socketPath = socketPath
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
@@ -304,6 +318,121 @@ func TestFollowCommandTimesOutWhenListenerNeverReplies(t *testing.T) {
 	m = next.(model)
 	if !strings.Contains(m.View(), "degraded=") {
 		t.Fatalf("expected degraded view for follow timeout, got %q", m.View())
+	}
+}
+
+func TestChineseChromeKeepsDiagnosticAnchorsLiteral(t *testing.T) {
+	f := demoFrame()
+	f.Locale = "zh-CN"
+	m := initialModel(f, true)
+
+	overview := m.View()
+	for _, anchor := range []string{"run_id", "selected", "overview", "schema_version"} {
+		if !strings.Contains(overview, anchor) {
+			t.Fatalf("expected overview to keep literal diagnostic anchor %q:\n%s", anchor, overview)
+		}
+	}
+	if !strings.Contains(overview, "总览") || !strings.Contains(overview, "Agent 链路") {
+		t.Fatalf("expected zh-CN overview chrome in output: %q", overview)
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	inspect := m.View()
+	for _, anchor := range []string{"selected", "id", "status", "role", "direct_user_session", "inspect"} {
+		if !strings.Contains(inspect, anchor) {
+			t.Fatalf("expected inspect to keep literal diagnostic anchor %q:\n%s", anchor, inspect)
+		}
+	}
+	if !strings.Contains(inspect, "检查") || !strings.Contains(inspect, "选中 agent") {
+		t.Fatalf("expected zh-CN inspect chrome in output: %q", inspect)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = next.(model)
+	replay := m.View()
+	for _, anchor := range []string{"replay", "run_id", "terminal_state"} {
+		if !strings.Contains(replay, anchor) {
+			t.Fatalf("expected replay to keep literal diagnostic anchor %q:\n%s", anchor, replay)
+		}
+	}
+	if !strings.Contains(replay, "会话连续性") || !strings.Contains(replay, "操作动作") {
+		t.Fatalf("expected zh-CN replay chrome in output: %q", replay)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	m = next.(model)
+	help := m.View()
+	for _, anchor := range []string{"overview", "inspect", "replay", "help"} {
+		if !strings.Contains(help, anchor) {
+			t.Fatalf("expected help to keep literal mode anchor %q:\n%s", anchor, help)
+		}
+	}
+}
+
+func TestUnknownAndMissingLocaleFallbackToEnglish(t *testing.T) {
+	f := demoFrame()
+	f.Locale = "bad-locale"
+	out := initialModel(f, true).View()
+	if !strings.Contains(out, "Overview") || strings.Contains(out, "总览") {
+		t.Fatalf("expected English fallback for unknown locale: %q", out)
+	}
+
+	f.Locale = ""
+	out = initialModel(f, true).View()
+	if !strings.Contains(out, "Overview") {
+		t.Fatalf("expected English fallback for missing locale: %q", out)
+	}
+}
+
+func TestRoleSkinsHaveDistinctAnsiTreatment(t *testing.T) {
+	previous := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() {
+		lipgloss.SetColorProfile(previous)
+	})
+	seen := map[string]string{}
+	for _, skin := range []string{"CTRL", "CODE", "TEST", "REV", "ARCH", "GATE"} {
+		rendered := roleStyle(false, skin).Render("sample")
+		if !strings.Contains(rendered, "\x1b[") {
+			t.Fatalf("expected ANSI styling for %s, got %q", skin, rendered)
+		}
+		if previous, exists := seen[rendered]; exists {
+			t.Fatalf("expected distinct styling for %s and %s, both %q", skin, previous, rendered)
+		}
+		seen[rendered] = skin
+	}
+}
+
+func TestRoleSkinColorsDisappearWithNoAnsi(t *testing.T) {
+	for _, skin := range []string{"CTRL", "CODE", "TEST", "REV", "ARCH", "GATE"} {
+		rendered := roleStyle(true, skin).Render("sample")
+		if rendered != "sample" || strings.Contains(rendered, "\x1b[") {
+			t.Fatalf("expected plain no-ANSI rendering for %s, got %q", skin, rendered)
+		}
+	}
+}
+
+func TestModeKeyboardReachability(t *testing.T) {
+	m := initialModel(demoFrame(), true)
+	keys := []struct {
+		key  string
+		want mode
+	}{
+		{"tab", modeInspect},
+		{"tab", modeReplay},
+		{"tab", modeHelp},
+		{"esc", modeOverview},
+		{"enter", modeInspect},
+		{"r", modeReplay},
+		{"?", modeHelp},
+	}
+	for _, step := range keys {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(step.key)})
+		m = next.(model)
+		if m.mode != step.want {
+			t.Fatalf("key %q: expected %s, got %s", step.key, step.want, m.mode)
+		}
 	}
 }
 
