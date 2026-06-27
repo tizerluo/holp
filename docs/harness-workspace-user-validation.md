@@ -133,6 +133,7 @@ itself:
 - #63/#65 visible/attachable worker smokes;
 - #71-#75 local tests and demos;
 - #87/#89/#91 Go TUI tests, cmux launcher/action tests, and demos;
+- #95 Sidecar visual-shape demos for Overview and Inspect;
 - Commander-run cmux automation;
 - `npm run harness:workspace` and `npm run harness:workspace:cmux-layout`.
 

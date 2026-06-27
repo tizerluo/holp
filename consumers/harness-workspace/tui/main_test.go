@@ -62,6 +62,78 @@ func TestNoAnsiDeterministicOutput(t *testing.T) {
 	}
 }
 
+func TestIssue95OverviewSidecarPanels(t *testing.T) {
+	out := renderDemo(true, "overview", "", 100, 28)
+	for _, want := range []string{"Chain Map", "Active Worker Preview", "Evidence Summary", "run_id", "selected", "schema_version", "worker_session", "direct_user_session", "attach_command", "terminal_state", "overview", "No blocking failure recorded"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected overview demo to contain %q:\n%s", want, out)
+		}
+	}
+	failureAt := strings.Index(out, "No blocking failure recorded")
+	if failureAt < 0 || !strings.Contains(out[failureAt:], "+--------------------------------------------------------------------------------------------------+") {
+		t.Fatalf("expected complete overview failure panel closure:\n%s", out)
+	}
+	if strings.Contains(out, "\x1b[") {
+		t.Fatalf("expected no ANSI overview output, got %q", out)
+	}
+}
+
+func TestIssue95InspectSidecarPanels(t *testing.T) {
+	out := renderDemo(true, "inspect", "coder-1", 100, 28)
+	for _, want := range []string{"Selected Agent Detail", "Selected Evidence", "Output", "Operator actions", "Chain Map", "selected=coder-1", "direct_user_session", "run_id", "worker_session", "attach_command", "inspect"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected inspect demo to contain %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "\x1b[") {
+		t.Fatalf("expected no ANSI inspect output, got %q", out)
+	}
+}
+
+func TestIssue95DemoFlagsDriveOutput(t *testing.T) {
+	overview := renderDemo(true, "overview", "", 72, 18)
+	inspect := renderDemo(true, "inspect", "tester-1", 72, 18)
+	if !strings.Contains(overview, "mode=overview") || strings.Contains(overview, "selected=tester-1") {
+		t.Fatalf("overview demo flags did not drive mode cleanly:\n%s", overview)
+	}
+	if !strings.Contains(inspect, "mode=inspect") || !strings.Contains(inspect, "selected=tester-1") {
+		t.Fatalf("inspect demo flags did not drive mode/agent:\n%s", inspect)
+	}
+	if lipgloss.Width(strings.Split(inspect, "\n")[1]) > 72 {
+		t.Fatalf("expected width-constrained inspect render:\n%s", inspect)
+	}
+}
+
+func TestIssue95SmallDemoKeepsRequiredAnchorsVisible(t *testing.T) {
+	overview := renderDemo(true, "overview", "", 72, 18)
+	for _, want := range []string{"schema_version", "worker_session", "direct_user_session", "attach_command", "terminal_state"} {
+		if !strings.Contains(overview, want) {
+			t.Fatalf("expected compact overview to contain %q:\n%s", want, overview)
+		}
+	}
+
+	inspect := renderDemo(true, "inspect", "coder-1", 72, 18)
+	for _, want := range []string{"Operator actions", "Output"} {
+		if !strings.Contains(inspect, want) {
+			t.Fatalf("expected compact inspect to contain %q:\n%s", want, inspect)
+		}
+	}
+}
+
+func TestIssue95StatusHonorsDemoWidth(t *testing.T) {
+	out := renderDemo(true, "overview", "", 72, 18)
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	status := lines[len(lines)-1]
+	if lipgloss.Width(status) > 72 {
+		t.Fatalf("expected status width <= 72, got %d: %q", lipgloss.Width(status), status)
+	}
+	for _, want := range []string{"run_id", "selected", "mode"} {
+		if !strings.Contains(status, want) {
+			t.Fatalf("expected status to preserve %q: %q", want, status)
+		}
+	}
+}
+
 func TestFrameMessageUpdatesModel(t *testing.T) {
 	m := initialModel(frame{}, true)
 	f := demoFrame()
