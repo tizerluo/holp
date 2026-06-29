@@ -20,6 +20,7 @@
     "harness:workspace:client": "tsx consumers/harness-workspace/client.ts",
     "harness:workspace:tui": "cd consumers/harness-workspace/tui && go run .",
     "harness:workspace:tui:cmux": "tsx consumers/cmux-bridge/tuiLauncher.ts",
+    "harness:workspace:tui:cmux:agent": "tsx consumers/cmux-bridge/tuiLauncher.ts",
     "harness:workspace:tui:cmux:demo": "tsx consumers/cmux-bridge/tuiLauncher.ts --demo",
     "harness:workspace:tui:action": "tsx consumers/cmux-bridge/tuiAction.ts",
     "harness:workspace:cmux-layout": "tsx consumers/cmux-bridge/demo.ts",

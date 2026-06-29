@@ -62,6 +62,55 @@ func TestNoAnsiDeterministicOutput(t *testing.T) {
 	}
 }
 
+func TestInteractionStateHintsRender(t *testing.T) {
+	f := demoFrame()
+	f.Approval = valueMap{"state": "requested", "approval_id": "ap_1"}
+	f.DegradedReason = []string{"controller_missing", "worker_unavailable"}
+	m := initialModelWithCmuxManifest(f, true, manifestWithController())
+	out := m.View()
+	for _, want := range []string{
+		"controller_entry: controller pane observed; cmux surface created",
+		"degraded_reasons: controller_missing, worker_unavailable",
+		"approval: state=requested approval_id=ap_1",
+		"next_action: approve --decision approved|rejected --reason ...",
+		"worker_session: holp-worker-demo",
+		"attach_command: tmux attach -t holp-worker-demo",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in overview:\n%s", want, out)
+		}
+	}
+}
+
+func TestControllerEntryRequiresCmuxManifest(t *testing.T) {
+	out := initialModel(demoFrame(), true).View()
+	if !strings.Contains(out, "controller_entry: controller not verified") {
+		t.Fatalf("expected controller not verified without manifest:\n%s", out)
+	}
+	if strings.Contains(out, "controller pane observed") {
+		t.Fatalf("logical chain should not imply controller pane creation:\n%s", out)
+	}
+}
+
+func TestControllerEntrySurfacesManifestDegradation(t *testing.T) {
+	f := demoFrame()
+	f.DegradedReason = []string{"broker_frame_degraded"}
+	manifest := &cmuxManifest{
+		SchemaVersion:  "HolpHarnessWorkspaceCmuxManifest.v1",
+		Surfaces:       map[string]cmuxSurface{},
+		DegradedReason: []string{"missing_surface_handle", "unsupported_controller_interactive_path"},
+	}
+	out := initialModelWithCmuxManifest(f, true, manifest).body()
+	for _, want := range []string{
+		"controller_entry: controller missing; cmux pane not verified",
+		"degraded_reasons: broker_frame_degraded, missing_surface_handle, unsupported_controller_interactive_path",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in overview:\n%s", want, out)
+		}
+	}
+}
+
 func TestFrameMessageUpdatesModel(t *testing.T) {
 	m := initialModel(frame{}, true)
 	f := demoFrame()
@@ -457,4 +506,13 @@ func shortSocketPath(t *testing.T) string {
 		_ = os.RemoveAll(dir)
 	})
 	return filepath.Join(dir, "b.sock")
+}
+
+func manifestWithController() *cmuxManifest {
+	return &cmuxManifest{
+		SchemaVersion: "HolpHarnessWorkspaceCmuxManifest.v1",
+		Surfaces: map[string]cmuxSurface{
+			"controller": {SurfaceID: "surface:controller", PaneID: "pane:controller", Agent: "codex"},
+		},
+	}
 }

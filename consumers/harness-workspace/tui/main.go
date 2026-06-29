@@ -132,6 +132,18 @@ type frame struct {
 	Continuity     continuity   `json:"continuity"`
 }
 
+type cmuxManifest struct {
+	SchemaVersion  string                 `json:"schema_version"`
+	Surfaces       map[string]cmuxSurface `json:"surfaces"`
+	DegradedReason []string               `json:"degraded_reasons"`
+}
+
+type cmuxSurface struct {
+	SurfaceID string `json:"surface_id"`
+	PaneID    string `json:"pane_id"`
+	Agent     string `json:"agent"`
+}
+
 type agent struct {
 	ID       string `json:"id"`
 	Status   string `json:"status"`
@@ -254,9 +266,14 @@ type model struct {
 	lastError  string
 	viewport   viewport.Model
 	help       help.Model
+	manifest   *cmuxManifest
 }
 
 func initialModel(f frame, noANSI bool) model {
+	return initialModelWithCmuxManifest(f, noANSI, nil)
+}
+
+func initialModelWithCmuxManifest(f frame, noANSI bool, manifest *cmuxManifest) model {
 	vp := viewport.New(80, 18)
 	m := model{
 		frame:    f,
@@ -264,6 +281,7 @@ func initialModel(f frame, noANSI bool) model {
 		noANSI:   noANSI,
 		viewport: vp,
 		help:     help.New(),
+		manifest: manifest,
 	}
 	m.syncSelected()
 	m.viewport.SetContent(m.body())
@@ -408,11 +426,15 @@ func (m model) overviewBody() string {
 		panelTitle(m.noANSI, "CTRL", msg.Overview+" - "+msg.Summary),
 		"run_id: " + fallback(m.frame.RunID, msg.Pending),
 		"schema_version: " + fallback(m.frame.SchemaVersion, msg.Pending),
+		"controller_entry: " + m.controllerEntryStatus(),
+		"degraded_reasons: " + joinOrNone(m.degradedReasons(), msg.None),
 		"worker_session: " + fallback(m.frame.WorkerSession, msg.Pending),
 		"attach_command: " + fallback(m.frame.AttachCommand, msg.Pending),
 		"latest_event: " + fallback(m.frame.Overview.Evidence.LatestEvent, msg.Pending),
+		"approval: " + summarizeMap(m.frame.Approval, msg.Pending),
 		"terminal: " + summarizeMap(m.frame.Terminal, msg.Pending),
 		"gate: " + summarizeMap(m.frame.Gate, msg.Pending),
+		"next_action: " + m.nextAction(),
 		"preview: " + fallback(flatten(m.frame.Overview.WorkerPreview.RenderedText), msg.Pending),
 		"",
 		panelTitle(m.noANSI, "GATE", msg.Chain),
@@ -430,6 +452,35 @@ func (m model) overviewBody() string {
 		lines = append(lines, "degraded: "+m.lastError)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m model) controllerEntryStatus() string {
+	if m.manifest == nil {
+		return "controller not verified"
+	}
+	if surface, ok := m.manifest.Surfaces["controller"]; ok && surface.SurfaceID != "" {
+		return "controller pane observed; cmux surface created"
+	}
+	return "controller missing; cmux pane not verified"
+}
+
+func (m model) degradedReasons() []string {
+	seen := map[string]bool{}
+	reasons := []string{}
+	add := func(values []string) {
+		for _, value := range values {
+			if value == "" || seen[value] {
+				continue
+			}
+			seen[value] = true
+			reasons = append(reasons, value)
+		}
+	}
+	add(m.frame.DegradedReason)
+	if m.manifest != nil {
+		add(m.manifest.DegradedReason)
+	}
+	return reasons
 }
 
 func (m model) inspectBody() string {
@@ -486,8 +537,10 @@ func (m model) replayBody() string {
 		panelTitle(m.noANSI, "GATE", msg.Replay),
 		"path: " + fallback(m.frame.ReplayPath, msg.Pending),
 		"written_at: " + fallback(m.frame.ReplayWritten, msg.Pending),
+		"approval: " + summarizeMap(m.frame.Approval, msg.Pending),
 		"terminal: " + summarizeMap(m.frame.Terminal, msg.Pending),
 		"gate: " + summarizeMap(m.frame.Gate, msg.Pending),
+		"next_action: " + m.nextAction(),
 		"",
 		panelTitle(m.noANSI, "CTRL", msg.Continuity),
 		fmt.Sprintf("replay_only=%v", m.frame.Continuity.ReplayOnly),
@@ -534,6 +587,25 @@ func (m model) chrome() chromeMessages {
 		return messages
 	}
 	return chromeCatalog["en-US"]
+}
+
+func (m model) nextAction() string {
+	if mapString(m.frame.Approval, "state") == "requested" {
+		return "approve --decision approved|rejected --reason ..."
+	}
+	if summarizeMap(m.frame.Terminal, "") != "" {
+		return "review terminal result"
+	}
+	if len(m.frame.Failures) > 0 {
+		return "inspect failure reason"
+	}
+	if m.frame.RunID == "" {
+		return "ask Controller to run --goal <human goal> --worker auto"
+	}
+	if m.frame.WorkerSession != "" && m.frame.AttachCommand != "" {
+		return "worker session attachable"
+	}
+	return "wait for worker terminal result"
 }
 
 func (m model) selectedAgent() agent {
@@ -630,6 +702,22 @@ func summarizeMap(value valueMap, fallbackValue string) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func mapString(value valueMap, key string) string {
+	if raw, ok := value[key]; ok {
+		if text, ok := raw.(string); ok {
+			return text
+		}
+	}
+	return ""
+}
+
+func joinOrNone(values []string, none string) string {
+	if len(values) == 0 {
+		return none
+	}
+	return strings.Join(values, ", ")
 }
 
 func fallback(value string, fallback string) string {
@@ -740,6 +828,24 @@ func demoFrame() frame {
 	}
 }
 
+func loadCmuxManifest(path string) *cmuxManifest {
+	if path == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var manifest cmuxManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return nil
+	}
+	if manifest.SchemaVersion != "HolpHarnessWorkspaceCmuxManifest.v1" {
+		return nil
+	}
+	return &manifest
+}
+
 type programSender interface {
 	Send(tea.Msg)
 }
@@ -839,7 +945,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "HOLP_HARNESS_BROKER_SOCKET is required")
 		os.Exit(1)
 	}
-	m := initialModel(frame{}, *noANSI)
+	m := initialModelWithCmuxManifest(frame{}, *noANSI, loadCmuxManifest(os.Getenv("HOLP_HARNESS_CMUX_MANIFEST_PATH")))
 	m.socketPath = socketPath
 	program := tea.NewProgram(m, tea.WithAltScreen())
 	go streamBrokerFrames(socketPath, program)
