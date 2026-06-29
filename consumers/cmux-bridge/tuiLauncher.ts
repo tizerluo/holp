@@ -14,6 +14,7 @@ import {
   addManifestDegradedReason,
   addManifestSurface,
   createCmuxTuiSessionManifest,
+  manifestPathForSession,
   parseCmuxSurface,
   recordManifestCommandResult,
   sessionDirForSession,
@@ -24,8 +25,8 @@ import type { CmuxCommandResult, CmuxDegradedReason, CmuxLayoutCommand } from ".
 
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), "..", "..");
-const DEFAULT_GOAL = "Use HOLP through the broker and report the worker result marker.";
 const DEMO_WORKER = "fake-agent";
+type ControllerAgent = "codex" | "kimi-code";
 
 export interface CmuxTuiLauncherOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
@@ -72,6 +73,7 @@ export async function runCmuxTuiLauncher(options: CmuxTuiLauncherOptions = {}): 
   const sessionId = parsed.sessionId ?? sessionIdFromExistingBroker(parsed.brokerSocket) ?? randomUUID();
   const shouldStartBroker = !parsed.brokerSocket;
   const brokerSocket = parsed.brokerSocket ?? path.join(sessionDirForSession(sessionId), "broker.sock");
+  const manifestPath = manifestPathForSession(sessionId);
   let manifest = createCmuxTuiSessionManifest({
     sessionId,
     workspaceId: workspaceId ?? "missing",
@@ -90,6 +92,11 @@ export async function runCmuxTuiLauncher(options: CmuxTuiLauncherOptions = {}): 
   }
 
   const controller = parsed.controller ?? "codex";
+  if (controller !== "codex") {
+    manifest = addManifestDegradedReason(manifest, "unsupported_controller_interactive_path");
+    return finish("degraded");
+  }
+
   const controllerBinary = controllerBinaryName(controller);
   const isOnPath = options.isOnPath ?? defaultIsOnPath;
   if (!parsed.demo && !isOnPath(controllerBinary)) {
@@ -125,19 +132,6 @@ export async function runCmuxTuiLauncher(options: CmuxTuiLauncherOptions = {}): 
     pane_id: tui.paneId,
     last_command: tui.result.command,
   });
-  writeCmuxTuiSessionManifest(manifest);
-
-  const tuiCommand = buildTuiStartupCommand({
-    brokerSocket,
-    sessionId,
-    startBroker: shouldStartBroker,
-    transport: parsed.demo ? "fake" : parsed.transport,
-    locale: parsed.locale,
-    env: parsed.demo ? { HOLP_REGISTRY: "fake" } : undefined,
-  });
-  const tuiSend = sendCommand(workspaceId, tui.surfaceId, tuiCommand, { kind: "mission-control", title: "HOLP TUI" });
-  assertValidCmuxLayoutCommand(tuiSend);
-  manifest = recordCmuxMutationResult(manifest, await runner(cmuxCommand, cmuxCommandArgs(tuiSend), cwd));
 
   const controllerSurface = await createTerminalSurface({
     cmuxCommand,
@@ -150,29 +144,44 @@ export async function runCmuxTuiLauncher(options: CmuxTuiLauncherOptions = {}): 
   manifest = recordManifestCommandResult(manifest, controllerSurface.result);
   if (!controllerSurface.surfaceId) {
     manifest = addManifestDegradedReason(manifest, "missing_surface_handle");
-    return finish("degraded");
+  } else {
+    manifest = addManifestSurface(manifest, "controller", {
+      surface_id: controllerSurface.surfaceId,
+      pane_id: controllerSurface.paneId,
+      agent: controller,
+      last_command: controllerSurface.result.command,
+    });
   }
-  manifest = addManifestSurface(manifest, "controller", {
-    surface_id: controllerSurface.surfaceId,
-    pane_id: controllerSurface.paneId,
-    agent: controller,
-    last_command: controllerSurface.result.command,
-  });
   writeCmuxTuiSessionManifest(manifest);
 
-  const bootPrompt = buildControllerBootPrompt({
+  const tuiCommand = buildTuiStartupCommand({
     brokerSocket,
-    goal: parsed.goal ?? DEFAULT_GOAL,
-    worker: parsed.demo ? DEMO_WORKER : parsed.worker,
-    controller,
-    controllerAutostart: parsed.controllerAutostart,
+    sessionId,
+    startBroker: shouldStartBroker,
+    transport: parsed.demo ? "fake" : parsed.transport,
+    locale: parsed.locale,
+    manifestPath,
+    env: parsed.demo ? { HOLP_REGISTRY: "fake" } : undefined,
   });
-  const controllerSend = sendCommand(workspaceId, controllerSurface.surfaceId, bootPrompt, {
-    kind: "mission-control",
-    title: "HOLP Controller",
-  });
-  assertValidCmuxLayoutCommand(controllerSend);
-  manifest = recordCmuxMutationResult(manifest, await runner(cmuxCommand, cmuxCommandArgs(controllerSend), cwd));
+  const tuiSend = sendCommand(workspaceId, tui.surfaceId, tuiCommand, { kind: "mission-control", title: "HOLP TUI" });
+  assertValidCmuxLayoutCommand(tuiSend);
+  manifest = recordCmuxMutationResult(manifest, await runner(cmuxCommand, cmuxCommandArgs(tuiSend), cwd));
+
+  if (controllerSurface.surfaceId) {
+    const bootPrompt = buildControllerBootPrompt({
+      brokerSocket,
+      goal: parsed.goal,
+      worker: parsed.demo ? DEMO_WORKER : parsed.worker,
+      controller,
+      locale: parsed.locale,
+    });
+    const controllerSend = sendCommand(workspaceId, controllerSurface.surfaceId, bootPrompt, {
+      kind: "mission-control",
+      title: "HOLP Controller",
+    });
+    assertValidCmuxLayoutCommand(controllerSend);
+    manifest = recordCmuxMutationResult(manifest, await runner(cmuxCommand, cmuxCommandArgs(controllerSend), cwd));
+  }
   for (const command of sidebarCommands(workspaceId, sessionId)) {
     assertValidCmuxLayoutCommand(command);
     manifest = recordCmuxMutationResult(manifest, await runner(cmuxCommand, cmuxCommandArgs(command), cwd));
@@ -210,32 +219,22 @@ export async function probeCmuxTuiCapabilities(options: {
 
 export function buildControllerBootPrompt(options: {
   readonly brokerSocket: string;
-  readonly goal: string;
+  readonly goal?: string;
   readonly worker?: string;
-  readonly controller: "codex" | "kimi-code";
-  readonly controllerAutostart?: boolean;
+  readonly controller: ControllerAgent;
+  readonly locale?: string;
 }): string {
-  const instructionRepoRoot = cmuxSafeText(repoRoot);
-  const brokerSocket = cmuxSafeText(options.brokerSocket);
-  const goal = cmuxSafeText(options.goal);
-  const worker = options.worker ? cmuxSafeText(options.worker) : undefined;
-  const workersCommand = `HOLP_HARNESS_BROKER_SOCKET=${shellQuote(brokerSocket)} npm run harness:workspace:client -- workers`;
-  const runCommand = worker
-    ? `HOLP_HARNESS_BROKER_SOCKET=${shellQuote(brokerSocket)} npm run harness:workspace:client -- run --goal ${shellQuote(goal)} --worker ${shellQuote(worker)}`
-    : undefined;
-  const controllerCommand = options.controller === "codex" ? "codex" : "kimi";
-  const instructions = [
-    "HOLP Harness Workspace Controller",
-    `Repo: ${instructionRepoRoot}`,
-    `Broker: ${brokerSocket}`,
-    "Use HOLP public wire through the broker; do not start a second daemon.",
-    `List workers first: ${workersCommand}`,
-    runCommand ? `Run command: ${runCommand}` : "No worker is selected yet. Run the workers command first, then choose a listed worker id.",
-    `Controller CLI: ${controllerCommand}`,
+  const instruction = controllerInstruction(options);
+  const command = controllerLaunchCommand(options.controller, instruction);
+  const exports = [
+    `export HOLP_HARNESS_BROKER_SOCKET=${shellQuote(options.brokerSocket)}`,
+    ...(options.locale ? [`export HOLP_HARNESS_LOCALE=${shellQuote(options.locale)}`] : []),
   ];
-  const printInstructions = `node -e ${shellQuote(`console.log(${JSON.stringify(instructions)}.join(String.fromCharCode(10)))`)}`;
-  const autostart = options.controllerAutostart ? ` && ${controllerCommand}` : "";
-  return `cd ${shellQuote(repoRoot)} && ${printInstructions}${autostart}\n`;
+  return [
+    `cd ${shellQuote(repoRoot)}`,
+    ...exports,
+    command,
+  ].join(" && ") + "\n";
 }
 
 export function buildTuiStartupCommand(options: {
@@ -244,6 +243,7 @@ export function buildTuiStartupCommand(options: {
   readonly startBroker?: boolean;
   readonly transport?: string;
   readonly locale?: string;
+  readonly manifestPath?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
 }): string {
   const brokerLog = path.join(sessionDirForSession(options.sessionId), "broker.log");
@@ -257,10 +257,15 @@ export function buildTuiStartupCommand(options: {
     ...(options.transport ? ["--transport", shellQuote(options.transport)] : []),
     ...(options.locale ? ["--locale", shellQuote(options.locale)] : []),
   ].join(" ");
+  const tuiEnv = {
+    HOLP_HARNESS_BROKER_SOCKET: options.brokerSocket,
+    ...(options.locale ? { HOLP_HARNESS_LOCALE: options.locale } : {}),
+    ...(options.manifestPath ? { HOLP_HARNESS_CMUX_MANIFEST_PATH: options.manifestPath } : {}),
+  };
   const lines = [
     `cd ${shellQuote(repoRoot)} || exit 1`,
     `for i in $(seq 1 80); do [ -S ${shellQuote(options.brokerSocket)} ] && break; sleep 0.25; done`,
-    `${shellEnvPrefix({ HOLP_HARNESS_BROKER_SOCKET: options.brokerSocket, ...(options.locale ? { HOLP_HARNESS_LOCALE: options.locale } : {}) })}npm run harness:workspace:tui`,
+    `${shellEnvPrefix(tuiEnv)}npm run harness:workspace:tui`,
     "\n",
   ];
   if (options.startBroker !== false) {
@@ -324,22 +329,20 @@ function parseLauncherArgs(argv: readonly string[]): {
   readonly workspace?: string;
   readonly sessionId?: string;
   readonly brokerSocket?: string;
-  readonly controller?: "codex" | "kimi-code";
+  readonly controller?: ControllerAgent;
   readonly worker?: string;
   readonly goal?: string;
   readonly demo: boolean;
-  readonly controllerAutostart: boolean;
   readonly transport?: string;
   readonly locale?: string;
 } {
   let workspace: string | undefined;
   let sessionId: string | undefined;
   let brokerSocket: string | undefined;
-  let controller: "codex" | "kimi-code" | undefined;
+  let controller: ControllerAgent | undefined;
   let worker: string | undefined;
   let goal: string | undefined;
   let demo = false;
-  let controllerAutostart = false;
   let transport: string | undefined;
   let locale: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
@@ -365,8 +368,6 @@ function parseLauncherArgs(argv: readonly string[]): {
       index += 1;
     } else if (arg === "--demo") {
       demo = true;
-    } else if (arg === "--controller-autostart") {
-      controllerAutostart = true;
     } else if (arg === "--transport" && value) {
       transport = value;
       index += 1;
@@ -375,11 +376,45 @@ function parseLauncherArgs(argv: readonly string[]): {
       index += 1;
     }
   }
-  return { workspace, sessionId, brokerSocket, controller, worker, goal, demo, controllerAutostart, transport, locale };
+  return { workspace, sessionId, brokerSocket, controller, worker, goal, demo, transport, locale };
 }
 
-function controllerBinaryName(controller: "codex" | "kimi-code"): string {
+function controllerBinaryName(controller: ControllerAgent): string {
   return controller === "codex" ? "codex" : "kimi";
+}
+
+function controllerLaunchCommand(controller: ControllerAgent, instruction: string): string {
+  if (controller === "codex") {
+    return `codex -C ${shellQuote(repoRoot)} ${shellQuote(instruction)}`;
+  }
+  return `printf %s ${shellQuote("kimi-code interactive controller path is unsupported in this entry; rerun with --controller codex.")}`;
+}
+
+function controllerInstruction(options: {
+  readonly brokerSocket: string;
+  readonly goal?: string;
+  readonly worker?: string;
+  readonly controller: ControllerAgent;
+}): string {
+  const worker = cmuxSafeText(options.worker ?? "auto");
+  const exampleGoal = cmuxSafeText(options.goal ?? "<human goal>");
+  const brokerSocket = cmuxSafeText(options.brokerSocket);
+  const workersCommand = "npm run harness:workspace:client -- workers";
+  const statusCommand = "npm run harness:workspace:client -- status";
+  const runCommand = `npm run harness:workspace:client -- run --goal ${shellQuote(exampleGoal)} --worker ${shellQuote(worker)}`;
+  const approveCommand = "npm run harness:workspace:client -- approve --decision approved --reason \"<reason>\"";
+  const rejectCommand = "npm run harness:workspace:client -- approve --decision rejected --reason \"<reason>\"";
+  return [
+    "You are the HOLP Harness Workspace Controller Agent.",
+    `Repo is ${repoRoot}.`,
+    `The human will interact with you in natural language; wait for their first real task.`,
+    `HOLP_HARNESS_BROKER_SOCKET is already exported as ${brokerSocket}; do not ask the human to copy broker or socket details.`,
+    "Use HOLP public wire through the shared broker with npm run harness:workspace:client; do not start a second daemon.",
+    `First inspect ${workersCommand} or ${statusCommand}.`,
+    `When ready, dispatch with ${runCommand}.`,
+    `If approval is pending, explain it, then use ${approveCommand} or ${rejectCommand} as appropriate.`,
+    `Controller CLI path: ${options.controller}.`,
+  ].join(" ");
 }
 
 function defaultIsOnPath(command: string): boolean {

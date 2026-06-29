@@ -149,6 +149,87 @@ describe("harness workspace controller helper", () => {
     if (previous === undefined) delete process.env.HOLP_HARNESS_BROKER_SOCKET;
     else process.env.HOLP_HARNESS_BROKER_SOCKET = previous;
   });
+
+  it("prints status from the broker initial frame without sending a status command", async () => {
+    const previous = process.env.HOLP_HARNESS_BROKER_SOCKET;
+    const dir = mkdtempSync(path.join(tmpdir(), "holp-client-status-cli-"));
+    const socketPath = path.join(dir, "broker.sock");
+    const received: unknown[] = [];
+    const frame: WorkspaceTuiFrameV1 = {
+      ...workerFrame(),
+      run_id: "run_status",
+      selected_agent: "fake-agent",
+      worker_session: "holp-worker",
+      attach_command: "tmux attach -t holp-worker",
+      approval: { state: "requested", approval_id: "ap_1" },
+      terminal: { state: "blocked", reason: "needs approval" },
+      failures: ["gate blocked"],
+    };
+    const server = net.createServer((socket) => {
+      socket.on("data", (chunk) => {
+        received.push(JSON.parse(chunk.toString("utf8")));
+      });
+      writeJsonLine(socket, frame);
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    process.env.HOLP_HARNESS_BROKER_SOCKET = socketPath;
+    const writes: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
+      writes.push(chunk.toString());
+      return true;
+    });
+
+    await runClientCli(["status"]);
+    await runClientCli(["status", "--json"]);
+
+    expect(received).toEqual([]);
+    expect(writes[0]).toContain("Run: run_status");
+    expect(writes[0]).toContain("Approval: state=requested approval_id=ap_1");
+    expect(writes[0]).toContain("Terminal: state=blocked reason=needs approval");
+    expect(writes[0]).toContain("Next action: explain pending approval ap_1");
+    const json = JSON.parse(writes[1] ?? "") as { run_id: string; next_action: string };
+    expect(json.run_id).toBe("run_status");
+    expect(json.next_action).toContain("pending approval");
+    if (previous === undefined) delete process.env.HOLP_HARNESS_BROKER_SOCKET;
+    else process.env.HOLP_HARNESS_BROKER_SOCKET = previous;
+  });
+
+  it("CLI parses run --worker auto and approve commands", async () => {
+    const previous = process.env.HOLP_HARNESS_BROKER_SOCKET;
+    const dir = mkdtempSync(path.join(tmpdir(), "holp-client-commands-"));
+    const socketPath = path.join(dir, "broker.sock");
+    const received: unknown[] = [];
+    const server = net.createServer((socket) => {
+      socket.once("data", (chunk) => {
+        const command = JSON.parse(chunk.toString("utf8")) as { type: string };
+        received.push(command);
+        writeJsonLine(socket, command.type === "approve"
+          ? { type: "ack", command: "approve", approval_id: "ap_1" }
+          : { type: "ack", command: "run", run_id: "run_auto", worker: "coder-1" });
+      });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    process.env.HOLP_HARNESS_BROKER_SOCKET = socketPath;
+    const writes: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
+      writes.push(chunk.toString());
+      return true;
+    });
+
+    await runClientCli(["run", "--goal", "ship it", "--worker", "auto"]);
+    await runClientCli(["approve", "--decision", "rejected", "--reason", "needs more evidence"]);
+
+    expect(received).toEqual([
+      { type: "run", goal: "ship it", worker: "auto" },
+      { type: "approve", decision: "rejected", reason: "needs more evidence" },
+    ]);
+    expect(writes[0]).toContain('"worker":"coder-1"');
+    expect(writes[1]).toContain('"approval_id":"ap_1"');
+    if (previous === undefined) delete process.env.HOLP_HARNESS_BROKER_SOCKET;
+    else process.env.HOLP_HARNESS_BROKER_SOCKET = previous;
+  });
 });
 
 function workerFrame(): WorkspaceTuiFrameV1 {

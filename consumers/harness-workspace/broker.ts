@@ -12,6 +12,9 @@ import {
   recordEvent,
   recordInitialize,
   recordRunAccepted,
+  objectPayload,
+  stringField,
+  arrayPayload,
 } from "./state.js";
 import { createReplaySnapshot, exportReplaySnapshotJson } from "./replay.js";
 import { attachJsonLineSocket, writeJsonLine } from "./socketJson.js";
@@ -24,15 +27,17 @@ const serverEntry = path.join(repoRoot, "daemon", "runtime", "server.ts");
 const BASE_DIR = "/tmp/holp-harness-workspace";
 const DISCOVER_TIMEOUT_MS = 20_000;
 const RUN_TIMEOUT_MS = 20_000;
+const DIRECT_USER_SESSION = "direct_user_session";
 
 export type BrokerCommand =
   | { readonly type: "run"; readonly goal: string; readonly worker: string }
+  | { readonly type: "approve"; readonly decision: ApprovalDecision; readonly reason: string }
   | { readonly type: "cancel"; readonly run_id?: string; readonly reason?: string }
   | { readonly type: "follow"; readonly agent: string }
   | { readonly type: "snapshot" };
 
 export type BrokerResponse =
-  | { readonly type: "ack"; readonly command: BrokerCommand["type"]; readonly run_id?: string; readonly socket_path?: string; readonly replay_path?: string }
+  | { readonly type: "ack"; readonly command: BrokerCommand["type"]; readonly run_id?: string; readonly worker?: string; readonly approval_id?: string; readonly socket_path?: string; readonly replay_path?: string }
   | { readonly type: "error"; readonly command?: string; readonly message: string };
 
 export interface HarnessWorkspaceBrokerOptions {
@@ -47,6 +52,7 @@ export interface HarnessWorkspaceBrokerOptions {
 }
 
 type BrokerDaemonClient = Pick<DaemonClient, "call" | "onEvent" | "close">;
+type ApprovalDecision = "approved" | "rejected";
 
 export class HarnessWorkspaceBroker {
   readonly sessionId: string;
@@ -113,7 +119,7 @@ export class HarnessWorkspaceBroker {
       DISCOVER_TIMEOUT_MS,
     );
     this.state = recordDiscovery(this.state, discovery);
-    this.selectedAgentId = discovery.agents[0]?.id;
+    this.selectedAgentId = Object.keys(this.state.agents).sort()[0];
 
     await this.persistReplaySerialized();
     await new Promise<void>((resolve, reject) => {
@@ -158,6 +164,8 @@ export class HarnessWorkspaceBroker {
     switch (command.type) {
       case "run":
         return this.run(command);
+      case "approve":
+        return this.approve(command);
       case "cancel":
         return this.cancel(command);
       case "follow":
@@ -192,23 +200,84 @@ export class HarnessWorkspaceBroker {
   }
 
   private async run(command: Extract<BrokerCommand, { type: "run" }>): Promise<BrokerResponse> {
-    if (!this.state.agents[command.worker]) {
-      return { type: "error", command: "run", message: `unsupported worker '${command.worker}'` };
+    const resolved = this.resolveWorker(command.worker);
+    if (resolved.type === "error") {
+      return { type: "error", command: "run", message: resolved.message };
     }
-    this.selectedAgentId = command.worker;
+    this.selectedAgentId = resolved.agent.id;
+    const coderRole = {
+      agent: resolved.agent.id,
+      ...(resolved.preferredRuntimeSurface ? { preferred_runtime_surface: resolved.preferredRuntimeSurface } : {}),
+    };
     const run = await this.daemon.call<{ run_id: string; accepted: boolean }>("orchestrate.run", {
       goal: command.goal,
       roles: {
-        coder: {
-          agent: command.worker,
-        },
+        coder: coderRole,
       },
     }, RUN_TIMEOUT_MS);
-    this.state = recordRunAccepted(this.state, { ...run, agent_id: command.worker });
+    this.state = recordRunAccepted(this.state, { ...run, agent_id: resolved.agent.id });
     await this.daemon.call("events.subscribe", { run_id: run.run_id, after_seq: 0 });
     await this.persistReplaySerialized();
     this.broadcastFrame();
-    return { type: "ack", command: "run", run_id: run.run_id };
+    return { type: "ack", command: "run", run_id: run.run_id, worker: resolved.agent.id };
+  }
+
+  private async approve(command: Extract<BrokerCommand, { type: "approve" }>): Promise<BrokerResponse> {
+    const pending = pendingApproval(this.state);
+    if (!pending) {
+      return { type: "error", command: "approve", message: "no current pending approval" };
+    }
+
+    const baseParams = {
+      approval_id: pending.approvalId,
+      decision: command.decision,
+      by: "user:harness-workspace",
+      reason: command.reason,
+    };
+    if (pending.kind === "merge_approval") {
+      await this.daemon.call("approval.resolve", baseParams);
+      return { type: "ack", command: "approve", approval_id: pending.approvalId };
+    }
+    if (pending.kind !== "semantic_decision") {
+      return { type: "error", command: "approve", message: `unsupported pending approval kind '${pending.kind}'` };
+    }
+
+    const audit = semanticApprovalAudit(this.state, command);
+    if (audit.type === "error") {
+      return { type: "error", command: "approve", message: audit.message };
+    }
+    await this.daemon.call("approval.resolve", { ...baseParams, ...audit.params });
+    return { type: "ack", command: "approve", approval_id: pending.approvalId };
+  }
+
+  private resolveWorker(worker: string): { readonly type: "ok"; readonly agent: DiscoveredAgent; readonly preferredRuntimeSurface?: typeof DIRECT_USER_SESSION } | { readonly type: "error"; readonly message: string } {
+    const realMode = this.transport !== "fake";
+    if (worker === "auto") {
+      const candidates = this.frame().agents
+        .filter((agent) => isUsableWorker(agent, realMode))
+        .sort((left, right) => left.id.localeCompare(right.id));
+      const agent = candidates[0];
+      return agent
+        ? { type: "ok", agent, ...(realMode ? { preferredRuntimeSurface: DIRECT_USER_SESSION } : {}) }
+        : { type: "error", message: "no usable direct_user_session worker found for --worker auto; inspect `workers` or pass an explicit discovered non-fake direct worker" };
+    }
+
+    const agent = this.state.agents[worker];
+    if (!agent) {
+      return { type: "error", message: `unsupported worker '${worker}'` };
+    }
+    if (realMode && isFakeWorker(agent)) {
+      return { type: "error", message: `worker '${worker}' is fake/demo-only and cannot be used in real mode` };
+    }
+    if (!isUsableWorker(agent, realMode)) {
+      return {
+        type: "error",
+        message: realMode
+          ? `worker '${worker}' is not usable: direct_user_session surface is not ready or owner_verified proof is missing`
+          : `worker '${worker}' is not usable: no supported runtime surface is advertised by the broker frame`,
+      };
+    }
+    return { type: "ok", agent, ...(realMode ? { preferredRuntimeSurface: DIRECT_USER_SESSION } : {}) };
   }
 
   private async cancel(command: Extract<BrokerCommand, { type: "cancel" }>): Promise<BrokerResponse> {
@@ -309,6 +378,11 @@ function isCommand(value: unknown): value is BrokerCommand {
   if (typeof value !== "object" || value === null) return false;
   const command = value as Partial<BrokerCommand>;
   if (command.type === "run") return typeof command.goal === "string" && typeof command.worker === "string";
+  if (command.type === "approve") {
+    return (command.decision === "approved" || command.decision === "rejected")
+      && typeof command.reason === "string"
+      && command.reason.length > 0;
+  }
   if (command.type === "cancel") return command.run_id === undefined || typeof command.run_id === "string";
   if (command.type === "follow") return typeof command.agent === "string";
   return command.type === "snapshot";
@@ -317,7 +391,83 @@ function isCommand(value: unknown): value is BrokerCommand {
 function commandType(value: unknown): BrokerCommand["type"] | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const type = (value as { type?: unknown }).type;
-  return type === "run" || type === "cancel" || type === "follow" || type === "snapshot" ? type : undefined;
+  return type === "run" || type === "approve" || type === "cancel" || type === "follow" || type === "snapshot" ? type : undefined;
+}
+
+function isUsableWorker(agent: DiscoveredAgent, realMode: boolean): boolean {
+  if (realMode && isFakeWorker(agent)) return false;
+  if (agent.status !== undefined && agent.status !== "ready" && agent.status !== "active") return false;
+  return agent.runtime_surfaces?.some((surface) => usableRuntimeSurface(surface, realMode)) ?? false;
+}
+
+function usableRuntimeSurface(surface: Record<string, unknown>, realMode: boolean): boolean {
+  const support = stringField(surface, "surface_support");
+  if (support !== "supported") return false;
+  const runtimeSurface = stringField(surface, "runtime_surface");
+  const runtimeKind = stringField(surface, "runtime_kind") ?? stringField(surface, "runtime_surface");
+  if (!runtimeKind || runtimeKind.includes("stub")) return false;
+  if (realMode && runtimeSurface !== DIRECT_USER_SESSION) return false;
+  if (realMode && runtimeKind.includes("fake")) return false;
+  return !realMode || directSurfaceReady(surface);
+}
+
+function directSurfaceReady(surface: Record<string, unknown>): boolean {
+  const isolationProfiles = objectPayload(surface.isolation_profiles);
+  const coderWorktree = objectPayload(isolationProfiles.coder_worktree);
+  const directChannel = objectPayload(surface.direct_channel);
+  return stringField(coderWorktree, "readiness") === "ready"
+    && arrayPayload(directChannel.capability_bitmask).includes("owner_verified");
+}
+
+function isFakeWorker(agent: DiscoveredAgent): boolean {
+  if (agent.id === "fake-agent" || agent.id.startsWith("fake-")) return true;
+  return agent.runtime_surfaces?.some((surface) => {
+    const runtimeKind = stringField(surface, "runtime_kind") ?? "";
+    const declaration = stringField(surface, "state_declaration_ref") ?? "";
+    return runtimeKind.includes("fake") || declaration.includes("fake");
+  }) ?? false;
+}
+
+function pendingApproval(state: HarnessWorkspaceState): { readonly approvalId: string; readonly kind: string } | undefined {
+  const approval = state.approval;
+  if (approval?.state !== "requested" || !approval.approval_id) return undefined;
+  const payload = objectPayload(approval.event.payload);
+  const kind = stringField(payload, "kind");
+  if (!kind) return undefined;
+  return { approvalId: approval.approval_id, kind };
+}
+
+function semanticApprovalAudit(
+  state: HarnessWorkspaceState,
+  command: Extract<BrokerCommand, { type: "approve" }>,
+): { readonly type: "ok"; readonly params: { readonly previous_gate_outcome: string; readonly new_gate_outcome: string; readonly artifact_refs: readonly string[] } } | { readonly type: "error"; readonly message: string } {
+  const previous = state.gate?.reviewOutcome;
+  if (!previous || previous === "none") {
+    return {
+      type: "error",
+      message: "semantic_decision approval cannot be resolved: previous_gate_outcome is unavailable from broker state",
+    };
+  }
+  return {
+    type: "ok",
+    params: {
+      previous_gate_outcome: previous,
+      new_gate_outcome: command.decision === "approved" ? "approved" : "rejected",
+      artifact_refs: approvalArtifactRefs(state),
+    },
+  };
+}
+
+function approvalArtifactRefs(state: HarnessWorkspaceState): readonly string[] {
+  const approvalPayload = objectPayload(state.approval?.event.payload);
+  const provenance = objectPayload(approvalPayload.provenance);
+  const refs = [
+    ...state.artifactRefs,
+    ...arrayPayload(approvalPayload.artifact_refs).filter((item): item is string => typeof item === "string"),
+    stringField(approvalPayload, "artifact_id"),
+    stringField(provenance, "artifact_id"),
+  ].filter((item): item is string => typeof item === "string" && item.length > 0);
+  return [...new Set(refs)].sort();
 }
 
 function parseBrokerArgs(argv: readonly string[]): {

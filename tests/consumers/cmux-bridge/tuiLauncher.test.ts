@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   buildControllerBootPrompt,
@@ -62,23 +62,21 @@ describe("cmux TUI launcher", () => {
   });
 
   it("degrades when the requested controller binary is missing", async () => {
-    for (const [controller, binary] of [["codex", "codex"], ["kimi-code", "kimi"]] as const) {
-      const id = sessionId(`missing-${controller}`);
-      try {
-        const result = await runCmuxTuiLauncher({
-          argv: ["--session-id", id, "--workspace", "workspace:1", "--controller", controller],
-          env: { HOLP_HARNESS_WORKSPACE_TUI: "1" },
-          isOnPath: (command) => command !== binary,
-          runner: async () => {
-            throw new Error("must not probe cmux when controller binary is missing");
-          },
-        });
+    const id = sessionId("missing-codex");
+    try {
+      const result = await runCmuxTuiLauncher({
+        argv: ["--session-id", id, "--workspace", "workspace:1", "--controller", "codex"],
+        env: { HOLP_HARNESS_WORKSPACE_TUI: "1" },
+        isOnPath: (command) => command !== "codex",
+        runner: async () => {
+          throw new Error("must not probe cmux when controller binary is missing");
+        },
+      });
 
-        expect(result.mode).toBe("degraded");
-        expect(result.degraded_reasons).toContain("missing_controller_binary");
-      } finally {
-        rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
-      }
+      expect(result.mode).toBe("degraded");
+      expect(result.degraded_reasons).toContain("missing_controller_binary");
+    } finally {
+      rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
     }
   });
 
@@ -107,11 +105,12 @@ describe("cmux TUI launcher", () => {
   it("creates HOLP-owned TUI and controller terminal panes with workspace scope and focus false", async () => {
     const id = sessionId("planned");
     const calls: string[][] = [];
+    let manifestAtTuiSend: { surfaces?: Record<string, { surface_id?: string }> } | undefined;
     try {
       const result = await runCmuxTuiLauncher({
-        argv: ["--session-id", id, "--workspace", "workspace:1", "--controller", "kimi-code", "--worker", "opencode"],
+        argv: ["--session-id", id, "--workspace", "workspace:1", "--controller", "codex", "--worker", "opencode"],
         env: { HOLP_HARNESS_WORKSPACE_TUI: "1" },
-        isOnPath: (command) => command === "kimi",
+        isOnPath: (command) => command === "codex",
         runner: async (command, args) => {
           calls.push([...args]);
           if (args[0] === "new-pane" && args.includes("--direction") && args.includes("right")) {
@@ -121,6 +120,9 @@ describe("cmux TUI launcher", () => {
             return ok(command, args, "created pane:pane-controller surface:surface-controller");
           }
           if (args[0] === "new-pane" || args[0] === "send") {
+            if (args[0] === "send" && args.includes("surface:surface-tui")) {
+              manifestAtTuiSend = JSON.parse(readFileSync(`/tmp/holp-harness-workspace/${id}/cmux-surfaces.json`, "utf8"));
+            }
             return ok(command, args, "Usage: cmux new-pane --workspace --focus --type <terminal|browser>\nUsage: cmux send --workspace --surface");
           }
           return ok(command, args);
@@ -130,6 +132,7 @@ describe("cmux TUI launcher", () => {
       expect(result.mode).toBe("planned");
       expect(result.manifest.surfaces.tui?.surface_id).toBe("surface:surface-tui");
       expect(result.manifest.surfaces.controller?.surface_id).toBe("surface:surface-controller");
+      expect(manifestAtTuiSend?.surfaces?.controller?.surface_id).toBe("surface:surface-controller");
       const newPaneCalls = calls.filter((args) => args[0] === "new-pane" && !args.includes("--help"));
       expect(newPaneCalls).toHaveLength(2);
       for (const args of newPaneCalls) {
@@ -144,7 +147,77 @@ describe("cmux TUI launcher", () => {
       expect(sends).toHaveLength(2);
       expect(sends.every((args) => args.includes("--workspace") && args.includes("--surface"))).toBe(true);
       expect(sends.some((args) => args.join(" ").includes("harness:workspace:client"))).toBe(true);
+      const tuiPayload = sends.find((args) => args.includes("surface:surface-tui"))?.at(-1) ?? "";
+      expect(tuiPayload).toContain(`HOLP_HARNESS_CMUX_MANIFEST_PATH=/tmp/holp-harness-workspace/${id}/cmux-surfaces.json`);
+      const controllerPayload = sends.find((args) => args.includes("surface:surface-controller"))?.at(-1) ?? "";
+      expect(controllerPayload).toContain("export HOLP_HARNESS_BROKER_SOCKET=");
+      expect(controllerPayload).toContain("codex -C ");
+      expect(controllerPayload).not.toContain("codex exec");
+      expect(controllerPayload).not.toContain("node -e");
+      expect(controllerPayload).not.toContain("Use HOLP through the broker and report the worker result marker");
       expect(calls.every((args) => !(args[0] === "new-surface" && args.includes("--provider")))).toBe(true);
+    } finally {
+      rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
+    }
+  });
+
+  it("starts the TUI with a degraded manifest when the controller pane handle is missing", async () => {
+    const id = sessionId("missing-controller-handle");
+    const calls: string[][] = [];
+    let manifestAtTuiSend: { degraded_reasons?: string[]; surfaces?: Record<string, unknown> } | undefined;
+    try {
+      const result = await runCmuxTuiLauncher({
+        argv: ["--session-id", id, "--workspace", "workspace:1"],
+        env: { HOLP_HARNESS_WORKSPACE_TUI: "1" },
+        isOnPath: (command) => command === "codex",
+        runner: async (command, args) => {
+          calls.push([...args]);
+          if (args[0] === "new-pane" && args.includes("--direction") && args.includes("right")) {
+            return ok(command, args, "created pane:pane-tui surface:surface-tui");
+          }
+          if (args[0] === "new-pane" && args.includes("--direction") && args.includes("down")) {
+            return ok(command, args, "created pane:pane-controller");
+          }
+          if (args[0] === "send" && args.includes("surface:surface-tui")) {
+            manifestAtTuiSend = JSON.parse(readFileSync(`/tmp/holp-harness-workspace/${id}/cmux-surfaces.json`, "utf8"));
+          }
+          if (args[0] === "new-pane" || args[0] === "send") {
+            return ok(command, args, "Usage: cmux new-pane --workspace --focus --type <terminal|browser>\nUsage: cmux send --workspace --surface");
+          }
+          return ok(command, args);
+        },
+      });
+
+      expect(result.mode).toBe("degraded");
+      expect(result.degraded_reasons).toContain("missing_surface_handle");
+      expect(result.manifest.surfaces.tui?.surface_id).toBe("surface:surface-tui");
+      expect(result.manifest.surfaces.controller).toBeUndefined();
+      expect(manifestAtTuiSend?.degraded_reasons).toContain("missing_surface_handle");
+      expect(manifestAtTuiSend?.surfaces?.controller).toBeUndefined();
+      expect(calls.some((args) => args[0] === "send" && args.includes("surface:surface-tui"))).toBe(true);
+      expect(calls.some((args) => args[0] === "send" && args.includes("surface:surface-controller"))).toBe(false);
+    } finally {
+      rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
+    }
+  });
+
+  it("degrades non-demo kimi-code instead of sending an unverifiable interactive launch", async () => {
+    const id = sessionId("kimi-degraded");
+    const calls: string[][] = [];
+    try {
+      const result = await runCmuxTuiLauncher({
+        argv: ["--session-id", id, "--workspace", "workspace:1", "--controller", "kimi-code"],
+        env: { HOLP_HARNESS_WORKSPACE_TUI: "1" },
+        isOnPath: () => true,
+        runner: async (_command, args) => {
+          calls.push([...args]);
+          throw new Error("must not probe or mutate cmux for unsupported kimi controller");
+        },
+      });
+
+      expect(result.mode).toBe("degraded");
+      expect(result.degraded_reasons).toContain("unsupported_controller_interactive_path");
+      expect(calls).toEqual([]);
     } finally {
       rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
     }
@@ -154,13 +227,14 @@ describe("cmux TUI launcher", () => {
     const script = buildTuiStartupCommand({
       sessionId: "session-shell",
       brokerSocket: "/tmp/holp-harness-workspace/session-shell/broker.sock",
+      manifestPath: "/tmp/holp-harness-workspace/session-shell/cmux-surfaces.json",
     });
 
     expect(script).not.toContain("& &&");
     expect(script).toContain("npm run harness:workspace:broker -- --session-id session-shell");
     expect(script).toContain("> /tmp/holp-harness-workspace/session-shell/broker.log 2>&1 &");
     expect(script).toContain("for i in $(seq 1 80); do [ -S /tmp/holp-harness-workspace/session-shell/broker.sock ] && break; sleep 0.25; done");
-    expect(script).toContain("HOLP_HARNESS_BROKER_SOCKET=/tmp/holp-harness-workspace/session-shell/broker.sock npm run harness:workspace:tui");
+    expect(script).toContain("HOLP_HARNESS_BROKER_SOCKET=/tmp/holp-harness-workspace/session-shell/broker.sock HOLP_HARNESS_CMUX_MANIFEST_PATH=/tmp/holp-harness-workspace/session-shell/cmux-surfaces.json npm run harness:workspace:tui");
 
     const zsh = spawnSync("zsh", ["-n"], { input: script, encoding: "utf8" });
     if (zsh.error && "code" in zsh.error && zsh.error.code === "ENOENT") return;
@@ -168,52 +242,41 @@ describe("cmux TUI launcher", () => {
     expect(zsh.status).toBe(0);
   });
 
-  it("builds a cmux-safe controller instruction payload with one final submit", () => {
+  it("builds a cmux-safe real controller launch payload with the boot prompt as agent instruction", () => {
     const codex = buildControllerBootPrompt({
       brokerSocket: "/tmp/holp-harness-workspace/session-controller/broker.sock",
-      goal: "demo\ngoal\twith controls",
       controller: "codex",
+      locale: "zh-CN",
     });
-    const kimi = buildControllerBootPrompt({
+    const unsupportedKimi = buildControllerBootPrompt({
       brokerSocket: "/tmp/holp-harness-workspace/session-controller/broker.sock",
-      goal: "demo goal",
-      worker: "opencode",
       controller: "kimi-code",
     });
-
-    expect(codex).toContain("harness:workspace:client");
-    expect(codex).toContain("Repo: ");
-    expect(codex).toContain("HOLP_HARNESS_BROKER_SOCKET=/tmp/holp-harness-workspace/session-controller/broker.sock");
+    expect(codex).toContain("export HOLP_HARNESS_BROKER_SOCKET=/tmp/holp-harness-workspace/session-controller/broker.sock");
+    expect(codex).toContain("export HOLP_HARNESS_LOCALE=zh-CN");
+    expect(codex).toContain("codex -C ");
+    expect(codex.indexOf("export HOLP_HARNESS_BROKER_SOCKET=")).toBeLessThan(codex.indexOf("codex -C "));
+    expect(codex).toContain("The human will interact with you in natural language");
+    expect(codex).toContain("npm run harness:workspace:client -- status");
     expect(codex).toContain("workers");
-    expect(codex).toContain("No worker is selected yet");
-    expect(codex).not.toContain("run --goal");
-    expect(kimi).toContain("--worker opencode");
-    for (const script of [codex, kimi]) {
-      expect(script).not.toMatch(/\\[nrt]/);
-      expect(script).not.toContain("exec codex");
-      expect(script).not.toContain("exec kimi");
-      expect(script.endsWith("\n")).toBe(true);
-      expect([...script.matchAll(/\n/g)]).toHaveLength(1);
-      const zsh = spawnSync("zsh", ["-n"], { input: script, encoding: "utf8" });
-      if (zsh.error && "code" in zsh.error && zsh.error.code === "ENOENT") continue;
+    expect(codex).toContain("--worker auto");
+    expect(codex).toContain("<human goal>");
+    expect(codex).not.toMatch(/\\[nrt]/);
+    expect(codex).not.toContain("exec codex");
+    expect(codex).not.toContain("exec kimi");
+    expect(codex).not.toContain("codex exec");
+    expect(codex).not.toContain("node -e");
+    expect(codex).not.toContain("console.log");
+    expect(codex).not.toMatch(/echo .*&& codex/);
+    expect(unsupportedKimi).toContain("kimi-code interactive controller path is unsupported");
+    expect(unsupportedKimi).not.toContain("kimi ");
+    expect(codex.endsWith("\n")).toBe(true);
+    expect([...codex.matchAll(/\n/g)]).toHaveLength(1);
+    const zsh = spawnSync("zsh", ["-n"], { input: codex, encoding: "utf8" });
+    if (!(zsh.error && "code" in zsh.error && zsh.error.code === "ENOENT")) {
       expect(`${zsh.stderr}${zsh.stdout}`).toBe("");
       expect(zsh.status).toBe(0);
     }
-  });
-
-  it("can optionally autostart a controller command without exec", () => {
-    const script = buildControllerBootPrompt({
-      brokerSocket: "/tmp/holp-harness-workspace/session-controller/broker.sock",
-      goal: "demo goal",
-      worker: "fake-agent",
-      controller: "codex",
-      controllerAutostart: true,
-    });
-
-    expect(script).toMatch(/&& codex\n$/);
-    expect(script).not.toContain("exec codex");
-    expect(script).not.toMatch(/\\[nrt]/);
-    expect([...script.matchAll(/\n/g)]).toHaveLength(1);
   });
 
   it("builds an existing-broker startup payload without starting a second broker", () => {
@@ -260,7 +323,9 @@ describe("cmux TUI launcher", () => {
       const tuiSend = calls.find((args) => args[0] === "send" && args.includes("surface:surface-tui"));
       const payload = tuiSend?.at(-1) ?? "";
       expect(payload).not.toContain("harness:workspace:broker");
-      expect(payload).toContain(`HOLP_HARNESS_BROKER_SOCKET=${brokerSocket} npm run harness:workspace:tui`);
+      expect(payload).toContain(`HOLP_HARNESS_BROKER_SOCKET=${brokerSocket}`);
+      expect(payload).toContain(`HOLP_HARNESS_CMUX_MANIFEST_PATH=/tmp/holp-harness-workspace/${id}/cmux-surfaces.json`);
+      expect(payload).toContain("npm run harness:workspace:tui");
     } finally {
       rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
     }
@@ -298,6 +363,7 @@ describe("cmux TUI launcher", () => {
       expect(tuiPayload).toContain("--transport fake");
       expect(controllerPayload).toContain("--worker fake-agent");
       expect(controllerPayload).not.toContain("exec codex");
+      expect(controllerPayload).toContain("codex -C ");
       expect(calls.every((args) => args.includes("--help") || args.includes("--workspace"))).toBe(true);
       expect(calls.every((args) => args[0] !== "new-surface" || !args.includes("--provider"))).toBe(true);
       const newPaneCalls = calls.filter((args) => args[0] === "new-pane" && !args.includes("--help"));

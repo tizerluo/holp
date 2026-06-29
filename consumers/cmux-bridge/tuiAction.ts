@@ -134,11 +134,15 @@ async function sendBrokerAction(
 async function sendControllerBootPrompt(options: ActionRuntime): Promise<CmuxTuiActionResult> {
   const surface = options.manifest.surfaces.controller;
   if (!surface) return withManifestReason(options.manifest, "surface_not_owned", "send_controller_boot_prompt");
+  const controller = options.parsed.controller ?? manifestControllerAgent(surface.agent) ?? "codex";
+  if (controller !== "codex") {
+    return withManifestReason(options.manifest, "unsupported_controller_interactive_path", "send_controller_boot_prompt");
+  }
   const text = buildControllerBootPrompt({
     brokerSocket: options.manifest.broker_socket,
-    goal: options.parsed.goal ?? "Use HOLP through the broker and report the worker result marker.",
+    goal: options.parsed.goal,
     worker: options.parsed.worker,
-    controller: options.parsed.controller ?? manifestControllerAgent(surface.agent) ?? "codex",
+    controller,
   });
   const command = sendCommand(options.manifest.workspace_id, surface.surface_id, text, "HOLP Controller");
   const ownershipErrors = assertOwnedSendCommand(options.manifest, command);

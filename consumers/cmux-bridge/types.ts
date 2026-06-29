@@ -18,6 +18,7 @@ export type CmuxDegradedReason =
   | "cmux_command_failed"
   | "missing_broker_socket"
   | "missing_controller_binary"
+  | "unsupported_controller_interactive_path"
   | "missing_cmux_capability"
   | "missing_surface_handle"
   | "missing_session_selector"

@@ -128,12 +128,17 @@ describe("cmux TUI operator actions", () => {
         },
       });
 
-      expect(result.ok).toBe(true);
+      expect(result.ok).toBe(false);
+      expect(result.degraded_reasons).toContain("unsupported_controller_interactive_path");
       expect(override.ok).toBe(true);
-      expect(calls[0]?.at(-1)).toContain("Controller CLI: kimi");
-      expect(calls[1]?.at(-1)).toContain("Controller CLI: codex");
-      expect(calls[0]?.at(-1)).not.toContain("exec kimi");
-      expect(calls[1]?.at(-1)).not.toContain("exec codex");
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.at(-1)).toContain("Controller CLI path: codex");
+      expect(calls[0]?.at(-1)).toContain("codex -C ");
+      expect(calls[0]?.at(-1)).not.toContain("exec codex");
+      expect(calls[0]?.at(-1)).not.toContain("codex exec");
+      expect(calls[0]?.at(-1)).not.toContain("node -e");
+      expect(calls[0]?.at(-1)).not.toContain("console.log");
+      expect(calls[0]?.at(-1)).not.toMatch(/echo .*&& codex/);
     } finally {
       rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
     }

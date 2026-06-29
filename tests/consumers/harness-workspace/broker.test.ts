@@ -8,6 +8,7 @@ import { runControllerCommand } from "../../../consumers/harness-workspace/clien
 import { attachJsonLineSocket, writeJsonLine } from "../../../consumers/harness-workspace/socketJson.js";
 import { isWorkspaceTuiFrameV1, type WorkspaceTuiFrameV1 } from "../../../consumers/harness-workspace/tuiFrame.js";
 import type { EventFrame } from "../../../consumers/cli/wire.js";
+import type { DiscoveredAgent } from "../../../consumers/harness-workspace/types.js";
 
 const brokers: HarnessWorkspaceBroker[] = [];
 
@@ -112,10 +113,11 @@ describe("harness workspace broker", () => {
   });
 
   it("fails closed on malformed commands and unsupported workers", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
     const broker = new HarnessWorkspaceBroker({
       baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-unit-")),
       transport: "fake",
-      daemonFactory: () => fakeDaemon(),
+      daemonFactory: () => fakeDaemon({ calls }),
     });
     brokers.push(broker);
     await broker.start();
@@ -128,6 +130,12 @@ describe("harness workspace broker", () => {
       type: "error",
       message: "malformed broker command",
     });
+    const callsBeforeStatus = calls.length;
+    await expect(broker.handleCommand({ type: "status" })).resolves.toMatchObject({
+      type: "error",
+      message: "malformed broker command",
+    });
+    expect(calls).toHaveLength(callsBeforeStatus);
   });
 
   it("pushes WorkspaceTuiFrame.v1 frames over newline-delimited JSON", async () => {
@@ -171,6 +179,224 @@ describe("harness workspace broker", () => {
       worker: "fake-agent",
       timeoutMs: 1000,
     })).rejects.toThrow(/orchestrate failed/);
+  });
+
+  it("selects a deterministic usable worker for --worker auto and records it in broker state", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-auto-")),
+      transport: "mcp-codex",
+      daemonFactory: () => fakeDaemon({
+        calls,
+        agents: [
+          agent("z-headless", "native-headless"),
+          agent("b-worker", "native-direct"),
+          agent("a-worker", "native-direct"),
+          agent("fake-agent", "fake"),
+        ],
+      }),
+    });
+    brokers.push(broker);
+    await broker.start();
+
+    await expect(broker.handleCommand({ type: "run", goal: "x", worker: "auto" })).resolves.toMatchObject({
+      type: "ack",
+      command: "run",
+      worker: "a-worker",
+    });
+
+    expect(calls.find((call) => call.method === "orchestrate.run")?.params).toMatchObject({
+      roles: { coder: { agent: "a-worker", preferred_runtime_surface: "direct_user_session" } },
+    });
+    expect(broker.frame().selected_agent).toBe("a-worker");
+  });
+
+  it("fails closed when auto has no usable real direct worker", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-auto-none-")),
+      transport: "mcp-codex",
+      daemonFactory: () => fakeDaemon({
+        calls,
+        agents: [
+          agent("fake-agent", "fake"),
+          agent("headless-worker", "native-headless"),
+          agent("direct-worker", "direct-unsupported"),
+          agent("degraded-worker", "direct-degraded"),
+          agent("no-owner-worker", "direct-no-owner"),
+        ],
+      }),
+    });
+    brokers.push(broker);
+    await broker.start();
+
+    await expect(broker.handleCommand({ type: "run", goal: "x", worker: "auto" })).resolves.toMatchObject({
+      type: "error",
+      command: "run",
+      message: expect.stringContaining("no usable direct_user_session worker"),
+    });
+    expect(calls.some((call) => call.method === "orchestrate.run")).toBe(false);
+  });
+
+  it("fails closed for explicit fake, headless, unsupported, degraded, or unverified direct workers in real mode", async () => {
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-real-workers-")),
+      transport: "mcp-codex",
+      daemonFactory: () => fakeDaemon({
+        agents: [
+          agent("fake-agent", "fake"),
+          agent("headless-worker", "native-headless"),
+          agent("direct-worker", "direct-unsupported"),
+          agent("degraded-worker", "direct-degraded"),
+          agent("no-owner-worker", "direct-no-owner"),
+        ],
+      }),
+    });
+    brokers.push(broker);
+    await broker.start();
+
+    await expect(broker.handleCommand({ type: "run", goal: "x", worker: "fake-agent" })).resolves.toMatchObject({
+      type: "error",
+      message: expect.stringContaining("fake/demo-only"),
+    });
+    await expect(broker.handleCommand({ type: "run", goal: "x", worker: "headless-worker" })).resolves.toMatchObject({
+      type: "error",
+      message: expect.stringContaining("direct_user_session"),
+    });
+    await expect(broker.handleCommand({ type: "run", goal: "x", worker: "direct-worker" })).resolves.toMatchObject({
+      type: "error",
+      message: expect.stringContaining("not usable"),
+    });
+    await expect(broker.handleCommand({ type: "run", goal: "x", worker: "degraded-worker" })).resolves.toMatchObject({
+      type: "error",
+      message: expect.stringContaining("direct_user_session surface is not ready"),
+    });
+    await expect(broker.handleCommand({ type: "run", goal: "x", worker: "no-owner-worker" })).resolves.toMatchObject({
+      type: "error",
+      message: expect.stringContaining("owner_verified proof is missing"),
+    });
+  });
+
+  it("sends preferred direct_user_session for an explicit real direct worker", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-explicit-direct-")),
+      transport: "mcp-codex",
+      daemonFactory: () => fakeDaemon({
+        calls,
+        agents: [agent("direct-worker", "native-direct")],
+      }),
+    });
+    brokers.push(broker);
+    await broker.start();
+
+    await expect(broker.handleCommand({ type: "run", goal: "x", worker: "direct-worker" })).resolves.toMatchObject({
+      type: "ack",
+      command: "run",
+      worker: "direct-worker",
+    });
+    expect(calls.find((call) => call.method === "orchestrate.run")?.params).toMatchObject({
+      roles: { coder: { agent: "direct-worker", preferred_runtime_surface: "direct_user_session" } },
+    });
+  });
+
+  it("resolves a pending merge approval through approval.resolve", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const daemon = fakeDaemon({ calls });
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-approval-")),
+      transport: "fake",
+      daemonFactory: () => daemon,
+    });
+    brokers.push(broker);
+    await broker.start();
+    daemon.emit(approvalEvent(1, "ap_merge", "merge_approval"));
+
+    await expect(broker.handleCommand({ type: "approve", decision: "approved", reason: "looks safe" })).resolves.toEqual({
+      type: "ack",
+      command: "approve",
+      approval_id: "ap_merge",
+    });
+    expect(calls.find((call) => call.method === "approval.resolve")?.params).toMatchObject({
+      approval_id: "ap_merge",
+      decision: "approved",
+      by: "user:harness-workspace",
+      reason: "looks safe",
+    });
+  });
+
+  it("resolves semantic approval only when broker state can provide audit fields", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const daemon = fakeDaemon({ calls });
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-semantic-")),
+      transport: "fake",
+      daemonFactory: () => daemon,
+    });
+    brokers.push(broker);
+    await broker.start();
+    daemon.emit({
+      run_id: "run_fake",
+      seq: 1,
+      category: "gate",
+      name: "gate_report",
+      payload: {
+        decision_surface: { review_outcome: "reject", gate_disposition: "waiting_approval" },
+        artifact_refs: ["art_gate"],
+      },
+    });
+    daemon.emit(approvalEvent(2, "ap_semantic", "semantic_decision", { provenance: { artifact_id: "art_semantic" } }));
+
+    await expect(broker.handleCommand({ type: "approve", decision: "approved", reason: "accepted risk" })).resolves.toEqual({
+      type: "ack",
+      command: "approve",
+      approval_id: "ap_semantic",
+    });
+    expect(calls.find((call) => call.method === "approval.resolve")?.params).toMatchObject({
+      approval_id: "ap_semantic",
+      decision: "approved",
+      by: "user:harness-workspace",
+      reason: "accepted risk",
+      previous_gate_outcome: "reject",
+      new_gate_outcome: "approved",
+      artifact_refs: ["art_gate", "art_semantic"],
+    });
+  });
+
+  it("degrades semantic approval readably when audit fields are unavailable", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const daemon = fakeDaemon({ calls });
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-semantic-missing-")),
+      transport: "fake",
+      daemonFactory: () => daemon,
+    });
+    brokers.push(broker);
+    await broker.start();
+    daemon.emit(approvalEvent(1, "ap_semantic", "semantic_decision"));
+
+    await expect(broker.handleCommand({ type: "approve", decision: "rejected", reason: "not enough evidence" })).resolves.toMatchObject({
+      type: "error",
+      command: "approve",
+      message: expect.stringContaining("previous_gate_outcome is unavailable"),
+    });
+    expect(calls.some((call) => call.method === "approval.resolve")).toBe(false);
+  });
+
+  it("fails closed when approve has no current pending approval", async () => {
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-no-approval-")),
+      transport: "fake",
+      daemonFactory: () => fakeDaemon(),
+    });
+    brokers.push(broker);
+    await broker.start();
+
+    await expect(broker.handleCommand({ type: "approve", decision: "approved", reason: "ok" })).resolves.toMatchObject({
+      type: "error",
+      command: "approve",
+      message: "no current pending approval",
+    });
   });
 
   it("serializes replay writes and leaves a valid replay snapshot after event bursts", async () => {
@@ -222,25 +448,21 @@ describe("harness workspace broker", () => {
   }, 30_000);
 });
 
-function fakeDaemon(options: { readonly failRun?: boolean } = {}) {
+function fakeDaemon(options: {
+  readonly failRun?: boolean;
+  readonly agents?: readonly DiscoveredAgent[];
+  readonly calls?: Array<{ method: string; params: unknown }>;
+} = {}) {
   const listeners: Array<(event: EventFrame) => void> = [];
   return {
-    async call(method: string) {
+    async call(method: string, params?: unknown) {
+      options.calls?.push({ method, params });
       if (method === "initialize") {
         return { protocol_version: "0.1.4", clientName: "broker-test" };
       }
       if (method === "flock.discover") {
         return {
-          agents: [{
-            id: "fake-agent",
-            status: "ready",
-            role: "coder",
-            runtime_surfaces: [{
-              runtime_surface: "headless",
-              runtime_kind: "fake",
-              direct_channel: { capability_bitmask: ["cancel", "owner_verified"] },
-            }],
-          }],
+          agents: options.agents ?? [agent("fake-agent", "fake")],
         };
       }
       if (method === "orchestrate.run") {
@@ -251,6 +473,9 @@ function fakeDaemon(options: { readonly failRun?: boolean } = {}) {
           }
         });
         return { run_id: "run_fake", accepted: true };
+      }
+      if (method === "approval.resolve") {
+        return { approval_id: "ap_fake", accepted: true };
       }
       return {};
     },
@@ -265,6 +490,110 @@ function fakeDaemon(options: { readonly failRun?: boolean } = {}) {
       return undefined;
     },
   } satisfies NonNullable<HarnessWorkspaceBrokerOptions["daemonFactory"]> extends () => infer T ? T : never;
+}
+
+function agent(id: string, kind: "fake" | "native-headless" | "native-direct" | "direct-unsupported" | "direct-degraded" | "direct-no-owner" | "stub"): DiscoveredAgent {
+  if (kind === "native-direct") {
+    return {
+      id,
+      status: "ready",
+      role: "coder",
+      runtime_surfaces: [{
+        runtime_surface: "direct_user_session",
+        runtime_kind: "native-direct",
+        surface_support: "supported",
+        isolation_profiles: { coder_worktree: { readiness: "ready" } },
+        direct_channel: { capability_bitmask: ["cancel", "owner_verified"] },
+      }],
+    };
+  }
+  if (kind === "direct-degraded") {
+    return {
+      id,
+      status: "ready",
+      role: "coder",
+      runtime_surfaces: [{
+        runtime_surface: "direct_user_session",
+        runtime_kind: "native-direct",
+        surface_support: "supported",
+        isolation_profiles: { coder_worktree: { readiness: "degraded" } },
+        direct_channel: { capability_bitmask: ["cancel", "owner_verified"] },
+      }],
+    };
+  }
+  if (kind === "direct-no-owner") {
+    return {
+      id,
+      status: "ready",
+      role: "coder",
+      runtime_surfaces: [{
+        runtime_surface: "direct_user_session",
+        runtime_kind: "native-direct",
+        surface_support: "supported",
+        isolation_profiles: { coder_worktree: { readiness: "ready" } },
+        direct_channel: { capability_bitmask: ["cancel"] },
+      }],
+    };
+  }
+  if (kind === "direct-unsupported") {
+    return {
+      id,
+      status: "ready",
+      role: "coder",
+      runtime_surfaces: [{
+        runtime_surface: "direct_user_session",
+        runtime_kind: "native-direct",
+        surface_support: "unsupported",
+      }],
+    };
+  }
+  if (kind === "native-headless") {
+    return {
+      id,
+      status: "ready",
+      role: "coder",
+      runtime_surfaces: [{
+        runtime_surface: "headless",
+        runtime_kind: "native",
+        surface_support: "supported",
+        direct_channel: { capability_bitmask: ["cancel", "owner_verified"] },
+      }],
+    };
+  }
+  if (kind === "stub") {
+    return {
+      id,
+      status: "ready",
+      role: "coder",
+      runtime_surfaces: [{
+        runtime_surface: "headless",
+        runtime_kind: "stub",
+        surface_support: "unsupported",
+      }],
+    };
+  }
+  return {
+    id,
+    status: "ready",
+    role: "coder",
+    runtime_surfaces: [{
+      runtime_surface: "headless",
+      runtime_kind: "fake",
+      surface_support: "supported",
+      state_declaration_ref: "harness-state:fake",
+      direct_channel: { capability_bitmask: ["cancel", "owner_verified"] },
+    }],
+  };
+}
+
+function approvalEvent(seq: number, approvalId: string, kind: string, extra: Record<string, unknown> = {}): EventFrame {
+  return {
+    run_id: "run_fake",
+    seq,
+    category: "approval",
+    name: "approval_requested",
+    payload: { approval_id: approvalId, kind, ...extra },
+  };
 }
 
 function onceConnect(socket: net.Socket): Promise<void> {

@@ -21,12 +21,28 @@ export interface WorkersOptions {
   readonly timeoutMs?: number;
 }
 
+export interface ApproveOptions {
+  readonly decision: "approved" | "rejected";
+  readonly reason: string;
+  readonly socketPath?: string;
+  readonly timeoutMs?: number;
+}
+
 export async function runControllerCommand(options: ControllerRunOptions): Promise<BrokerResponse> {
   const socketPath = options.socketPath ?? process.env.HOLP_HARNESS_BROKER_SOCKET;
   if (!socketPath) {
     throw new Error("HOLP_HARNESS_BROKER_SOCKET is required");
   }
   const command: BrokerCommand = { type: "run", goal: options.goal, worker: options.worker };
+  return sendBrokerCommand(socketPath, command, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+}
+
+export async function approveCommand(options: ApproveOptions): Promise<BrokerResponse> {
+  const socketPath = options.socketPath ?? process.env.HOLP_HARNESS_BROKER_SOCKET;
+  if (!socketPath) {
+    throw new Error("HOLP_HARNESS_BROKER_SOCKET is required");
+  }
+  const command: BrokerCommand = { type: "approve", decision: options.decision, reason: options.reason };
   return sendBrokerCommand(socketPath, command, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 }
 
@@ -110,27 +126,59 @@ export async function runClientCli(argv: readonly string[] = process.argv.slice(
     process.stdout.write(parsed.json ? `${JSON.stringify(workersJson(frame))}\n` : formatWorkers(frame));
     return 0;
   }
-  const response = await runControllerCommand(parsed);
-  process.stdout.write(`${JSON.stringify(response)}\n`);
-  return 0;
+  if (parsed.command === "status") {
+    const frame = await listWorkersCommand(parsed);
+    process.stdout.write(parsed.json ? `${JSON.stringify(statusJson(frame))}\n` : formatStatus(frame));
+    return 0;
+  }
+  if (parsed.command === "approve") {
+    const response = await approveCommand(parsed);
+    process.stdout.write(`${JSON.stringify(response)}\n`);
+    return 0;
+  }
+  if (parsed.command === "run") {
+    const response = await runControllerCommand(parsed);
+    process.stdout.write(`${JSON.stringify(response)}\n`);
+    return 0;
+  }
+  throw new Error("unreachable client command");
 }
 
 type ParsedClientArgs =
   | ({ readonly command: "run" } & ControllerRunOptions)
-  | ({ readonly command: "workers"; readonly json: boolean } & WorkersOptions);
+  | ({ readonly command: "approve" } & ApproveOptions)
+  | ({ readonly command: "workers" | "status"; readonly json: boolean } & WorkersOptions);
 
 function parseClientArgs(argv: readonly string[]): ParsedClientArgs {
   const args = [...argv];
   const command = args.shift();
-  if (command !== "run" && command !== "workers") {
-    throw new Error("usage: harness workspace client run --goal <goal> --worker <agent> | workers [--json]");
+  if (command !== "run" && command !== "workers" && command !== "status" && command !== "approve") {
+    throw new Error("usage: harness workspace client run --goal <goal> --worker auto|<agent> | workers [--json] | status [--json] | approve --decision approved|rejected --reason <reason>");
   }
-  if (command === "workers") {
+  if (command === "workers" || command === "status") {
     let json = false;
     for (const arg of args) {
       if (arg === "--json") json = true;
     }
     return { command, json };
+  }
+  if (command === "approve") {
+    let decision: "approved" | "rejected" | undefined;
+    let reason: string | undefined;
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      const value = args[index + 1];
+      if (arg === "--decision" && (value === "approved" || value === "rejected")) {
+        decision = value;
+        index += 1;
+      } else if (arg === "--reason" && value) {
+        reason = value;
+        index += 1;
+      }
+    }
+    if (!decision) throw new Error('--decision must be "approved" or "rejected"');
+    if (!reason) throw new Error("--reason is required");
+    return { command, decision, reason };
   }
   let goal: string | undefined;
   let worker: string | undefined;
@@ -171,6 +219,28 @@ function workersJson(frame: WorkspaceTuiFrameV1): {
   };
 }
 
+function statusJson(frame: WorkspaceTuiFrameV1): {
+  readonly run_id?: string;
+  readonly selected_worker?: string;
+  readonly approval?: WorkspaceTuiFrameV1["approval"];
+  readonly terminal?: WorkspaceTuiFrameV1["terminal"];
+  readonly failure_reason?: string;
+  readonly worker_session?: string;
+  readonly attach_command?: string;
+  readonly next_action: string;
+} {
+  return {
+    run_id: frame.run_id,
+    selected_worker: frame.selected_agent,
+    approval: frame.approval,
+    terminal: frame.terminal,
+    failure_reason: frame.failures[0],
+    worker_session: frame.worker_session,
+    attach_command: frame.attach_command,
+    next_action: nextSuggestedAction(frame),
+  };
+}
+
 function formatWorkers(frame: WorkspaceTuiFrameV1): string {
   const readinessReasons = frame.continuity.reasons.length > 0 ? frame.continuity.reasons.join(", ") : "none";
   const lines = [
@@ -186,6 +256,38 @@ function formatWorkers(frame: WorkspaceTuiFrameV1): string {
   }
   if (frame.agents.length === 0) lines.push("- none");
   return `${lines.join("\n")}\n`;
+}
+
+function formatStatus(frame: WorkspaceTuiFrameV1): string {
+  const lines = [
+    `Run: ${frame.run_id ?? "none"}`,
+    `Selected worker: ${frame.selected_agent ?? "none"}`,
+    `Approval: ${frame.approval ? formatObject(frame.approval) : "none"}`,
+    `Terminal: ${frame.terminal ? formatObject(frame.terminal) : "pending"}`,
+    `Failure reason: ${frame.failures[0] ?? "none"}`,
+    `Worker session: ${frame.worker_session ?? "none"}`,
+    `Attach command: ${frame.attach_command ?? "none"}`,
+    `Next action: ${nextSuggestedAction(frame)}`,
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function nextSuggestedAction(frame: WorkspaceTuiFrameV1): string {
+  if (frame.approval?.state === "requested") {
+    const id = frame.approval.approval_id ? ` ${frame.approval.approval_id}` : "";
+    return `explain pending approval${id}, then run approve --decision approved|rejected --reason "<reason>"`;
+  }
+  if (frame.terminal) return "review terminal result and replay evidence";
+  if (frame.failures.length > 0) return "inspect failure reason and decide whether to rerun";
+  if (!frame.run_id) return 'inspect workers, then run --goal "<human goal>" --worker auto';
+  if (frame.worker_session && frame.attach_command) return "worker session is attachable";
+  return "wait for broker events or check status again";
+}
+
+function formatObject(value: Readonly<Record<string, unknown>>): string {
+  return Object.entries(value)
+    .map(([key, item]) => `${key}=${String(item)}`)
+    .join(" ");
 }
 
 function isMain(): boolean {
