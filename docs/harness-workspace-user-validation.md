@@ -124,6 +124,33 @@ When the user performs real validation, append one record per scenario:
 Only records authored or explicitly confirmed by the human operator may move
 `usable-ui-real-usage-data-collection` to `allowed`.
 
+## How to Enter Agent Interaction
+
+The Go TUI is the read-only Sidecar half of the HOLP Harness Workspace. Real
+Agent interaction happens in a separate cmux Controller CLI pane created by
+the launcher, never inside the Sidecar.
+
+Three-step entry:
+
+1. `HOLP_HARNESS_WORKSPACE_TUI=1 npm run harness:workspace:tui:cmux -- --workspace <workspace-id>`
+2. cmux now contains a Controller CLI pane and this Sidecar pane. The
+   Controller pane prints a printed instruction block; the Sidecar pane
+   connects to the broker socket and starts rendering live state.
+3. In the Controller pane, list workers and submit a goal:
+   `npm run harness:workspace:client -- workers`
+   `npm run harness:workspace:client -- run --goal "<goal>" --worker <id>`
+
+The Sidecar does not accept goal text. Inside the Sidecar `f` follows the
+selected agent; `r` opens replay; navigation is `tab` / `j` / `k` / `enter` /
+`esc`. All goal-setting goes through the Controller pane.
+
+If the Sidecar is started bare with `npm run harness:workspace:tui` and no
+`HOLP_HARNESS_BROKER_SOCKET`, it prints this same entry hint to stderr and
+exits with code 1, so the next attempt routes through the launcher.
+
+This entry path is descriptive only — it does not move any gate marker in
+this document.
+
 ## Automated Evidence Context
 
 The following evidence is useful context but does not satisfy the human gate by

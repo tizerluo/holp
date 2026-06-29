@@ -24,6 +24,10 @@ readiness, or the #76 human validation gate.
 - Add demo-only flags for deterministic visual validation:
   `--mode overview|inspect|replay|help`, `--agent <id>`,
   `--width <cols>`, and `--height <rows>`.
+- Make the operator-entry path obvious from inside the Sidecar: a persistent
+  hint must point to the Controller CLI pane, and the Inspect view must
+  surface the `attach_command` as a Controller-pane callout. The Sidecar
+  itself must never simulate the Controller pane.
 
 ## Hard Boundaries
 

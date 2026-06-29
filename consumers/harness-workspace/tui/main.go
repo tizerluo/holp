@@ -50,6 +50,9 @@ type chromeMessages struct {
 	None             string
 	Keys             string
 	HelpText         []string
+	InteractionHint  string
+	ControllerCallout string
+	FailuresInline   string
 }
 
 var chromeCatalog = map[string]chromeMessages{
@@ -88,6 +91,9 @@ var chromeCatalog = map[string]chromeMessages{
 			"q: quit the TUI",
 			"cancel remains confirmation-driven; interrupt stays unsupported unless public-wire evidence says otherwise",
 		},
+		InteractionHint:   "▸ Type goals in the Controller CLI pane (codex/kimi). This Sidecar is read-only.",
+		ControllerCallout: "▸ Run in Controller pane: ",
+		FailuresInline:    "failures: none — no blocking failure recorded",
 	},
 	"zh-CN": {
 		AppTitle:         "HOLP Harness Workspace",
@@ -105,7 +111,7 @@ var chromeCatalog = map[string]chromeMessages{
 		Affordances:      "操作动作",
 		Continuity:       "会话连续性",
 		SelectedAgent:    "选中 agent",
-		SelectedDetail:   "Selected Agent Detail",
+		SelectedDetail:   "选中 agent — 详情",
 		SelectedEvidence: "Selected Evidence",
 		WorkerPreview:    "Active Worker Preview",
 		Output:           "Output",
@@ -124,6 +130,9 @@ var chromeCatalog = map[string]chromeMessages{
 			"q: 退出 TUI",
 			"cancel 仍需要二次确认；interrupt 仍 unsupported，除非 public-wire evidence 证明可用",
 		},
+		InteractionHint:   "▸ 在 Controller CLI pane (codex/kimi) 输入目标。此 Sidecar 只读。",
+		ControllerCallout: "▸ 在 Controller pane 执行: ",
+		FailuresInline:    "failures: none — 无阻塞失败",
 	},
 }
 
@@ -367,23 +376,44 @@ func (m model) View() string {
 	if m.frame.Overview.Title != "" {
 		title = m.frame.Overview.Title
 	}
-	header := headerStyle(m.noANSI).Render(fmt.Sprintf("%s | %s", title, m.mode))
-	status := fmt.Sprintf(
+	header := headerStyle(m.noANSI).Render(fmt.Sprintf("%s | %s · %s", title, m.mode, m.localizedModeLabel()))
+	statusWidth := m.viewport.Width
+	if statusWidth <= 0 {
+		statusWidth = 80
+	}
+	statusRaw := fmt.Sprintf(
 		"run_id=%s selected=%s mode=%s",
 		fallback(m.frame.RunID, msg.Pending),
 		m.selectedAgentID(),
 		m.mode,
 	)
 	if m.lastError != "" {
-		status += " degraded=" + m.lastError
+		statusRaw += " degraded=" + m.lastError
 	}
-	status += " | " + msg.Keys
-	statusWidth := m.viewport.Width
-	if statusWidth <= 0 {
-		statusWidth = 80
+	statusRaw += " | " + msg.Keys
+	statusLines := wrapText(statusRaw, statusWidth)
+	status := subtleStyle(m.noANSI).Render(strings.Join(statusLines, "\n"))
+	pieces := []string{header}
+	if m.mode == modeOverview || m.mode == modeInspect {
+		hintLines := wrapText(msg.InteractionHint, statusWidth)
+		pieces = append(pieces, roleStyle(m.noANSI, "CTRL").Render(strings.Join(hintLines, "\n")))
 	}
-	status = subtleStyle(m.noANSI).Render(fitDisplay(status, statusWidth))
-	return strings.Join([]string{header, m.viewport.View(), status}, "\n")
+	pieces = append(pieces, m.viewport.View(), status)
+	return strings.Join(pieces, "\n")
+}
+
+func (m model) localizedModeLabel() string {
+	msg := m.chrome()
+	switch m.mode {
+	case modeInspect:
+		return msg.Inspect
+	case modeReplay:
+		return msg.Replay
+	case modeHelp:
+		return msg.Help
+	default:
+		return msg.Overview
+	}
 }
 
 func (m *model) syncSelected() {
@@ -431,25 +461,34 @@ func (m model) body() string {
 func (m model) overviewBody() string {
 	msg := m.chrome()
 	width := m.contentWidth()
-	chain := panel(m.noANSI, "GATE", msg.Overview+" - "+msg.ChainMap+" - "+msg.Chain, m.chainLines(), panelWidth(width, 2))
-	preview := panel(m.noANSI, "CODE", msg.WorkerPreview, []string{
-		fallback(m.frame.Overview.WorkerPreview.RenderedText, msg.Pending),
-	}, panelWidth(width, 2))
-	evidenceLines := []string{
-		"run_id=" + fallback(m.frame.RunID, msg.Pending) + " schema_version=" + fallback(m.frame.SchemaVersion, msg.Pending),
-		"worker_session=" + fallback(m.frame.WorkerSession, msg.Pending) + " runtime_surface=" + m.runtimeSurface(msg.Pending),
-		"attach_command: " + fallback(m.frame.AttachCommand, msg.Pending),
-		"terminal_state=" + fallback(m.frame.Continuity.TerminalState, msg.Pending) + " latest_event=" + fallback(m.frame.Overview.Evidence.LatestEvent, msg.Pending),
-		"provenance=" + fallback(m.frame.Overview.Evidence.Provenance, msg.Pending) + " terminal=" + summarizeMap(m.frame.Terminal, msg.Pending),
-		"gate: " + summarizeMap(m.frame.Gate, msg.Pending),
+	evidenceRows := []kv{
+		{"run_id", fallback(m.frame.RunID, msg.Pending)},
+		{"schema_version", fallback(m.frame.SchemaVersion, msg.Pending)},
+		{"worker_session", fallback(m.frame.WorkerSession, msg.Pending)},
+		{"runtime_surface", m.runtimeSurface(msg.Pending)},
+		{"attach_command", fallback(m.frame.AttachCommand, msg.Pending)},
+		{"terminal_state", fallback(m.frame.Continuity.TerminalState, msg.Pending)},
+		{"latest_event", fallback(m.frame.Overview.Evidence.LatestEvent, msg.Pending)},
+		{"provenance", fallback(m.frame.Overview.Evidence.Provenance, msg.Pending)},
+		{"terminal", summarizeMap(m.frame.Terminal, msg.Pending)},
+		{"gate", summarizeMap(m.frame.Gate, msg.Pending)},
 	}
+	previewLines := []string{fallback(m.frame.Overview.WorkerPreview.RenderedText, msg.Pending)}
 	lines := []string{}
 	if width >= 88 {
-		lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top, chain, preview))
+		colW := panelWidth(width, 2)
+		chain := panel(m.noANSI, "GATE", msg.ChainMap, m.chainLinesWithLabel(), colW)
+		previewPanel := panel(m.noANSI, "CODE", msg.WorkerPreview, previewLines, colW)
+		evidencePanel := panel(m.noANSI, "GATE", msg.EvidenceSum, kvTable(evidenceRows), colW)
+		right := lipgloss.JoinVertical(lipgloss.Left, previewPanel, "", evidencePanel)
+		lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top, chain, right))
 	} else {
-		lines = append(lines, chain, preview)
+		lines = append(lines,
+			panel(m.noANSI, "GATE", msg.ChainMap, m.chainLinesWithLabel(), width),
+			panel(m.noANSI, "CODE", msg.WorkerPreview, previewLines, width),
+			panel(m.noANSI, "GATE", msg.EvidenceSum, kvTable(evidenceRows), width),
+		)
 	}
-	lines = append(lines, panel(m.noANSI, "GATE", msg.EvidenceSum, evidenceLines, width))
 	if len(m.frame.Failures) == 0 {
 		lines = append(lines, panel(m.noANSI, "REV", msg.Failures, []string{msg.NoFailures}, width))
 	} else {
@@ -462,7 +501,7 @@ func (m model) overviewBody() string {
 	if m.lastError != "" {
 		lines = append(lines, panel(m.noANSI, "GATE", "degraded", []string{m.lastError}, width))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n\n")
 }
 
 func (m model) runtimeSurface(fallbackValue string) string {
@@ -480,34 +519,36 @@ func (m model) inspectBody() string {
 	msg := m.chrome()
 	selected := m.selectedAgent()
 	width := m.contentWidth()
-	detail := []string{
-		fmt.Sprintf("selected=%s id=%s status=%s role=%s role_skin=%s",
-			m.selectedAgentID(),
-			fallback(selected.ID, m.selectedAgentID()),
-			fallback(selected.Status, msg.Pending),
-			fallback(selected.Role, msg.Pending),
-			fallback(selected.RoleSkin, "neutral"),
-		),
-		"run_id=" + fallback(m.frame.RunID, msg.Pending) + " worker_session=" + fallback(m.frame.WorkerSession, msg.Pending),
+	detail := []string{}
+	if m.frame.AttachCommand != "" {
+		detail = append(detail, roleStyle(m.noANSI, "CTRL").Bold(true).Render(msg.ControllerCallout+m.frame.AttachCommand))
 	}
-	detail = append(detail, kvRows([]kv{
+	detail = append(detail, kvTable([]kv{
+		{"selected", m.selectedAgentID()},
+		{"id", fallback(selected.ID, m.selectedAgentID())},
+		{"status", fallback(selected.Status, msg.Pending)},
+		{"role", fallback(selected.Role, msg.Pending)},
+		{"role_skin", fallback(selected.RoleSkin, "neutral")},
+		{"run_id", fallback(m.frame.RunID, msg.Pending)},
+		{"worker_session", fallback(m.frame.WorkerSession, msg.Pending)},
 		{"attach_command", fallback(m.frame.AttachCommand, msg.Pending)},
 		{"owner_verified", fallback(m.frame.Inspect.SelectedAgent.OwnerVerified, msg.Pending)},
 	})...)
 	lines := []string{
-		panel(m.noANSI, selected.RoleSkin, msg.SelectedDetail+" - "+msg.Inspect+" - "+msg.SelectedAgent, detail, width),
-		panel(m.noANSI, selected.RoleSkin, msg.ChainMap+" - "+msg.Chain, m.inspectChainSummaryLines(), width),
+		panel(m.noANSI, selected.RoleSkin, msg.SelectedDetail, detail, width),
+		panel(m.noANSI, selected.RoleSkin, msg.ChainMap, append([]string{subtleStyle(m.noANSI).Render(msg.Chain)}, m.inspectChainSummaryLines()...), width),
 	}
 	evidenceLines := []string{}
 	if m.frame.Inspect.Empty {
 		evidenceLines = append(evidenceLines, "empty=true")
 	} else {
 		for _, section := range m.frame.Inspect.Inspect.Sections {
-			sectionParts := []string{section.Title}
+			evidenceLines = append(evidenceLines, section.Title)
+			rows := make([]kv, 0, len(section.Rows))
 			for _, row := range section.Rows {
-				sectionParts = append(sectionParts, fmt.Sprintf("%s=%s", row.Label, row.Value))
+				rows = append(rows, kv{row.Label, row.Value})
 			}
-			evidenceLines = append(evidenceLines, strings.Join(sectionParts, " "))
+			evidenceLines = append(evidenceLines, kvTable(rows)...)
 		}
 		for _, ref := range m.frame.Inspect.Inspect.EvidenceRefs {
 			evidenceLines = append(evidenceLines, fmt.Sprintf("- ref=%s run_id=%s seq=%d", ref.Ref, ref.RunID, ref.Seq))
@@ -527,17 +568,19 @@ func (m model) inspectBody() string {
 		timelineLines = append(timelineLines, fmt.Sprintf("%s %s %s", entry.Severity, entry.Label, entry.Summary))
 	}
 	lines = append(lines, panel(m.noANSI, "GATE", msg.Timeline, fallbackLines(timelineLines, msg.Pending), width))
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n\n")
 }
 
 func (m model) replayBody() string {
 	msg := m.chrome()
 	width := m.contentWidth()
-	lines := []string{panel(m.noANSI, "GATE", msg.Replay, kvRows([]kv{
+	lines := []string{panel(m.noANSI, "GATE", msg.Replay, kvTable([]kv{
 		{"path", fallback(m.frame.ReplayPath, msg.Pending)},
 		{"written_at", fallback(m.frame.ReplayWritten, msg.Pending)},
+		{"terminal_state", fallback(m.frame.Continuity.TerminalState, msg.Pending)},
 		{"terminal", summarizeMap(m.frame.Terminal, msg.Pending)},
 		{"gate", summarizeMap(m.frame.Gate, msg.Pending)},
+		{"run_id", fallback(m.frame.RunID, msg.Pending)},
 	}), width)}
 	continuityLines := []string{
 		fmt.Sprintf("replay_only=%v", m.frame.Continuity.ReplayOnly),
@@ -555,7 +598,7 @@ func (m model) replayBody() string {
 		timelineLines = append(timelineLines, fmt.Sprintf("%s %s %s", entry.Severity, entry.Label, entry.Summary))
 	}
 	lines = append(lines, panel(m.noANSI, "GATE", msg.Timeline, fallbackLines(timelineLines, msg.Pending), width))
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n\n")
 }
 
 func (m model) helpBody() string {
@@ -610,51 +653,89 @@ func (m model) contentWidth() int {
 }
 
 func (m model) chainLines() []string {
+	selectedID := m.selectedAgentID()
 	if len(m.frame.Overview.Chain) == 0 {
 		lines := make([]string, 0, len(m.frame.Agents))
 		for _, a := range m.frame.Agents {
-			lines = append(lines, roleStyle(m.noANSI, a.RoleSkin).Render(fmt.Sprintf(
-				"%s %s status=%s role=%s",
+			isSelected := a.ID == selectedID
+			prefix := "  "
+			if isSelected {
+				prefix = "▸ "
+			}
+			text := fmt.Sprintf("%s%s %s status=%s role=%s",
+				prefix,
 				roleBadge(m.noANSI, a.RoleSkin),
 				a.ID,
 				fallback(a.Status, "unknown"),
 				fallback(a.Role, "unknown"),
-			)))
+			)
+			lines = append(lines, emphasizeRow(m.noANSI, a.RoleSkin, isSelected).Render(text))
 		}
 		return lines
 	}
 	lines := make([]string, 0, len(m.frame.Overview.Chain))
 	for _, node := range m.frame.Overview.Chain {
-		lines = append(lines, roleStyle(m.noANSI, node.Skin).Render(fmt.Sprintf(
-			"%s %s -> id=%s state=%s",
+		isSelected := node.AgentID != "" && node.AgentID == selectedID
+		prefix := "  "
+		if isSelected {
+			prefix = "▸ "
+		}
+		text := fmt.Sprintf("%s%s %s → id=%s state=%s",
+			prefix,
 			roleBadge(m.noANSI, node.Skin),
 			fallback(node.Label, node.ID),
 			fallback(node.AgentID, node.ID),
 			fallback(node.State, "unknown"),
-		)))
+		)
+		lines = append(lines, emphasizeRow(m.noANSI, node.Skin, isSelected).Render(text))
 	}
 	return lines
 }
 
 func (m model) inspectChainSummaryLines() []string {
+	selectedID := m.selectedAgentID()
 	parts := make([]string, 0, len(m.frame.Agents))
 	for _, a := range m.frame.Agents {
+		isSelected := a.ID == selectedID
 		label := a.ID
-		if a.ID == m.selectedAgentID() {
-			label += "(selected)"
+		if isSelected {
+			label = "▸ " + label + " ◂"
 		}
-		parts = append(parts, roleStyle(m.noANSI, a.RoleSkin).Render(label))
+		parts = append(parts, emphasizeRow(m.noANSI, a.RoleSkin, isSelected).Render(label))
 	}
 	if len(parts) == 0 {
 		return []string{m.chrome().Pending}
 	}
-	return []string{strings.Join(parts, " -> ")}
+	return []string{strings.Join(parts, "  →  ")}
+}
+
+func (m model) chainLinesWithLabel() []string {
+	return append([]string{subtleStyle(m.noANSI).Render(m.chrome().Chain)}, m.chainLines()...)
+}
+
+func emphasizeRow(noANSI bool, skin string, selected bool) lipgloss.Style {
+	base := roleStyle(noANSI, skin)
+	if noANSI || !selected {
+		return base
+	}
+	return base.Bold(true).Reverse(true)
+}
+
+var affordanceKeyHint = map[string]string{
+	"replay_evidence": "r",
 }
 
 func (m model) affordanceLines() []string {
 	lines := make([]string, 0, len(m.frame.Affordances))
 	for _, a := range m.frame.Affordances {
-		lines = append(lines, fmt.Sprintf("%s=%s reason=%s", fallback(a.Label, a.ID), fallback(a.State, "unknown"), fallback(a.ReasonLabel, "none")))
+		key, ok := affordanceKeyHint[a.ID]
+		if !ok {
+			key = "-"
+		}
+		label := fallback(a.Label, a.ID)
+		state := fallback(a.State, "unknown")
+		reason := fallback(a.ReasonLabel, "none")
+		lines = append(lines, fmt.Sprintf("[%s] %s = %s — %s — %s", key, label, state, a.ID, reason))
 	}
 	return fallbackLines(lines, m.chrome().None)
 }
@@ -715,6 +796,20 @@ func kvRows(rows []kv) []string {
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
 		lines = append(lines, row.key+": "+row.value)
+	}
+	return lines
+}
+
+func kvTable(rows []kv) []string {
+	maxKey := 0
+	for _, row := range rows {
+		if w := lipgloss.Width(row.key); w > maxKey {
+			maxKey = w
+		}
+	}
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		lines = append(lines, padDisplay(row.key, maxKey)+"  "+row.value)
 	}
 	return lines
 }
@@ -967,6 +1062,16 @@ func demoFrame() frame {
 			TerminalState: "merged",
 		},
 		ReplayPath: "/tmp/holp-harness-workspace/demo/replay.json",
+		Affordances: []affordance{
+			{ID: "copy_attach_command", Label: "copy attach_command", State: "enabled", ReasonLabel: "attach_command available"},
+			{ID: "copy_run_id", Label: "copy run_id", State: "enabled", ReasonLabel: "run_id available"},
+			{ID: "open_team_layout", Label: "open Team Layout", State: "needs_confirmation", ReasonLabel: "cmux layout descriptor"},
+			{ID: "replay_evidence", Label: "open Replay review", State: "enabled", ReasonLabel: "evidence anchors present"},
+			{ID: "continue_run", Label: "continue run", State: "needs_confirmation", ReasonLabel: "owner_verified"},
+			{ID: "cancel_run", Label: "cancel run", State: "disabled", ReasonLabel: "no cancel capability"},
+			{ID: "interrupt_worker", Label: "interrupt worker", State: "disabled", ReasonLabel: "no interrupt capability"},
+			{ID: "rerun_goal", Label: "rerun goal", State: "disabled", ReasonLabel: "deferred"},
+		},
 	}
 }
 
@@ -1084,6 +1189,23 @@ func decodeFrames(conn net.Conn, send func(tea.Msg)) error {
 	return fmt.Errorf("broker stream closed")
 }
 
+func helpForMissingSocket() string {
+	return strings.Join([]string{
+		"HOLP_HARNESS_BROKER_SOCKET is required.",
+		"",
+		"This TUI is the read-only Sidecar half of the HOLP Harness Workspace.",
+		"To interact with Agents, the cmux launcher must create:",
+		"  - a Controller CLI pane (where you type goals)",
+		"  - this Sidecar pane (what you're trying to run now)",
+		"",
+		"Start the full session via:",
+		"  HOLP_HARNESS_WORKSPACE_TUI=1 npm run harness:workspace:tui:cmux -- --workspace <id>",
+		"",
+		"Or render a static demo without the broker:",
+		"  npm run harness:workspace:tui -- --demo --mode overview",
+	}, "\n")
+}
+
 func main() {
 	demo := flag.Bool("demo", false, "render a deterministic demo frame")
 	noANSI := flag.Bool("no-ansi", false, "disable ANSI styling")
@@ -1100,7 +1222,7 @@ func main() {
 
 	socketPath := os.Getenv("HOLP_HARNESS_BROKER_SOCKET")
 	if socketPath == "" {
-		fmt.Fprintln(os.Stderr, "HOLP_HARNESS_BROKER_SOCKET is required")
+		fmt.Fprintln(os.Stderr, helpForMissingSocket())
 		os.Exit(1)
 	}
 	m := initialModel(frame{}, *noANSI)

@@ -123,13 +123,22 @@ func TestIssue95SmallDemoKeepsRequiredAnchorsVisible(t *testing.T) {
 func TestIssue95StatusHonorsDemoWidth(t *testing.T) {
 	out := renderDemo(true, "overview", "", 72, 18)
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	status := lines[len(lines)-1]
-	if lipgloss.Width(status) > 72 {
-		t.Fatalf("expected status width <= 72, got %d: %q", lipgloss.Width(status), status)
+	tail := lines
+	if len(tail) > 4 {
+		tail = tail[len(tail)-4:]
 	}
-	for _, want := range []string{"run_id", "selected", "mode"} {
-		if !strings.Contains(status, want) {
-			t.Fatalf("expected status to preserve %q: %q", want, status)
+	joined := strings.Join(tail, "\n")
+	for _, line := range tail {
+		if lipgloss.Width(line) > 72 {
+			t.Fatalf("expected each status line width <= 72, got %d: %q", lipgloss.Width(line), line)
+		}
+	}
+	if strings.HasSuffix(strings.TrimSpace(tail[len(tail)-1]), "...") {
+		t.Fatalf("expected status to wrap not truncate: %q", tail[len(tail)-1])
+	}
+	for _, want := range []string{"run_id", "selected", "mode", "q quit"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("expected status block to preserve %q: %q", want, joined)
 		}
 	}
 }
@@ -504,6 +513,73 @@ func TestModeKeyboardReachability(t *testing.T) {
 		m = next.(model)
 		if m.mode != step.want {
 			t.Fatalf("key %q: expected %s, got %s", step.key, step.want, m.mode)
+		}
+	}
+}
+
+func TestInteractionHintVisibleInOverviewAndInspect(t *testing.T) {
+	for _, mode := range []string{"overview", "inspect"} {
+		out := renderDemo(true, mode, "coder-1", 100, 28)
+		if !strings.Contains(out, "Controller CLI pane") {
+			t.Fatalf("%s missing Controller CLI pane hint:\n%s", mode, out)
+		}
+	}
+}
+
+func TestOperatorActionsHaveContentNotNone(t *testing.T) {
+	out := renderDemo(true, "inspect", "coder-1", 100, 28)
+	for _, want := range []string{"copy_attach_command", "replay_evidence", "continue_run", "[r]", "[-]"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected Operator actions to include %q:\n%s", want, out)
+		}
+	}
+	opsAt := strings.Index(out, "Operator actions")
+	if opsAt < 0 {
+		t.Fatalf("Operator actions panel missing")
+	}
+	tail := out[opsAt:]
+	end := strings.Index(tail[1:], "+--")
+	if end > 0 {
+		if strings.Contains(strings.Split(tail[:end+1], "\n")[1], " none ") {
+			t.Fatalf("Operator actions still rendered as none:\n%s", tail[:end+1])
+		}
+	}
+}
+
+func TestInspectShowsControllerPaneCallout(t *testing.T) {
+	out := renderDemo(true, "inspect", "coder-1", 100, 28)
+	if !strings.Contains(out, "Run in Controller pane:") {
+		t.Fatalf("inspect missing Controller pane callout:\n%s", out)
+	}
+	if !strings.Contains(out, "tmux attach -t holp-worker-demo") {
+		t.Fatalf("inspect missing attach_command in callout:\n%s", out)
+	}
+}
+
+func TestHelpForMissingSocketIsMultiLineWithLauncherHint(t *testing.T) {
+	text := helpForMissingSocket()
+	lines := strings.Split(text, "\n")
+	if len(lines) < 6 {
+		t.Fatalf("expected multi-line hint, got %d lines:\n%s", len(lines), text)
+	}
+	for _, want := range []string{"harness:workspace:tui:cmux", "Controller CLI pane", "Sidecar", "--demo"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected hint to mention %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestStatusBarWrapsInsteadOfTruncating(t *testing.T) {
+	for _, width := range []int{100, 72} {
+		out := renderDemo(true, "overview", "", width, 28)
+		lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+		last := lines[len(lines)-1]
+		if strings.HasSuffix(strings.TrimSpace(last), "...") {
+			t.Fatalf("width=%d status truncated with ...: %q", width, last)
+		}
+		joined := strings.Join(lines[len(lines)-3:], "\n")
+		if !strings.Contains(joined, "q quit") {
+			t.Fatalf("width=%d status missing q quit hint:\n%s", width, joined)
 		}
 	}
 }
