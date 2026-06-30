@@ -77,13 +77,13 @@ describe("harness workspace operator affordances", () => {
   });
 
   it("enables rerun from stored goal without adding command_text to the affordance", () => {
-    const state = seededState("en-US", "say 'hello' and $(pwd)");
+    const state = seededState("en-US", "say 'hello' and $(pwd) and `whoami`");
     const continuity = deriveContinuity(state);
     const affordances = deriveOperatorAffordances(state, continuity);
 
     expect(continuity).toMatchObject({
       can_rerun: true,
-      rerun_command: "holp run 'say '\\''hello'\\'' and $(pwd)' --worker 'coder-1'",
+      rerun_command: "holp run 'say '\\''hello'\\'' and $(pwd) and `whoami`' --worker 'coder-1'",
     });
     expect(continuity.reasons).not.toContain("rerun_goal_not_exported");
     expect(affordances.find((item) => item.id === "rerun_goal")).toMatchObject({
@@ -91,6 +91,19 @@ describe("harness workspace operator affordances", () => {
       confirmation_required: true,
     });
     expect(affordances.find((item) => item.id === "rerun_goal")).not.toHaveProperty("command_text");
+  });
+
+  it("keeps rerun disabled when only the stored goal is missing", () => {
+    const state = seededState();
+    const continuity = deriveContinuity(state);
+    const affordances = deriveOperatorAffordances(state, continuity);
+
+    expect(continuity.can_rerun).toBe(false);
+    expect(continuity.rerun_command).toBeUndefined();
+    expect(continuity.reasons).toContain("rerun_goal_not_exported");
+    expect(affordances.find((item) => item.id === "rerun_goal")).toMatchObject({
+      state: "disabled",
+    });
   });
 
   it("reports unsupported or disabled states with localized catalog text when evidence is missing", () => {
