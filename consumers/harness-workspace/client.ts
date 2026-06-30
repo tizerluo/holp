@@ -7,6 +7,8 @@ import type { BrokerCommand, BrokerResponse } from "./broker.js";
 import { isWorkspaceTuiFrameV1, type WorkspaceTuiFrameV1 } from "./tuiFrame.js";
 
 const DEFAULT_TIMEOUT_MS = 3000;
+export const REFRESH_TIMEOUT_MS = 65_000;
+export const RUN_TIMEOUT_MS = 90_000;
 const __filename = fileURLToPath(import.meta.url);
 
 export interface ControllerRunOptions {
@@ -17,6 +19,11 @@ export interface ControllerRunOptions {
 }
 
 export interface WorkersOptions {
+  readonly socketPath?: string;
+  readonly timeoutMs?: number;
+}
+
+export interface RefreshWorkersOptions {
   readonly socketPath?: string;
   readonly timeoutMs?: number;
 }
@@ -34,7 +41,15 @@ export async function runControllerCommand(options: ControllerRunOptions): Promi
     throw new Error("HOLP_HARNESS_BROKER_SOCKET is required");
   }
   const command: BrokerCommand = { type: "run", goal: options.goal, worker: options.worker };
-  return sendBrokerCommand(socketPath, command, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  return sendBrokerCommand(socketPath, command, options.timeoutMs ?? RUN_TIMEOUT_MS);
+}
+
+export async function refreshWorkersCommand(options: RefreshWorkersOptions = {}): Promise<BrokerResponse> {
+  const socketPath = options.socketPath ?? process.env.HOLP_HARNESS_BROKER_SOCKET;
+  if (!socketPath) {
+    throw new Error("HOLP_HARNESS_BROKER_SOCKET is required");
+  }
+  return sendBrokerCommand(socketPath, { type: "refresh_workers" }, options.timeoutMs ?? REFRESH_TIMEOUT_MS, { rejectErrors: false });
 }
 
 export async function approveCommand(options: ApproveOptions): Promise<BrokerResponse> {
@@ -58,6 +73,7 @@ export function sendBrokerCommand(
   socketPath: string,
   command: BrokerCommand,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  options: { readonly rejectErrors?: boolean } = {},
 ): Promise<BrokerResponse> {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath);
@@ -67,7 +83,7 @@ export function sendBrokerCommand(
       settled = true;
       clearTimeout(timer);
       socket.end();
-      if (result.type === "error") reject(new Error(result.message));
+      if ((options.rejectErrors ?? true) && result.type === "error") reject(new Error(result.message));
       else resolve(result);
     };
     const fail = (error: Error) => {
@@ -136,6 +152,17 @@ export async function runClientCli(argv: readonly string[] = process.argv.slice(
     process.stdout.write(`${JSON.stringify(response)}\n`);
     return 0;
   }
+  if (parsed.command === "refresh-workers") {
+    const response = await refreshWorkersCommand(parsed);
+    if (parsed.json) {
+      process.stdout.write(`${JSON.stringify(response)}\n`);
+    } else if (response.type === "error") {
+      process.stderr.write(`${response.message}\n`);
+    } else {
+      process.stdout.write("workers refreshed\n");
+    }
+    return response.type === "error" ? 1 : 0;
+  }
   if (parsed.command === "run") {
     const response = await runControllerCommand(parsed);
     process.stdout.write(`${JSON.stringify(response)}\n`);
@@ -147,15 +174,16 @@ export async function runClientCli(argv: readonly string[] = process.argv.slice(
 type ParsedClientArgs =
   | ({ readonly command: "run" } & ControllerRunOptions)
   | ({ readonly command: "approve" } & ApproveOptions)
+  | ({ readonly command: "refresh-workers"; readonly json: boolean } & RefreshWorkersOptions)
   | ({ readonly command: "workers" | "status"; readonly json: boolean } & WorkersOptions);
 
 function parseClientArgs(argv: readonly string[]): ParsedClientArgs {
   const args = [...argv];
   const command = args.shift();
-  if (command !== "run" && command !== "workers" && command !== "status" && command !== "approve") {
-    throw new Error("usage: harness workspace client run --goal <goal> --worker auto|<agent> | workers [--json] | status [--json] | approve --decision approved|rejected --reason <reason>");
+  if (command !== "run" && command !== "workers" && command !== "status" && command !== "approve" && command !== "refresh-workers") {
+    throw new Error("usage: harness workspace client run --goal <goal> --worker auto|<agent> | refresh-workers [--json] | workers [--json] | status [--json] | approve --decision approved|rejected --reason <reason>");
   }
-  if (command === "workers" || command === "status") {
+  if (command === "workers" || command === "status" || command === "refresh-workers") {
     let json = false;
     for (const arg of args) {
       if (arg === "--json") json = true;
@@ -250,12 +278,24 @@ function formatWorkers(frame: WorkspaceTuiFrameV1): string {
     "Workers:",
   ];
   for (const agent of frame.agents) {
-    const runtime = agent.runtime_surfaces?.map((surface) => surface.runtime_kind ?? surface.runtime_surface ?? "unknown").join(", ") || "unknown";
+    const runtime = agent.runtime_surfaces?.map(formatRuntimeSurface).join(", ") || "unknown";
     const selected = agent.id === frame.selected_agent ? " selected" : "";
     lines.push(`- ${agent.id}${selected} status=${agent.status ?? "unknown"} role=${agent.role ?? "unknown"} runtime=${runtime}`);
   }
   if (frame.agents.length === 0) lines.push("- none");
   return `${lines.join("\n")}\n`;
+}
+
+function formatRuntimeSurface(surface: NonNullable<WorkspaceTuiFrameV1["agents"][number]["runtime_surfaces"]>[number]): string {
+  const name = surface.runtime_surface ?? "unknown";
+  const kind = surface.runtime_kind ?? "unknown";
+  const coder = surface.isolation_profiles?.coder_worktree;
+  const readiness = typeof coder === "object" && coder !== null && "readiness" in coder
+    ? String(coder.readiness)
+    : "unknown";
+  const capabilities = surface.direct_channel?.capability_bitmask;
+  const ownerVerified = Array.isArray(capabilities) && capabilities.includes("owner_verified");
+  return `${name}/${kind}(${readiness}${ownerVerified ? " owner_verified" : ""})`;
 }
 
 function formatStatus(frame: WorkspaceTuiFrameV1): string {

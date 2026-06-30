@@ -45,6 +45,7 @@ describe("holp CLI facade", () => {
 
     await runHolpCli(["workers"], { runClient });
     await runHolpCli(["status"], { runClient });
+    await runHolpCli(["refresh-workers", "--json"], { runClient });
     await runHolpCli(["run", "ship", "it", "--worker", "auto"], { runClient });
     await runHolpCli(["approve", "looks", "safe"], { runClient });
     await runHolpCli(["reject", "needs", "more"], { runClient });
@@ -52,6 +53,7 @@ describe("holp CLI facade", () => {
     expect(calls).toEqual([
       ["workers"],
       ["status"],
+      ["refresh-workers", "--json"],
       ["run", "--goal", "ship it", "--worker", "auto"],
       ["approve", "--decision", "approved", "--reason", "looks safe"],
       ["approve", "--decision", "rejected", "--reason", "needs more"],

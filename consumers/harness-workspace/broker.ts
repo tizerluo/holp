@@ -25,12 +25,13 @@ const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), "..", "..");
 const serverEntry = path.join(repoRoot, "daemon", "runtime", "server.ts");
 const BASE_DIR = "/tmp/holp-harness-workspace";
-const DISCOVER_TIMEOUT_MS = 20_000;
+const DISCOVER_TIMEOUT_MS = 60_000;
 const RUN_TIMEOUT_MS = 20_000;
 const DIRECT_USER_SESSION = "direct_user_session";
 
 export type BrokerCommand =
   | { readonly type: "run"; readonly goal: string; readonly worker: string }
+  | { readonly type: "refresh_workers" }
   | { readonly type: "approve"; readonly decision: ApprovalDecision; readonly reason: string }
   | { readonly type: "cancel"; readonly run_id?: string; readonly reason?: string }
   | { readonly type: "follow"; readonly agent: string }
@@ -164,6 +165,8 @@ export class HarnessWorkspaceBroker {
     switch (command.type) {
       case "run":
         return this.run(command);
+      case "refresh_workers":
+        return this.refreshWorkers();
       case "approve":
         return this.approve(command);
       case "cancel":
@@ -200,7 +203,14 @@ export class HarnessWorkspaceBroker {
   }
 
   private async run(command: Extract<BrokerCommand, { type: "run" }>): Promise<BrokerResponse> {
-    const resolved = this.resolveWorker(command.worker);
+    let resolved = this.resolveWorker(command.worker);
+    if (command.worker === "auto" && resolved.type === "error") {
+      const refresh = await this.refreshWorkers();
+      if (refresh.type === "error") {
+        return { type: "error", command: "run", message: refresh.message };
+      }
+      resolved = this.resolveWorker(command.worker);
+    }
     if (resolved.type === "error") {
       return { type: "error", command: "run", message: resolved.message };
     }
@@ -220,6 +230,25 @@ export class HarnessWorkspaceBroker {
     await this.persistReplaySerialized();
     this.broadcastFrame();
     return { type: "ack", command: "run", run_id: run.run_id, worker: resolved.agent.id };
+  }
+
+  private async refreshWorkers(): Promise<BrokerResponse> {
+    let discovery: { agents: readonly DiscoveredAgent[] };
+    try {
+      discovery = await this.daemon.call<{ agents: readonly DiscoveredAgent[] }>(
+        "flock.discover",
+        { transports: [this.transport], probe: this.probe },
+        DISCOVER_TIMEOUT_MS,
+      );
+    } catch (error) {
+      return { type: "error", command: "refresh_workers", message: `worker refresh failed: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    this.state = recordDiscovery(this.state, discovery, { replace: true });
+    const ids = Object.keys(this.state.agents).sort();
+    this.selectedAgentId = this.selectedAgentId && this.state.agents[this.selectedAgentId] ? this.selectedAgentId : ids[0];
+    await this.persistReplaySerialized();
+    this.broadcastFrame();
+    return { type: "ack", command: "refresh_workers" };
   }
 
   private async approve(command: Extract<BrokerCommand, { type: "approve" }>): Promise<BrokerResponse> {
@@ -259,21 +288,21 @@ export class HarnessWorkspaceBroker {
       const agent = candidates[0];
       return agent
         ? { type: "ok", agent, ...(realMode ? { preferredRuntimeSurface: DIRECT_USER_SESSION } : {}) }
-        : { type: "error", message: "no usable direct_user_session worker found for --worker auto; inspect `workers` or pass an explicit discovered non-fake direct worker" };
+        : { type: "error", message: "no usable direct_user_session worker found for --worker auto; run `holp refresh-workers`, inspect `workers`, or pass an explicit discovered non-fake direct worker" };
     }
 
     const agent = this.state.agents[worker];
     if (!agent) {
-      return { type: "error", message: `unsupported worker '${worker}'` };
+      return { type: "error", message: `unsupported worker '${worker}'; run \`holp refresh-workers\` and inspect \`workers\`` };
     }
     if (realMode && isFakeWorker(agent)) {
-      return { type: "error", message: `worker '${worker}' is fake/demo-only and cannot be used in real mode` };
+      return { type: "error", message: `worker '${worker}' is fake/demo-only and cannot be used in real mode; run \`holp refresh-workers\` and inspect \`workers\`` };
     }
     if (!isUsableWorker(agent, realMode)) {
       return {
         type: "error",
         message: realMode
-          ? `worker '${worker}' is not usable: direct_user_session surface is not ready or owner_verified proof is missing`
+          ? `worker '${worker}' is not usable: direct_user_session surface is not ready or owner_verified proof is missing; run \`holp refresh-workers\` and inspect \`workers\``
           : `worker '${worker}' is not usable: no supported runtime surface is advertised by the broker frame`,
       };
     }
@@ -378,6 +407,7 @@ function isCommand(value: unknown): value is BrokerCommand {
   if (typeof value !== "object" || value === null) return false;
   const command = value as Partial<BrokerCommand>;
   if (command.type === "run") return typeof command.goal === "string" && typeof command.worker === "string";
+  if (command.type === "refresh_workers") return true;
   if (command.type === "approve") {
     return (command.decision === "approved" || command.decision === "rejected")
       && typeof command.reason === "string"
@@ -391,7 +421,7 @@ function isCommand(value: unknown): value is BrokerCommand {
 function commandType(value: unknown): BrokerCommand["type"] | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const type = (value as { type?: unknown }).type;
-  return type === "run" || type === "approve" || type === "cancel" || type === "follow" || type === "snapshot" ? type : undefined;
+  return type === "run" || type === "refresh_workers" || type === "approve" || type === "cancel" || type === "follow" || type === "snapshot" ? type : undefined;
 }
 
 function isUsableWorker(agent: DiscoveredAgent, realMode: boolean): boolean {

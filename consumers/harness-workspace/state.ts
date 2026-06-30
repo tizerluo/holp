@@ -59,6 +59,7 @@ export function recordInitialize(
 export function recordDiscovery(
   state: HarnessWorkspaceState,
   discoveryResult: unknown,
+  options: { readonly replace?: boolean } = {},
 ): HarnessWorkspaceState {
   const payload = objectPayload(discoveryResult);
   const agents = arrayPayload(payload.agents).reduce<Record<string, DiscoveredAgent>>((acc, value) => {
@@ -73,7 +74,7 @@ export function recordDiscovery(
       raw: value,
     };
     return acc;
-  }, { ...state.agents });
+  }, options.replace ? {} : { ...state.agents });
 
   return {
     ...state,

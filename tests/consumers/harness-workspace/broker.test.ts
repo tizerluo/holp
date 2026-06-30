@@ -124,7 +124,7 @@ describe("harness workspace broker", () => {
 
     await expect(broker.handleCommand({ type: "run", goal: "x", worker: "missing" })).resolves.toMatchObject({
       type: "error",
-      message: "unsupported worker 'missing'",
+      message: expect.stringContaining("unsupported worker 'missing'"),
     });
     await expect(broker.handleCommand({ nope: true })).resolves.toMatchObject({
       type: "error",
@@ -205,10 +205,139 @@ describe("harness workspace broker", () => {
       worker: "a-worker",
     });
 
+    expect(calls.filter((call) => call.method === "flock.discover")).toHaveLength(1);
     expect(calls.find((call) => call.method === "orchestrate.run")?.params).toMatchObject({
       roles: { coder: { agent: "a-worker", preferred_runtime_surface: "direct_user_session" } },
     });
     expect(broker.frame().selected_agent).toBe("a-worker");
+  });
+
+  it("refresh_workers replaces degraded discovery with ready direct workers, persists replay, and broadcasts", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-refresh-")),
+      transport: "mcp-codex",
+      daemonFactory: () => fakeDaemon({
+        calls,
+        discoverResults: [
+          [agent("direct-worker", "direct-degraded")],
+          [agent("direct-worker", "native-direct")],
+        ],
+      }),
+    });
+    brokers.push(broker);
+    await broker.start();
+    const socket = net.createConnection(broker.socketPath);
+    const frames: WorkspaceTuiFrameV1[] = [];
+    attachJsonLineSocket(socket, {
+      onMessage: (message) => {
+        if (isWorkspaceTuiFrameV1(message)) frames.push(message);
+      },
+    });
+    await onceConnect(socket);
+
+    await expect(broker.handleCommand({ type: "refresh_workers" })).resolves.toEqual({
+      type: "ack",
+      command: "refresh_workers",
+    });
+    await waitFor(() => frames.some((frame) => JSON.stringify(frame.agents).includes('"readiness":"ready"')));
+    socket.destroy();
+
+    expect(calls.filter((call) => call.method === "flock.discover")).toHaveLength(2);
+    expect(JSON.parse(readFileSync(broker.replayPath, "utf8")).schema_version).toBe("HarnessReplaySnapshot.v1");
+    expect(broker.frame().replay_written_at).toBeDefined();
+    expect(broker.frame().selected_agent).toBe("direct-worker");
+  });
+
+  it("refresh_workers uses replace semantics so absent ready workers disappear", async () => {
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-refresh-replace-")),
+      transport: "mcp-codex",
+      daemonFactory: () => fakeDaemon({
+        discoverResults: [
+          [agent("direct-worker", "native-direct")],
+          [],
+        ],
+      }),
+    });
+    brokers.push(broker);
+    await broker.start();
+
+    await broker.handleCommand({ type: "refresh_workers" });
+
+    expect(broker.frame().agents.map((item) => item.id)).toEqual([]);
+    await expect(broker.handleCommand({ type: "run", goal: "x", worker: "auto" })).resolves.toMatchObject({
+      type: "error",
+      message: expect.stringContaining("no usable direct_user_session worker"),
+    });
+  });
+
+  it("refresh_workers returns a typed error when flock.discover throws after startup", async () => {
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-refresh-fails-")),
+      transport: "mcp-codex",
+      daemonFactory: () => fakeDaemon({
+        agents: [agent("direct-worker", "native-direct")],
+        failDiscoverAfter: 1,
+      }),
+    });
+    brokers.push(broker);
+    await broker.start();
+
+    await expect(broker.handleCommand({ type: "refresh_workers" })).resolves.toEqual({
+      type: "error",
+      command: "refresh_workers",
+      message: "worker refresh failed: discover timed out",
+    });
+  });
+
+  it("refreshes auto exactly once when initial discovery has no usable direct worker and then runs", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-auto-refresh-")),
+      transport: "mcp-codex",
+      daemonFactory: () => fakeDaemon({
+        calls,
+        discoverResults: [
+          [agent("direct-worker", "direct-degraded")],
+          [agent("direct-worker", "native-direct")],
+          [agent("z-extra", "native-direct")],
+        ],
+      }),
+    });
+    brokers.push(broker);
+    await broker.start();
+
+    await expect(broker.handleCommand({ type: "run", goal: "x", worker: "auto" })).resolves.toMatchObject({
+      type: "ack",
+      worker: "direct-worker",
+    });
+
+    expect(calls.filter((call) => call.method === "flock.discover")).toHaveLength(2);
+    expect(calls.filter((call) => call.method === "orchestrate.run")).toHaveLength(1);
+  });
+
+  it("run --worker auto returns a typed error and does not run when automatic refresh throws", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-auto-refresh-fails-")),
+      transport: "mcp-codex",
+      daemonFactory: () => fakeDaemon({
+        calls,
+        discoverResults: [[agent("direct-worker", "direct-degraded")]],
+        failDiscoverAfter: 1,
+      }),
+    });
+    brokers.push(broker);
+    await broker.start();
+
+    await expect(broker.handleCommand({ type: "run", goal: "x", worker: "auto" })).resolves.toEqual({
+      type: "error",
+      command: "run",
+      message: "worker refresh failed: discover timed out",
+    });
+    expect(calls.filter((call) => call.method === "flock.discover")).toHaveLength(2);
+    expect(calls.some((call) => call.method === "orchestrate.run")).toBe(false);
   });
 
   it("fails closed when auto has no usable real direct worker", async () => {
@@ -235,6 +364,7 @@ describe("harness workspace broker", () => {
       command: "run",
       message: expect.stringContaining("no usable direct_user_session worker"),
     });
+    expect(calls.filter((call) => call.method === "flock.discover")).toHaveLength(2);
     expect(calls.some((call) => call.method === "orchestrate.run")).toBe(false);
   });
 
@@ -257,23 +387,23 @@ describe("harness workspace broker", () => {
 
     await expect(broker.handleCommand({ type: "run", goal: "x", worker: "fake-agent" })).resolves.toMatchObject({
       type: "error",
-      message: expect.stringContaining("fake/demo-only"),
+      message: expect.stringContaining("holp refresh-workers"),
     });
     await expect(broker.handleCommand({ type: "run", goal: "x", worker: "headless-worker" })).resolves.toMatchObject({
       type: "error",
-      message: expect.stringContaining("direct_user_session"),
+      message: expect.stringContaining("holp refresh-workers"),
     });
     await expect(broker.handleCommand({ type: "run", goal: "x", worker: "direct-worker" })).resolves.toMatchObject({
       type: "error",
-      message: expect.stringContaining("not usable"),
+      message: expect.stringContaining("holp refresh-workers"),
     });
     await expect(broker.handleCommand({ type: "run", goal: "x", worker: "degraded-worker" })).resolves.toMatchObject({
       type: "error",
-      message: expect.stringContaining("direct_user_session surface is not ready"),
+      message: expect.stringContaining("holp refresh-workers"),
     });
     await expect(broker.handleCommand({ type: "run", goal: "x", worker: "no-owner-worker" })).resolves.toMatchObject({
       type: "error",
-      message: expect.stringContaining("owner_verified proof is missing"),
+      message: expect.stringContaining("holp refresh-workers"),
     });
   });
 
@@ -450,10 +580,13 @@ describe("harness workspace broker", () => {
 
 function fakeDaemon(options: {
   readonly failRun?: boolean;
+  readonly failDiscoverAfter?: number;
   readonly agents?: readonly DiscoveredAgent[];
+  readonly discoverResults?: readonly (readonly DiscoveredAgent[])[];
   readonly calls?: Array<{ method: string; params: unknown }>;
 } = {}) {
   const listeners: Array<(event: EventFrame) => void> = [];
+  let discoverIndex = 0;
   return {
     async call(method: string, params?: unknown) {
       options.calls?.push({ method, params });
@@ -461,8 +594,14 @@ function fakeDaemon(options: {
         return { protocol_version: "0.1.4", clientName: "broker-test" };
       }
       if (method === "flock.discover") {
+        if (options.failDiscoverAfter !== undefined && discoverIndex >= options.failDiscoverAfter) {
+          throw new Error("discover timed out");
+        }
+        const sequence = options.discoverResults;
+        const agents = sequence?.[Math.min(discoverIndex, sequence.length - 1)] ?? options.agents ?? [agent("fake-agent", "fake")];
+        discoverIndex += 1;
         return {
-          agents: options.agents ?? [agent("fake-agent", "fake")],
+          agents,
         };
       }
       if (method === "orchestrate.run") {
