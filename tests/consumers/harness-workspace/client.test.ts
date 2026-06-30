@@ -184,7 +184,13 @@ describe("harness workspace controller helper", () => {
     const previous = process.env.HOLP_HARNESS_BROKER_SOCKET;
     const dir = mkdtempSync(path.join(tmpdir(), "holp-client-workers-cli-"));
     const socketPath = path.join(dir, "broker.sock");
-    const frame = workerFrame();
+    const frame: WorkspaceTuiFrameV1 = {
+      ...workerFrame(),
+      continuity: {
+        ...workerFrame().continuity,
+        rerun_command: "holp run 'again' --worker 'fake-agent'",
+      },
+    };
     const server = net.createServer((socket) => {
       writeJsonLine(socket, frame);
     });
@@ -203,9 +209,17 @@ describe("harness workspace controller helper", () => {
     expect(writes[0]).toContain("- fake-agent selected status=ready role=coder runtime=headless/app_server(degraded), acp/codex_acp(degraded), direct_user_session/codex_direct_tmux(ready owner_verified)");
     expect(writes[0]).toContain("Degraded: worker_session_missing");
     expect(writes[0]).toContain("Readiness: owner=verified continue=false rerun=true inspect=true replay_only=false reasons=worker_session_missing");
-    const json = JSON.parse(writes[1] ?? "") as { agents: Array<{ id: string }>; degraded_reasons: string[] };
+    const json = JSON.parse(writes[1] ?? "") as {
+      agents: Array<{ id: string }>;
+      degraded_reasons: string[];
+      continuity: Record<string, unknown>;
+      readiness: Record<string, unknown>;
+    };
     expect(json.agents[0]?.id).toBe("fake-agent");
     expect(json.degraded_reasons).toEqual(["worker_session_missing"]);
+    expect(json.continuity.rerun_command).toBeUndefined();
+    expect(json.readiness.rerun_command).toBeUndefined();
+    expect(writes[1]).not.toContain("rerun_command");
     if (previous === undefined) delete process.env.HOLP_HARNESS_BROKER_SOCKET;
     else process.env.HOLP_HARNESS_BROKER_SOCKET = previous;
   });
@@ -252,7 +266,7 @@ describe("harness workspace controller helper", () => {
     expect(writes[0]).toContain("Run: run_status");
     expect(writes[0]).toContain("Approval: state=requested approval_id=ap_1");
     expect(writes[0]).toContain("Terminal: state=blocked reason=needs approval");
-    expect(writes[0]).toContain("Attach command: tmux attach -t holp-worker");
+    expect(writes[0]).toContain("Attach command: ended (historical: tmux attach -t holp-worker)");
     expect(writes[0]).toContain("Rerun command: holp run 'again' --worker 'fake-agent'");
     expect(writes[0]).toContain("Continue: disabled");
     expect(writes[0]).toContain("Next action: explain pending approval ap_1");

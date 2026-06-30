@@ -132,9 +132,9 @@ export async function runHolpSamePaneLauncher(options: SamePaneLauncherOptions =
   });
   assertValidCmuxLayoutCommand(send);
   const sendResult = await runner(cmuxCommand, cmuxCommandArgs(send), cwd);
-  manifest = recordManifestCommandResult(manifest, sendResult);
   if (!sendResult.ok) {
     if (!reused) {
+      manifest = recordManifestCommandResult(manifest, sendResult);
       manifest = addManifestDegradedReason(manifest, "cmux_command_failed");
     } else {
       const newPane = newPaneCommand(workspaceId);
@@ -165,6 +165,8 @@ export async function runHolpSamePaneLauncher(options: SamePaneLauncherOptions =
       manifest = recordManifestCommandResult(manifest, retrySendResult);
       if (!retrySendResult.ok) manifest = addManifestDegradedReason(manifest, "cmux_command_failed");
     }
+  } else {
+    manifest = recordManifestCommandResult(manifest, sendResult);
   }
 
   return finish(manifest.degraded_reasons.length > 0 ? "degraded" : "planned");

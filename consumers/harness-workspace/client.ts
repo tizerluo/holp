@@ -231,20 +231,29 @@ function isBrokerResponse(value: unknown): value is BrokerResponse {
   return candidate.type === "ack" || candidate.type === "error";
 }
 
+type WorkersContinuityJson = Omit<WorkspaceTuiFrameV1["continuity"], "rerun_command">;
+
 function workersJson(frame: WorkspaceTuiFrameV1): {
   readonly selected_agent?: string;
   readonly degraded_reasons: readonly string[];
   readonly agents: WorkspaceTuiFrameV1["agents"];
-  readonly readiness: WorkspaceTuiFrameV1["continuity"];
-  readonly continuity: WorkspaceTuiFrameV1["continuity"];
+  readonly readiness: WorkersContinuityJson;
+  readonly continuity: WorkersContinuityJson;
 } {
+  const continuity = workersContinuityJson(frame.continuity);
   return {
     selected_agent: frame.selected_agent,
     degraded_reasons: frame.degraded_reasons,
     agents: frame.agents,
-    readiness: frame.continuity,
-    continuity: frame.continuity,
+    readiness: continuity,
+    continuity,
   };
+}
+
+function workersContinuityJson(continuity: WorkspaceTuiFrameV1["continuity"]): WorkersContinuityJson {
+  const { rerun_command, ...projected } = continuity;
+  void rerun_command;
+  return projected;
 }
 
 function statusJson(frame: WorkspaceTuiFrameV1): {
@@ -310,12 +319,17 @@ function formatStatus(frame: WorkspaceTuiFrameV1): string {
     `Terminal: ${frame.terminal ? formatObject(frame.terminal) : "pending"}`,
     `Failure reason: ${frame.failures[0] ?? "none"}`,
     `Worker session: ${frame.worker_session ?? "none"}`,
-    `Attach command: ${frame.attach_command ?? "none"}`,
+    `Attach command: ${formatAttachStatus(frame)}`,
     `Rerun command: ${frame.continuity.rerun_command ?? "none"}`,
     `Continue: ${frame.continuity.can_continue ? "needs_confirmation" : "disabled"}`,
     `Next action: ${nextSuggestedAction(frame)}`,
   ];
   return `${lines.join("\n")}\n`;
+}
+
+function formatAttachStatus(frame: WorkspaceTuiFrameV1): string {
+  if (!frame.attach_command) return "none";
+  return frame.terminal ? `ended (historical: ${frame.attach_command})` : frame.attach_command;
 }
 
 function nextSuggestedAction(frame: WorkspaceTuiFrameV1): string {

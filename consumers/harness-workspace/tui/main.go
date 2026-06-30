@@ -429,9 +429,9 @@ func (m model) overviewBody() string {
 		"controller_entry: " + m.controllerEntryStatus(),
 		"degraded_reasons: " + joinOrNone(m.degradedReasons(), msg.None),
 		"worker_session: " + fallback(m.frame.WorkerSession, msg.Pending),
-		"attach_command: " + fallback(m.frame.AttachCommand, msg.Pending),
+		"attach_command: " + m.attachStatus(),
 		"latest_event: " + fallback(m.frame.Overview.Evidence.LatestEvent, msg.Pending),
-		"approval: " + summarizeMap(m.frame.Approval, msg.Pending),
+		"approval: " + summarizeMap(m.frame.Approval, msg.None),
 		"terminal: " + summarizeMap(m.frame.Terminal, msg.Pending),
 		"gate: " + summarizeMap(m.frame.Gate, msg.Pending),
 		"next_action: " + m.nextAction(),
@@ -492,7 +492,7 @@ func (m model) inspectBody() string {
 		fmt.Sprintf("id=%s status=%s role=%s role_skin=%s", fallback(selected.ID, m.selectedAgentID()), fallback(selected.Status, msg.Pending), fallback(selected.Role, msg.Pending), fallback(selected.RoleSkin, "neutral")),
 		"run_id: " + fallback(m.frame.RunID, msg.Pending),
 		"worker_session: " + fallback(m.frame.WorkerSession, msg.Pending),
-		"attach_command: " + fallback(m.frame.AttachCommand, msg.Pending),
+		"attach_command: " + m.attachStatus(),
 		"",
 		panelTitle(m.noANSI, selected.RoleSkin, msg.Chain),
 	}
@@ -537,7 +537,7 @@ func (m model) replayBody() string {
 		panelTitle(m.noANSI, "GATE", msg.Replay),
 		"path: " + fallback(m.frame.ReplayPath, msg.Pending),
 		"written_at: " + fallback(m.frame.ReplayWritten, msg.Pending),
-		"approval: " + summarizeMap(m.frame.Approval, msg.Pending),
+		"approval: " + summarizeMap(m.frame.Approval, msg.None),
 		"terminal: " + summarizeMap(m.frame.Terminal, msg.Pending),
 		"gate: " + summarizeMap(m.frame.Gate, msg.Pending),
 		"next_action: " + m.nextAction(),
@@ -606,6 +606,16 @@ func (m model) nextAction() string {
 		return "worker session attachable"
 	}
 	return "wait for worker terminal result"
+}
+
+func (m model) attachStatus() string {
+	if m.frame.AttachCommand == "" {
+		return m.chrome().Pending
+	}
+	if summarizeMap(m.frame.Terminal, "") != "" {
+		return "ended (historical: " + m.frame.AttachCommand + ")"
+	}
+	return m.frame.AttachCommand
 }
 
 func (m model) selectedAgent() agent {

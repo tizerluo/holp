@@ -82,6 +82,27 @@ func TestInteractionStateHintsRender(t *testing.T) {
 	}
 }
 
+func TestTerminalWithoutApprovalRendersNoneAndEndedAttach(t *testing.T) {
+	f := demoFrame()
+	f.Approval = nil
+	f.Terminal = valueMap{"state": "merged"}
+	m := initialModel(f, true)
+	out := m.View()
+	for _, want := range []string{
+		"approval: none",
+		"terminal: state=merged",
+		"attach_command: ended (historical: tmux attach -t holp-worker-demo)",
+		"next_action: review terminal result",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in overview:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "approval: pending") {
+		t.Fatalf("missing approval must not render as pending:\n%s", out)
+	}
+}
+
 func TestControllerEntryRequiresCmuxManifest(t *testing.T) {
 	out := initialModel(demoFrame(), true).View()
 	if !strings.Contains(out, "controller_entry: controller not verified") {

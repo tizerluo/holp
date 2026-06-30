@@ -17,11 +17,14 @@ export function deriveOperatorAffordances(
   const surfaces = selected ? state.agents[selected]?.runtime_surfaces : undefined;
   const canCancel = hasCapability(surfaces, "cancel");
   const canInterrupt = hasCapability(surfaces, "interrupt");
+  const canCopyAttach = Boolean(state.workerAnchor?.attach_command) && !state.terminal;
   return [
     affordance(state.locale, "copy_attach_command", {
-      state: state.workerAnchor?.attach_command ? "enabled" : "disabled",
-      reason_key: state.workerAnchor?.attach_command ? "affordanceReasonCopySource" : "affordanceReasonAttachMissing",
-      command_text: state.workerAnchor?.attach_command,
+      state: canCopyAttach ? "enabled" : "disabled",
+      reason_key: canCopyAttach
+        ? "affordanceReasonCopySource"
+        : state.terminal ? "affordanceReasonAttachEnded" : "affordanceReasonAttachMissing",
+      command_text: canCopyAttach ? state.workerAnchor?.attach_command : undefined,
     }),
     affordance(state.locale, "copy_run_id", {
       state: state.run.run_id ? "enabled" : "disabled",

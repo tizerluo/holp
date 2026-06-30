@@ -21,9 +21,11 @@ export function deriveContinuity(
   const hasAttach = Boolean(state.workerAnchor?.attach_command);
   const hasWorkerSession = Boolean(state.workerAnchor?.worker_session);
   const hasStoredGoal = Boolean(state.run.goal);
+  const hasTerminal = Boolean(state.terminal);
   const canInspect = state.events.length > 0 || state.rawEvidenceAnchors.length > 0;
   const canCopy = Boolean(state.run.run_id || state.workerAnchor?.attach_command);
   const canContinue = owner === "verified"
+    && !hasTerminal
     && hasRunIdentity
     && hasRuntimeSurface
     && hasAttach

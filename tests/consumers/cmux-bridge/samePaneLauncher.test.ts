@@ -347,6 +347,7 @@ describe("HOLP same-pane launcher", () => {
       const retrySend = calls[2] ?? [];
       expect(retrySend[retrySend.indexOf("--surface") + 1]).toBe("surface:surface-new");
       expect(result.manifest.surfaces.controller?.surface_id).toBe("surface:surface-new");
+      expect(JSON.stringify(result.manifest.command_results)).not.toContain("surface:stale");
     } finally {
       rmSync(`/tmp/holp-harness-workspace/${oldId}`, { recursive: true, force: true });
       rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });

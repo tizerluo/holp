@@ -76,6 +76,33 @@ describe("harness workspace operator affordances", () => {
     expect(rendered).not.toMatch(/\b(?:kill|pkill|killall|send-key|focus-pane|select-workspace)\b/);
   });
 
+  it("does not claim live attach or continue after terminal completion", () => {
+    let state = seededState("en-US", "rerun later");
+    state = recordEvent(state, frame(1, "agent_event", {
+      name: "attach_target",
+      payload: {
+        agent_id: "coder-1",
+        session_id: "holp-direct-75",
+        attach_command: "tmux attach -t holp-direct-75",
+      },
+    }, "agent"));
+    state = recordEvent(state, frame(2, "run_merged", {}));
+
+    const continuity = deriveContinuity(state);
+    const affordances = deriveOperatorAffordances(state, continuity);
+
+    expect(continuity.can_continue).toBe(false);
+    expect(continuity.can_rerun).toBe(true);
+    expect(affordances.find((item) => item.id === "copy_attach_command")).toMatchObject({
+      state: "disabled",
+      reason_key: "affordanceReasonAttachEnded",
+    });
+    expect(affordances.find((item) => item.id === "copy_attach_command")).not.toHaveProperty("command_text");
+    expect(affordances.find((item) => item.id === "continue_run")).toMatchObject({
+      state: "disabled",
+    });
+  });
+
   it("enables rerun from stored goal without adding command_text to the affordance", () => {
     const state = seededState("en-US", "say 'hello' and $(pwd) and `whoami`");
     const continuity = deriveContinuity(state);

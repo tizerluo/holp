@@ -67,7 +67,7 @@ describe("harness workspace replay snapshots", () => {
     expect(output).toContain("Replay replay created_at=2026-06-25T01:02:03.000Z");
     expect(output).toContain("Timeline info agent.model_output#3 model output captured");
     expect(output).toContain("Continuity continue=false");
-    expect(output).toContain("Affordance Copy attach command=enabled");
+    expect(output).toContain("Affordance Copy attach command=disabled");
     expect(output).toContain("Affordance Cancel run=needs_confirmation");
     expect(json).not.toContain("secret_provider_blob_must_not_export");
   });
