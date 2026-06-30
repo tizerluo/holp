@@ -13,11 +13,12 @@ import {
   restoreReplaySnapshot,
 } from "../../../consumers/harness-workspace/index.js";
 
-function seededState() {
+function seededState(goal?: string) {
   return recordRunAccepted(
     recordDiscovery(createHarnessWorkspaceState(), harnessDiscoveryFixture),
     {
       run_id: "run_75",
+      ...(goal ? { goal } : {}),
       runtime: {
         agent_id: "coder-1",
         runtime_surface: "direct_user_session",
@@ -326,6 +327,40 @@ describe("harness workspace replay snapshots", () => {
     expect(() => importReplaySnapshotJson(exportReplaySnapshotJson(snapshot))).not.toThrow();
   });
 
+  it("preserves rerun command while keeping replay continue disabled", () => {
+    let state = seededState("rerun 'me'");
+    state = recordEvent(state, frame(1, "agent_event", {
+      name: "attach_target",
+      payload: {
+        agent_id: "coder-1",
+        session_id: "holp-direct-75",
+        attach_command: "tmux attach -t holp-direct-75",
+      },
+    }, "agent"));
+    const snapshot = createReplaySnapshot(state, {
+      createdAt: "2026-06-25T00:00:00.000Z",
+    });
+    const imported = importReplaySnapshotJson(exportReplaySnapshotJson(snapshot));
+
+    expect(imported.continuity).toMatchObject({
+      can_continue: false,
+      can_rerun: true,
+      rerun_command: "holp run 'rerun '\\''me'\\''' --worker 'coder-1'",
+    });
+    expect(imported.continuity.reasons).not.toContain("rerun_goal_not_exported");
+  });
+
+  it("omits oversized replay rerun command instead of exporting an invalid snapshot", () => {
+    const snapshot = createReplaySnapshot(seededState("x".repeat(600)), {
+      createdAt: "2026-06-25T00:00:00.000Z",
+    });
+    const imported = importReplaySnapshotJson(exportReplaySnapshotJson(snapshot));
+
+    expect(imported.continuity.can_rerun).toBe(false);
+    expect(imported.continuity.rerun_command).toBeUndefined();
+    expect(imported.continuity.reasons).toContain("rerun_command_exceeds_replay_cap");
+  });
+
   it("rejects oversized continuity strings and reason strings", () => {
     const snapshot = createReplaySnapshot(recordEvent(seededState(), frame(1, "run_started", {})), {
       createdAt: "2026-06-25T00:00:00.000Z",
@@ -333,6 +368,10 @@ describe("harness workspace replay snapshots", () => {
     const raw = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
     (raw.continuity as Record<string, unknown>).attach_command = "x".repeat(513);
     expect(() => importReplaySnapshotJson(JSON.stringify(raw))).toThrow(/continuity.attach_command exceeds cap/);
+
+    const rerunRaw = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
+    (rerunRaw.continuity as Record<string, unknown>).rerun_command = "x".repeat(513);
+    expect(() => importReplaySnapshotJson(JSON.stringify(rerunRaw))).toThrow(/continuity.rerun_command exceeds cap/);
 
     const reasonRaw = JSON.parse(exportReplaySnapshotJson(snapshot)) as Record<string, unknown>;
     (reasonRaw.continuity as Record<string, unknown>).reasons = ["x".repeat(513)];

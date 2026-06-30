@@ -103,6 +103,44 @@ describe("harness workspace state projection", () => {
     });
   });
 
+  it("derives attach command only for HOLP-owned step sessions", () => {
+    const nonHolp = recordEvent(seededState(), frame(1, "step_started", {
+      agent_id: "coder-1",
+      detail: "user-shell;rm -rf",
+    }, "agent"));
+    expect(deriveOverview(nonHolp).evidence.attach_command).toBeUndefined();
+
+    const holp = recordEvent(seededState(), frame(2, "step_started", {
+      agent_id: "coder-1",
+      detail: "holp-direct-123",
+    }, "agent"));
+    expect(deriveOverview(holp).evidence).toMatchObject({
+      worker_session: "holp-direct-123",
+      attach_command: "tmux attach -t holp-direct-123",
+    });
+  });
+
+  it("keeps public attach target command ahead of later derived step sessions", () => {
+    let state = seededState();
+    state = recordEvent(state, frame(1, "agent_event", {
+      name: "attach_target",
+      payload: {
+        agent_id: "coder-1",
+        session_id: "holp-public",
+        attach_command: "tmux attach -t holp-public",
+      },
+    }, "agent"));
+    state = recordEvent(state, frame(2, "step_started", {
+      agent_id: "coder-1",
+      detail: "holp-derived",
+    }, "agent"));
+
+    expect(deriveOverview(state).evidence).toMatchObject({
+      worker_session: "holp-public",
+      attach_command: "tmux attach -t holp-public",
+    });
+  });
+
   it("uses nested agent_event attach target as selected agent latestEvent in Inspect", () => {
     let state = seededState();
     state = recordEvent(state, frame(1, "agent_event", {

@@ -20,6 +20,7 @@ export function deriveContinuity(
   const hasRuntimeSurface = Boolean(state.run.runtime_surface);
   const hasAttach = Boolean(state.workerAnchor?.attach_command);
   const hasWorkerSession = Boolean(state.workerAnchor?.worker_session);
+  const hasStoredGoal = Boolean(state.run.goal);
   const canInspect = state.events.length > 0 || state.rawEvidenceAnchors.length > 0;
   const canCopy = Boolean(state.run.run_id || state.workerAnchor?.attach_command);
   const canContinue = owner === "verified"
@@ -28,13 +29,22 @@ export function deriveContinuity(
     && hasAttach
     && hasWorkerSession
     && hasCapability(surfaces, "inject");
-  const canRerun = false;
+  const canRerun = owner === "verified"
+    && hasRunIdentity
+    && Boolean(selected)
+    && hasRuntimeSurface
+    && hasStoredGoal;
+  const rerunCommand = canRerun && selected && state.run.goal
+    ? `holp run ${shellQuote(state.run.goal)} --worker ${shellQuote(selected)}`
+    : undefined;
   const reasons = continuityReasons({
     owner,
     hasRunIdentity,
     hasRuntimeSurface,
+    hasSelectedWorker: Boolean(selected),
     hasAttach,
     hasWorkerSession,
+    hasStoredGoal,
     canInspect,
     canCopy,
     canContinue,
@@ -48,6 +58,7 @@ export function deriveContinuity(
     runtime_surface: state.run.runtime_surface,
     worker_session: state.workerAnchor?.worker_session,
     attach_command: state.workerAnchor?.attach_command,
+    rerun_command: rerunCommand,
     terminal_state: state.terminal?.kind,
     owner_verified: owner,
     replay_created_at: options.replayCreatedAt,
@@ -76,8 +87,10 @@ function continuityReasons(options: {
   readonly owner: string;
   readonly hasRunIdentity: boolean;
   readonly hasRuntimeSurface: boolean;
+  readonly hasSelectedWorker: boolean;
   readonly hasAttach: boolean;
   readonly hasWorkerSession: boolean;
+  readonly hasStoredGoal: boolean;
   readonly canInspect: boolean;
   readonly canCopy: boolean;
   readonly canContinue: boolean;
@@ -89,9 +102,22 @@ function continuityReasons(options: {
   if (options.owner !== "verified") reasons.push("owner_not_verified");
   if (!options.hasRunIdentity) reasons.push("run_id_missing");
   if (!options.hasRuntimeSurface) reasons.push("runtime_surface_missing");
+  if (!options.hasSelectedWorker) reasons.push("selected_worker_missing");
   if (!options.hasWorkerSession) reasons.push("worker_session_missing");
   if (!options.hasAttach) reasons.push("attach_command_missing");
-  if (!options.canContinue) reasons.push("continue_requires_public_wire_capability");
-  if (!options.canRerun) reasons.push("rerun_goal_not_exported");
+  if (
+    !options.canRerun
+    && options.owner === "verified"
+    && options.hasRunIdentity
+    && options.hasSelectedWorker
+    && options.hasRuntimeSurface
+    && !options.hasStoredGoal
+  ) {
+    reasons.push("rerun_goal_not_exported");
+  }
   return [...new Set(reasons)];
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }

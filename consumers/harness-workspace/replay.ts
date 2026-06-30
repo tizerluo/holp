@@ -40,7 +40,7 @@ const INSPECT_KEYS = new Set(["title", "mode", "selectedAgentId", "empty"]);
 const CHAIN_NODE_KEYS = new Set(["id", "label", "skin", "state", "agentId"]);
 const KNOWN_ROLE_SKINS = new Set(["CTRL", "CODE", "TEST", "REV", "ARCH", "GATE"]);
 const KNOWN_CHAIN_STATES = new Set(["idle", "active", "done", "failed", "unknown"]);
-const CONTINUITY_KEYS = new Set(["run_id", "observed_agent_ids", "selected_agent_id", "runtime_surface", "worker_session", "attach_command", "terminal_state", "owner_verified", "replay_created_at", "can_continue", "can_rerun", "can_inspect", "can_copy", "replay_only", "reasons"]);
+const CONTINUITY_KEYS = new Set(["run_id", "observed_agent_ids", "selected_agent_id", "runtime_surface", "worker_session", "attach_command", "rerun_command", "terminal_state", "owner_verified", "replay_created_at", "can_continue", "can_rerun", "can_inspect", "can_copy", "replay_only", "reasons"]);
 const KNOWN_AFFORDANCE_IDS = new Set([
   "copy_attach_command",
   "copy_run_id",
@@ -79,7 +79,7 @@ export function createReplaySnapshot(
   const previewLimit = options.previewLimit ?? DEFAULT_PREVIEW_LIMIT;
   const overview = deriveOverview(state);
   const inspect = options.inspectAgentId ? deriveInspect(state, options.inspectAgentId) : undefined;
-  const continuity = replayContinuity(deriveContinuity(state, { replayCreatedAt: created_at }));
+  const continuity = replayContinuity(deriveContinuity(state, { replayCreatedAt: created_at }), previewLimit);
   const operator_affordances = deriveOperatorAffordances(state, continuity);
   const logs = deriveTimeline(state.events, { limit: logLimit, previewLimit });
   const orderedEvents = [...state.events].sort((left, right) => left.seq - right.seq);
@@ -220,14 +220,28 @@ function replayOverview(
   };
 }
 
-function replayContinuity(continuity: HarnessSessionContinuity): HarnessSessionContinuity {
-  if (!continuity.can_continue) return continuity;
-  return {
-    ...continuity,
-    can_continue: false,
-    replay_only: !continuity.can_rerun,
-    reasons: [...new Set([...continuity.reasons, "continue_disabled_in_replay_snapshot"])],
-  };
+function replayContinuity(
+  continuity: HarnessSessionContinuity,
+  previewLimit: number,
+): HarnessSessionContinuity {
+  let next = continuity.can_continue
+    ? {
+        ...continuity,
+        can_continue: false,
+        replay_only: !continuity.can_rerun,
+        reasons: [...new Set([...continuity.reasons, "continue_disabled_in_replay_snapshot"])],
+      }
+    : continuity;
+  if (next.rerun_command && next.rerun_command.length > previewLimit) {
+    next = {
+      ...next,
+      rerun_command: undefined,
+      can_rerun: false,
+      replay_only: !next.can_continue,
+      reasons: [...new Set([...next.reasons, "rerun_command_exceeds_replay_cap"])],
+    };
+  }
+  return next;
 }
 
 function replayInspect(
@@ -608,7 +622,7 @@ function validateOverviewEvidence(value: unknown, previewLimit: number): void {
 function validateContinuity(value: unknown, previewLimit: number): void {
   const continuity = requireObject(value, "continuity");
   rejectUnknownKeys(continuity, CONTINUITY_KEYS, "Replay continuity");
-  for (const key of ["run_id", "selected_agent_id", "runtime_surface", "worker_session", "attach_command", "terminal_state", "replay_created_at"]) {
+  for (const key of ["run_id", "selected_agent_id", "runtime_surface", "worker_session", "attach_command", "rerun_command", "terminal_state", "replay_created_at"]) {
     validateOptionalEvidenceString(continuity[key], `continuity.${key}`, previewLimit);
   }
   if (continuity.terminal_state !== undefined && !["merged", "blocked", "gave_up", "cancelled"].includes(String(continuity.terminal_state))) {

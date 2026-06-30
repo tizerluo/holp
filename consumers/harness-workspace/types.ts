@@ -55,6 +55,7 @@ export interface HarnessRunIdentity {
   readonly runtime_surface?: string;
   readonly isolation_profile?: string;
   readonly runtime_kind?: string;
+  readonly goal?: string;
 }
 
 export interface WorkerAnchor {
@@ -164,6 +165,7 @@ export interface HarnessSessionContinuity {
   readonly runtime_surface?: string;
   readonly worker_session?: string;
   readonly attach_command?: string;
+  readonly rerun_command?: string;
   readonly terminal_state?: TerminalStateKind;
   readonly owner_verified: OwnerVerificationState;
   readonly replay_created_at?: string;

@@ -224,6 +224,11 @@ describe("harness workspace controller helper", () => {
       approval: { state: "requested", approval_id: "ap_1" },
       terminal: { state: "blocked", reason: "needs approval" },
       failures: ["gate blocked"],
+      continuity: {
+        ...workerFrame().continuity,
+        rerun_command: "holp run 'again' --worker 'fake-agent'",
+        can_continue: false,
+      },
     };
     const server = net.createServer((socket) => {
       socket.on("data", (chunk) => {
@@ -247,9 +252,14 @@ describe("harness workspace controller helper", () => {
     expect(writes[0]).toContain("Run: run_status");
     expect(writes[0]).toContain("Approval: state=requested approval_id=ap_1");
     expect(writes[0]).toContain("Terminal: state=blocked reason=needs approval");
+    expect(writes[0]).toContain("Attach command: tmux attach -t holp-worker");
+    expect(writes[0]).toContain("Rerun command: holp run 'again' --worker 'fake-agent'");
+    expect(writes[0]).toContain("Continue: disabled");
     expect(writes[0]).toContain("Next action: explain pending approval ap_1");
-    const json = JSON.parse(writes[1] ?? "") as { run_id: string; next_action: string };
+    const json = JSON.parse(writes[1] ?? "") as { run_id: string; next_action: string; rerun_command?: string; can_continue: boolean };
     expect(json.run_id).toBe("run_status");
+    expect(json.rerun_command).toBe("holp run 'again' --worker 'fake-agent'");
+    expect(json.can_continue).toBe(false);
     expect(json.next_action).toContain("pending approval");
     if (previous === undefined) delete process.env.HOLP_HARNESS_BROKER_SOCKET;
     else process.env.HOLP_HARNESS_BROKER_SOCKET = previous;

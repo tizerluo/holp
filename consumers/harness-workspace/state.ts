@@ -105,6 +105,7 @@ export function recordRunAccepted(
     isolation_profile: stringField(payload, "isolation_profile")
       ?? stringField(runtime, "isolation_profile")
       ?? state.run.isolation_profile,
+    goal: stringField(payload, "goal") ?? state.run.goal,
   };
   const next = {
     ...state,
@@ -223,12 +224,13 @@ function recordStepStarted(state: HarnessWorkspaceState, event: EventFrame): Har
   const payload = objectPayload(event.payload);
   const detail = stringField(payload, "detail");
   const selected = stringField(payload, "agent_id") ?? stringField(payload, "agent") ?? state.run.selected_agent_id;
-  const anchor = detail && /^holp-/.test(detail)
-    ? {
+  const anchor = detail && isHolpSessionName(detail)
+    ? mergeAnchor(state.workerAnchor, {
         worker_session: detail,
+        attach_command: `tmux attach -t ${detail}`,
         agent_id: selected,
         source: "step_started.detail" as const,
-      }
+      })
     : state.workerAnchor;
   return {
     ...state,
@@ -455,12 +457,19 @@ function renderPreview(
 }
 
 function mergeAnchor(previous: WorkerAnchor | undefined, next: WorkerAnchor): WorkerAnchor {
+  if (previous?.source === "agent_event.attach_target" && previous.attach_command && next.source === "step_started.detail") {
+    return previous;
+  }
   return {
     worker_session: next.worker_session ?? previous?.worker_session,
     attach_command: next.attach_command ?? previous?.attach_command,
     agent_id: next.agent_id ?? previous?.agent_id,
     source: next.source,
   };
+}
+
+function isHolpSessionName(value: string): boolean {
+  return /^holp-[A-Za-z0-9_.:-]+$/.test(value);
 }
 
 function runtimeSurfaces(value: unknown): readonly RuntimeSurfaceRow[] | undefined {

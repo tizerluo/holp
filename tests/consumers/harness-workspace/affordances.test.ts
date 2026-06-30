@@ -10,11 +10,12 @@ import {
   recordRunAccepted,
 } from "../../../consumers/harness-workspace/index.js";
 
-function seededState(locale: "en-US" | "zh-CN" = "en-US") {
+function seededState(locale: "en-US" | "zh-CN" = "en-US", goal?: string) {
   return recordRunAccepted(
     recordDiscovery(createHarnessWorkspaceState({ locale }), harnessDiscoveryFixture),
     {
       run_id: "run_75",
+      ...(goal ? { goal } : {}),
       runtime: {
         agent_id: "coder-1",
         runtime_surface: "direct_user_session",
@@ -75,6 +76,23 @@ describe("harness workspace operator affordances", () => {
     expect(rendered).not.toMatch(/\b(?:kill|pkill|killall|send-key|focus-pane|select-workspace)\b/);
   });
 
+  it("enables rerun from stored goal without adding command_text to the affordance", () => {
+    const state = seededState("en-US", "say 'hello' and $(pwd)");
+    const continuity = deriveContinuity(state);
+    const affordances = deriveOperatorAffordances(state, continuity);
+
+    expect(continuity).toMatchObject({
+      can_rerun: true,
+      rerun_command: "holp run 'say '\\''hello'\\'' and $(pwd)' --worker 'coder-1'",
+    });
+    expect(continuity.reasons).not.toContain("rerun_goal_not_exported");
+    expect(affordances.find((item) => item.id === "rerun_goal")).toMatchObject({
+      state: "needs_confirmation",
+      confirmation_required: true,
+    });
+    expect(affordances.find((item) => item.id === "rerun_goal")).not.toHaveProperty("command_text");
+  });
+
   it("reports unsupported or disabled states with localized catalog text when evidence is missing", () => {
     const state = createHarnessWorkspaceState({ locale: "zh-CN" });
     const continuity = deriveContinuity(state);
@@ -115,6 +133,42 @@ describe("harness workspace operator affordances", () => {
     expect(continuity.reasons).toContain("runtime_surface_missing");
     expect(affordances.find((item) => item.id === "continue_run")).toMatchObject({
       state: "disabled",
+    });
+  });
+
+  it("keeps continue disabled without broad degraded reason when only inject is missing", () => {
+    let state = recordDiscovery(createHarnessWorkspaceState(), {
+      agents: [{
+        id: "coder-1",
+        status: "ready",
+        role: "coder",
+        runtime_surfaces: [{
+          runtime_surface: "direct_user_session",
+          runtime_kind: "tmux",
+          surface_support: "supported",
+          direct_channel: { capability_bitmask: ["read", "owner_verified"] },
+        }],
+      }],
+    });
+    state = recordRunAccepted(state, {
+      run_id: "run_75",
+      goal: "ship",
+      runtime: { agent_id: "coder-1", runtime_surface: "direct_user_session" },
+    });
+    state = recordEvent(state, frame(1, "step_started", {
+      agent_id: "coder-1",
+      detail: "holp-direct-75",
+    }, "agent"));
+
+    const continuity = deriveContinuity(state);
+    const affordances = deriveOperatorAffordances(state, continuity);
+
+    expect(continuity.can_continue).toBe(false);
+    expect(continuity.can_rerun).toBe(true);
+    expect(continuity.reasons).not.toContain("continue_requires_public_wire_capability");
+    expect(affordances.find((item) => item.id === "continue_run")).toMatchObject({
+      state: "disabled",
+      reason_key: "affordanceReasonContinueUnavailable",
     });
   });
 });

@@ -255,6 +255,8 @@ function statusJson(frame: WorkspaceTuiFrameV1): {
   readonly failure_reason?: string;
   readonly worker_session?: string;
   readonly attach_command?: string;
+  readonly rerun_command?: string;
+  readonly can_continue: boolean;
   readonly next_action: string;
 } {
   return {
@@ -265,6 +267,8 @@ function statusJson(frame: WorkspaceTuiFrameV1): {
     failure_reason: frame.failures[0],
     worker_session: frame.worker_session,
     attach_command: frame.attach_command,
+    rerun_command: frame.continuity.rerun_command,
+    can_continue: frame.continuity.can_continue,
     next_action: nextSuggestedAction(frame),
   };
 }
@@ -307,6 +311,8 @@ function formatStatus(frame: WorkspaceTuiFrameV1): string {
     `Failure reason: ${frame.failures[0] ?? "none"}`,
     `Worker session: ${frame.worker_session ?? "none"}`,
     `Attach command: ${frame.attach_command ?? "none"}`,
+    `Rerun command: ${frame.continuity.rerun_command ?? "none"}`,
+    `Continue: ${frame.continuity.can_continue ? "needs_confirmation" : "disabled"}`,
     `Next action: ${nextSuggestedAction(frame)}`,
   ];
   return `${lines.join("\n")}\n`;

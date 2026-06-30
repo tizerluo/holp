@@ -38,8 +38,8 @@ export function deriveOperatorAffordances(
       reason_key: state.rawEvidenceAnchors.length > 0 ? "affordanceReasonEvidenceAvailable" : "affordanceReasonEvidenceMissing",
     }),
     affordance(state.locale, "rerun_goal", {
-      state: "disabled",
-      reason_key: "affordanceReasonRerunDeferred",
+      state: continuity.can_rerun ? "needs_confirmation" : "disabled",
+      reason_key: continuity.can_rerun ? "affordanceReasonRerunNeedsConfirmation" : "affordanceReasonRerunDeferred",
       confirmation_required: true,
       destructive: true,
       focus_changing: true,

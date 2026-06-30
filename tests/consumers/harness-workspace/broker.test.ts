@@ -430,6 +430,48 @@ describe("harness workspace broker", () => {
     });
   });
 
+  it("stores run goal in consumer state without changing orchestrate.run params", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const daemon = fakeDaemon({
+      calls,
+      agents: [agent("direct-worker", "native-direct")],
+    });
+    const broker = new HarnessWorkspaceBroker({
+      baseDir: mkdtempSync(path.join(tmpdir(), "holp-broker-rerun-goal-")),
+      transport: "mcp-codex",
+      daemonFactory: () => daemon,
+    });
+    brokers.push(broker);
+    await broker.start();
+
+    await expect(broker.handleCommand({
+      type: "run",
+      goal: "say 'hello'",
+      worker: "direct-worker",
+    })).resolves.toMatchObject({ type: "ack", command: "run" });
+    daemon.emit({
+      run_id: "run_fake",
+      seq: 2,
+      category: "run",
+      name: "run_started",
+      payload: {
+        runtime: {
+          agent_id: "direct-worker",
+          runtime_surface: "direct_user_session",
+        },
+      },
+    });
+
+    expect(calls.find((call) => call.method === "orchestrate.run")?.params).toEqual({
+      goal: "say 'hello'",
+      roles: { coder: { agent: "direct-worker", preferred_runtime_surface: "direct_user_session" } },
+    });
+    expect(broker.frame().continuity).toMatchObject({
+      can_rerun: true,
+      rerun_command: "holp run 'say '\\''hello'\\''' --worker 'direct-worker'",
+    });
+  });
+
   it("resolves a pending merge approval through approval.resolve", async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     const daemon = fakeDaemon({ calls });

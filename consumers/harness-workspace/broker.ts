@@ -225,7 +225,7 @@ export class HarnessWorkspaceBroker {
         coder: coderRole,
       },
     }, RUN_TIMEOUT_MS);
-    this.state = recordRunAccepted(this.state, { ...run, agent_id: resolved.agent.id });
+    this.state = recordRunAccepted(this.state, { ...run, agent_id: resolved.agent.id, goal: command.goal });
     await this.daemon.call("events.subscribe", { run_id: run.run_id, after_seq: 0 });
     await this.persistReplaySerialized();
     this.broadcastFrame();
