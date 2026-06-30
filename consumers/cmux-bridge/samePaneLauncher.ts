@@ -107,7 +107,7 @@ export async function runHolpSamePaneLauncher(options: SamePaneLauncherOptions =
     last_command: newPaneResult.command,
   });
 
-  const paneCommand = buildPaneCommand({ sessionId, brokerSocket, goal: options.goal });
+  const paneCommand = buildPaneCommand({ sessionId, brokerSocket, goal: options.goal, env });
   const send = sendCommand(workspaceId, parsed.surfaceId, paneCommand, {
     kind: "mission-control",
     title: "HOLP Harness Workspace",
@@ -139,12 +139,14 @@ export function buildPaneCommand(options: {
   readonly sessionId: string;
   readonly brokerSocket: string;
   readonly goal?: string;
+  readonly env?: Readonly<Record<string, string | undefined>>;
 }): string {
   const tmuxSession = `holp-harness-${options.sessionId}`;
   const brokerLog = path.join(sessionDirForSession(options.sessionId), "broker.log");
   const env = [
     `export PATH=${shellQuote(path.join(repoRoot, "bin"))}:$PATH`,
     `export HOLP_HARNESS_BROKER_SOCKET=${shellQuote(options.brokerSocket)}`,
+    ...forwardedPaneEnv(options.env),
   ].join("; ");
   const waitForBroker = `for i in $(seq 1 80); do [ -S ${shellQuote(options.brokerSocket)} ] && break; sleep 0.25; done`;
   const controller = [
@@ -203,6 +205,10 @@ function defaultIsOnPath(command: string): boolean {
 
 function cleanPromptText(value: string): string {
   return value.replaceAll(/[\n\r\t]+/g, " ");
+}
+
+function forwardedPaneEnv(env: Readonly<Record<string, string | undefined>> | undefined): string[] {
+  return env?.HOLP_REAL_CODEX_SMOKE === "1" ? ["export HOLP_REAL_CODEX_SMOKE=1"] : [];
 }
 
 function shellQuote(value: string): string {

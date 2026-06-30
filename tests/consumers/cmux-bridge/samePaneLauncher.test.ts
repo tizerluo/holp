@@ -193,6 +193,30 @@ describe("HOLP same-pane launcher", () => {
       const payload = sendArgs[sendArgs.indexOf("--") + 1] ?? "";
       expect(payload).toContain("tmux new-session");
       expect(payload).toContain("codex");
+      expect(payload).not.toContain("HOLP_REAL_CODEX_SMOKE");
+    } finally {
+      rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
+    }
+  });
+
+  it("forwards explicit Codex smoke opt-in to the tmux startup script", async () => {
+    const id = sessionId("smoke-env");
+    const calls: string[][] = [];
+    const runner: SamePaneCommandRunner = async (command, args) => {
+      calls.push([...args]);
+      return ok(command, args, "created pane:pane-one surface:surface-one");
+    };
+    try {
+      await runHolpSamePaneLauncher({
+        sessionId: id,
+        env: { CMUX_WORKSPACE_ID: "workspace:1", HOLP_REAL_CODEX_SMOKE: "1" },
+        isOnPath: () => true,
+        runner,
+      });
+
+      const sendArgs = calls.find((args) => args[0] === "send") ?? [];
+      const payload = sendArgs[sendArgs.indexOf("--") + 1] ?? "";
+      expect(payload).toContain("export HOLP_REAL_CODEX_SMOKE=1");
     } finally {
       rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
     }
@@ -222,5 +246,24 @@ describe("HOLP same-pane launcher", () => {
     expect(command).toContain("holp reject");
     expect(command).not.toContain("HOLP_REGISTRY=fake");
     expect(command).not.toContain("fake-agent");
+    expect(command).not.toContain("HOLP_REAL_CODEX_SMOKE");
+  });
+
+  it("only includes Codex smoke opt-in when explicitly enabled", () => {
+    const id = "session-smoke-env";
+    const brokerSocket = `/tmp/holp-harness-workspace/${id}/broker.sock`;
+    const command = buildPaneCommand({
+      sessionId: id,
+      brokerSocket,
+      env: { HOLP_REAL_CODEX_SMOKE: "1" },
+    });
+    const disabled = buildPaneCommand({
+      sessionId: id,
+      brokerSocket,
+      env: { HOLP_REAL_CODEX_SMOKE: "true" },
+    });
+
+    expect(command).toContain("export HOLP_REAL_CODEX_SMOKE=1");
+    expect(disabled).not.toContain("HOLP_REAL_CODEX_SMOKE");
   });
 });
