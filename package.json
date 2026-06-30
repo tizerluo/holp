@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "HOLP reference daemon — stdio JSON-RPC protocol substrate",
+  "bin": {
+    "holp": "bin/holp"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
