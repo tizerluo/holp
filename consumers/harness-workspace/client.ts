@@ -7,8 +7,8 @@ import type { BrokerCommand, BrokerResponse } from "./broker.js";
 import { isWorkspaceTuiFrameV1, type WorkspaceTuiFrameV1 } from "./tuiFrame.js";
 
 const DEFAULT_TIMEOUT_MS = 3000;
-export const REFRESH_TIMEOUT_MS = 25_000;
-export const RUN_TIMEOUT_MS = 45_000;
+export const REFRESH_TIMEOUT_MS = 65_000;
+export const RUN_TIMEOUT_MS = 90_000;
 const __filename = fileURLToPath(import.meta.url);
 
 export interface ControllerRunOptions {

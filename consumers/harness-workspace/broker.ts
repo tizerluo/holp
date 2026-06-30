@@ -25,7 +25,7 @@ const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), "..", "..");
 const serverEntry = path.join(repoRoot, "daemon", "runtime", "server.ts");
 const BASE_DIR = "/tmp/holp-harness-workspace";
-const DISCOVER_TIMEOUT_MS = 20_000;
+const DISCOVER_TIMEOUT_MS = 60_000;
 const RUN_TIMEOUT_MS = 20_000;
 const DIRECT_USER_SESSION = "direct_user_session";
 

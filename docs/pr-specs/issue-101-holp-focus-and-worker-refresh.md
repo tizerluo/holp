@@ -13,7 +13,7 @@
 - Refresh uses replace semantics for the usability snapshot: latest discovery fully replaces `state.agents`, so vanished ready workers cannot remain selectable.
 - Keep `recordDiscovery()` additive by default; add a narrow opt-in replace option for refresh only.
 - `run --worker auto` refreshes discovery exactly once before returning `no usable direct_user_session worker`; no refresh on the happy path.
-- Client `refresh-workers` must use a timeout that covers `DISCOVER_TIMEOUT_MS` (25s in this PR), and `run` must use a longer timeout that covers auto-refresh plus `orchestrate.run` (45s in this PR), not the 3s default.
+- Broker discovery uses a real-smoke-safe timeout (60s in this PR); client `refresh-workers` must cover it (65s), and `run` must cover auto-refresh plus `orchestrate.run` (90s), not the 3s default.
 - Non-JSON `refresh-workers` must fail visibly: if refresh returns a typed broker error, print the message to stderr and return non-zero; JSON mode still prints the structured response.
 - Explicit workers stay fail-closed; if not found or not usable, the error should point users to `holp refresh-workers`.
 - Client/`holp` support `refresh-workers [--json]`; this is a harness broker command, not a daemon protocol extension.

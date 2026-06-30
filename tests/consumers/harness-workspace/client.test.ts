@@ -51,8 +51,8 @@ describe("harness workspace controller helper", () => {
   });
 
   it("sends refresh_workers over the broker socket with a refresh-safe timeout", async () => {
-    expect(REFRESH_TIMEOUT_MS).toBeGreaterThanOrEqual(20_000);
-    expect(RUN_TIMEOUT_MS).toBeGreaterThanOrEqual(40_000);
+    expect(REFRESH_TIMEOUT_MS).toBeGreaterThanOrEqual(65_000);
+    expect(RUN_TIMEOUT_MS).toBeGreaterThanOrEqual(90_000);
     const source = readFileSync(path.resolve("consumers/harness-workspace/client.ts"), "utf8");
     expect(source).toContain("options.timeoutMs ?? REFRESH_TIMEOUT_MS");
     expect(source).toContain("options.timeoutMs ?? RUN_TIMEOUT_MS");
