@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 import { randomUUID } from "node:crypto";
-import { accessSync, constants } from "node:fs";
+import { accessSync, constants, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -14,6 +14,7 @@ import {
   addManifestDegradedReason,
   addManifestSurface,
   createCmuxTuiSessionManifest,
+  HARNESS_WORKSPACE_TMP_ROOT,
   manifestPathForSession,
   parseCmuxSurface,
   recordManifestCommandResult,
@@ -87,28 +88,45 @@ export async function runHolpSamePaneLauncher(options: SamePaneLauncherOptions =
   const cmuxCommand = options.cmuxCommand ?? resolveCmuxCommand(env);
   const runner = options.runner ?? runCmuxCapturingOutput;
   const cwd = options.cwd ?? repoRoot;
-  const newPane = newPaneCommand(workspaceId);
-  assertValidCmuxLayoutCommand(newPane);
-  const newPaneResult = await runner(cmuxCommand, cmuxCommandArgs(newPane), cwd);
-  manifest = recordManifestCommandResult(manifest, newPaneResult);
-  const parsed = parseCmuxSurface(`${newPaneResult.stdout ?? ""}\n${newPaneResult.stderr ?? ""}`);
-  if (!newPaneResult.ok) {
-    manifest = addManifestDegradedReason(manifest, "cmux_command_failed");
-    return finish("degraded");
+
+  const reused = findReusableControllerSurface(workspaceId);
+  let surfaceId = reused?.surface_id;
+  if (reused) {
+    manifest = addManifestSurface(manifest, "controller", {
+      surface_id: reused.surface_id,
+      pane_id: reused.pane_id,
+      agent: reused.agent,
+      last_command: `reuse existing HOLP controller surface ${reused.surface_id}`,
+    });
+  } else {
+    const newPane = newPaneCommand(workspaceId);
+    assertValidCmuxLayoutCommand(newPane);
+    const newPaneResult = await runner(cmuxCommand, cmuxCommandArgs(newPane), cwd);
+    manifest = recordManifestCommandResult(manifest, newPaneResult);
+    const parsed = parseCmuxSurface(`${newPaneResult.stdout ?? ""}\n${newPaneResult.stderr ?? ""}`);
+    if (!newPaneResult.ok) {
+      manifest = addManifestDegradedReason(manifest, "cmux_command_failed");
+      return finish("degraded");
+    }
+    if (!parsed.surfaceId) {
+      manifest = addManifestDegradedReason(manifest, "missing_surface_handle");
+      return finish("degraded");
+    }
+    surfaceId = parsed.surfaceId;
+    manifest = addManifestSurface(manifest, "controller", {
+      surface_id: parsed.surfaceId,
+      pane_id: parsed.paneId,
+      agent: "codex",
+      last_command: newPaneResult.command,
+    });
   }
-  if (!parsed.surfaceId) {
+
+  const paneCommand = buildPaneCommand({ sessionId, brokerSocket, goal: options.goal, env });
+  if (!surfaceId) {
     manifest = addManifestDegradedReason(manifest, "missing_surface_handle");
     return finish("degraded");
   }
-  manifest = addManifestSurface(manifest, "controller", {
-    surface_id: parsed.surfaceId,
-    pane_id: parsed.paneId,
-    agent: "codex",
-    last_command: newPaneResult.command,
-  });
-
-  const paneCommand = buildPaneCommand({ sessionId, brokerSocket, goal: options.goal, env });
-  const send = sendCommand(workspaceId, parsed.surfaceId, paneCommand, {
+  const send = sendCommand(workspaceId, surfaceId, paneCommand, {
     kind: "mission-control",
     title: "HOLP Harness Workspace",
   });
@@ -116,7 +134,37 @@ export async function runHolpSamePaneLauncher(options: SamePaneLauncherOptions =
   const sendResult = await runner(cmuxCommand, cmuxCommandArgs(send), cwd);
   manifest = recordManifestCommandResult(manifest, sendResult);
   if (!sendResult.ok) {
-    manifest = addManifestDegradedReason(manifest, "cmux_command_failed");
+    if (!reused) {
+      manifest = addManifestDegradedReason(manifest, "cmux_command_failed");
+    } else {
+      const newPane = newPaneCommand(workspaceId);
+      assertValidCmuxLayoutCommand(newPane);
+      const newPaneResult = await runner(cmuxCommand, cmuxCommandArgs(newPane), cwd);
+      manifest = recordManifestCommandResult(manifest, newPaneResult);
+      const parsed = parseCmuxSurface(`${newPaneResult.stdout ?? ""}\n${newPaneResult.stderr ?? ""}`);
+      if (!newPaneResult.ok) {
+        manifest = addManifestDegradedReason(manifest, "cmux_command_failed");
+        return finish("degraded");
+      }
+      if (!parsed.surfaceId) {
+        manifest = addManifestDegradedReason(manifest, "missing_surface_handle");
+        return finish("degraded");
+      }
+      manifest = addManifestSurface(manifest, "controller", {
+        surface_id: parsed.surfaceId,
+        pane_id: parsed.paneId,
+        agent: "codex",
+        last_command: newPaneResult.command,
+      });
+      const retrySend = sendCommand(workspaceId, parsed.surfaceId, paneCommand, {
+        kind: "mission-control",
+        title: "HOLP Harness Workspace",
+      });
+      assertValidCmuxLayoutCommand(retrySend);
+      const retrySendResult = await runner(cmuxCommand, cmuxCommandArgs(retrySend), cwd);
+      manifest = recordManifestCommandResult(manifest, retrySendResult);
+      if (!retrySendResult.ok) manifest = addManifestDegradedReason(manifest, "cmux_command_failed");
+    }
   }
 
   return finish(manifest.degraded_reasons.length > 0 ? "degraded" : "planned");
@@ -209,6 +257,43 @@ function cleanPromptText(value: string): string {
 
 function forwardedPaneEnv(env: Readonly<Record<string, string | undefined>> | undefined): string[] {
   return env?.HOLP_REAL_CODEX_SMOKE === "1" ? ["export HOLP_REAL_CODEX_SMOKE=1"] : [];
+}
+
+function findReusableControllerSurface(
+  workspaceId: string,
+  baseDir = HARNESS_WORKSPACE_TMP_ROOT,
+): CmuxTuiSessionManifest["surfaces"]["controller"] | undefined {
+  try {
+    return readdirSync(baseDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .flatMap((entry) => {
+        try {
+          const manifestPath = path.join(baseDir, entry.name, "cmux-surfaces.json");
+          return [{ manifestPath, mtimeMs: statSync(manifestPath).mtimeMs }];
+        } catch {
+          return [];
+        }
+      })
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+      .flatMap(({ manifestPath }) => {
+        try {
+          return [JSON.parse(readFileSync(manifestPath, "utf8")) as CmuxTuiSessionManifest];
+        } catch {
+          return [];
+        }
+      })
+      .find((manifest) => {
+        const controller = manifest.surfaces.controller;
+        return (
+          manifest.schema_version === "HolpHarnessWorkspaceCmuxManifest.v1" &&
+          manifest.workspace_id === workspaceId &&
+          manifest.degraded_reasons.length === 0 &&
+          typeof controller?.surface_id === "string"
+        );
+      })?.surfaces.controller;
+  } catch {
+    return undefined;
+  }
 }
 
 function shellQuote(value: string): string {

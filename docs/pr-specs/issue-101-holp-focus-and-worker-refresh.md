@@ -9,6 +9,7 @@
 ## Key Changes
 
 - Same-pane tmux command appends `select-pane -L` after `split-window -h`; do not target `:0.0`, because user `pane-base-index` can make that wrong.
+- Same-workspace `holp` launches reuse an existing healthy HOLP-owned controller surface instead of creating another cmux pane; if the reused surface is stale and `send` fails, fall back to one fresh `new-pane` attempt.
 - Broker can rerun existing `flock.discover`, update `state.agents`, persist replay, and broadcast a fresh frame.
 - Refresh uses replace semantics for the usability snapshot: latest discovery fully replaces `state.agents`, so vanished ready workers cannot remain selectable.
 - Keep `recordDiscovery()` additive by default; add a narrow opt-in replace option for refresh only.

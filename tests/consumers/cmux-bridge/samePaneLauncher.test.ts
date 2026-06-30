@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   buildPaneCommand,
@@ -88,11 +88,12 @@ describe("HOLP same-pane launcher", () => {
 
   it("records cmux_command_failed when creating the terminal pane fails", async () => {
     const id = sessionId("new-pane-fail");
+    const workspace = `workspace:${id}`;
     const calls: string[][] = [];
     try {
       const result = await runHolpSamePaneLauncher({
         sessionId: id,
-        env: { CMUX_WORKSPACE_ID: "workspace:1" },
+        env: { CMUX_WORKSPACE_ID: workspace },
         isOnPath: () => true,
         runner: async (command, args) => {
           calls.push([...args]);
@@ -111,11 +112,12 @@ describe("HOLP same-pane launcher", () => {
 
   it("records missing_surface_handle when cmux creates a pane without returning a surface id", async () => {
     const id = sessionId("missing-surface");
+    const workspace = `workspace:${id}`;
     const calls: string[][] = [];
     try {
       const result = await runHolpSamePaneLauncher({
         sessionId: id,
-        env: { CMUX_WORKSPACE_ID: "workspace:1" },
+        env: { CMUX_WORKSPACE_ID: workspace },
         isOnPath: () => true,
         runner: async (command, args) => {
           calls.push([...args]);
@@ -134,11 +136,12 @@ describe("HOLP same-pane launcher", () => {
 
   it("records cmux_command_failed when sending the tmux startup script fails", async () => {
     const id = sessionId("send-fail");
+    const workspace = `workspace:${id}`;
     const calls: string[][] = [];
     try {
       const result = await runHolpSamePaneLauncher({
         sessionId: id,
-        env: { CMUX_WORKSPACE_ID: "workspace:1" },
+        env: { CMUX_WORKSPACE_ID: workspace },
         isOnPath: () => true,
         runner: async (command, args) => {
           calls.push([...args]);
@@ -157,6 +160,7 @@ describe("HOLP same-pane launcher", () => {
 
   it("creates one cmux terminal pane scoped to the workspace without focus, then sends the startup script", async () => {
     const id = sessionId("planned");
+    const workspace = `workspace:${id}`;
     const calls: string[][] = [];
     const runner: SamePaneCommandRunner = async (command, args) => {
       calls.push([...args]);
@@ -165,7 +169,7 @@ describe("HOLP same-pane launcher", () => {
     try {
       const result = await runHolpSamePaneLauncher({
         sessionId: id,
-        env: { CMUX_WORKSPACE_ID: "workspace:1" },
+        env: { CMUX_WORKSPACE_ID: workspace },
         isOnPath: () => true,
         runner,
       });
@@ -175,7 +179,7 @@ describe("HOLP same-pane launcher", () => {
       expect(newPaneCalls).toHaveLength(1);
       const newPaneArgs = newPaneCalls[0] ?? [];
       expect(newPaneArgs).toContain("--workspace");
-      expect(newPaneArgs[newPaneArgs.indexOf("--workspace") + 1]).toBe("workspace:1");
+      expect(newPaneArgs[newPaneArgs.indexOf("--workspace") + 1]).toBe(workspace);
       expect(newPaneArgs).toContain("--focus");
       expect(newPaneArgs[newPaneArgs.indexOf("--focus") + 1]).toBe("false");
       expect(newPaneArgs).toContain("--type");
@@ -186,7 +190,7 @@ describe("HOLP same-pane launcher", () => {
       expect(sendCalls).toHaveLength(1);
       const sendArgs = sendCalls[0] ?? [];
       expect(sendArgs).toContain("--workspace");
-      expect(sendArgs[sendArgs.indexOf("--workspace") + 1]).toBe("workspace:1");
+      expect(sendArgs[sendArgs.indexOf("--workspace") + 1]).toBe(workspace);
       expect(sendArgs).toContain("--surface");
       expect(sendArgs[sendArgs.indexOf("--surface") + 1]).toBe("surface:surface-one");
       expect(sendArgs).toContain("--");
@@ -199,8 +203,159 @@ describe("HOLP same-pane launcher", () => {
     }
   });
 
+  it("reuses an existing healthy HOLP controller surface in the same workspace", async () => {
+    const oldId = sessionId("old-reusable");
+    const id = sessionId("reuse");
+    const workspace = `workspace:${id}`;
+    const calls: string[][] = [];
+    mkdirSync(`/tmp/holp-harness-workspace/${oldId}`, { recursive: true });
+    writeFileSync(
+      `/tmp/holp-harness-workspace/${oldId}/cmux-surfaces.json`,
+      JSON.stringify({
+        schema_version: "HolpHarnessWorkspaceCmuxManifest.v1",
+        session_id: oldId,
+        workspace_id: workspace,
+        broker_socket: `/tmp/holp-harness-workspace/${oldId}/broker.sock`,
+        created_at: "2026-01-01T00:00:00.000Z",
+        surfaces: {
+          controller: {
+            surface_id: "surface:old",
+            pane_id: "pane:old",
+            kind: "controller",
+            agent: "codex",
+            created_by: "harness-workspace-tui-cmux",
+            created_at: "2026-01-01T00:00:00.000Z",
+          },
+        },
+        degraded_reasons: [],
+        command_results: [],
+      }),
+    );
+    try {
+      const result = await runHolpSamePaneLauncher({
+        sessionId: id,
+        env: { CMUX_WORKSPACE_ID: workspace },
+        isOnPath: () => true,
+        runner: async (command, args) => {
+          calls.push([...args]);
+          return ok(command, args);
+        },
+      });
+
+      expect(result.mode).toBe("planned");
+      expect(calls.map((args) => args[0])).toEqual(["send"]);
+      const sendArgs = calls[0] ?? [];
+      expect(sendArgs[sendArgs.indexOf("--surface") + 1]).toBe("surface:old");
+      expect(result.manifest.surfaces.controller?.surface_id).toBe("surface:old");
+      expect(result.manifest.surfaces.controller?.last_command).toBe("reuse existing HOLP controller surface surface:old");
+    } finally {
+      rmSync(`/tmp/holp-harness-workspace/${oldId}`, { recursive: true, force: true });
+      rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
+    }
+  });
+
+  it("does not reuse a HOLP controller surface from another workspace", async () => {
+    const oldId = sessionId("old-other-workspace");
+    const id = sessionId("reuse-mismatch");
+    const workspace = `workspace:${id}`;
+    const calls: string[][] = [];
+    mkdirSync(`/tmp/holp-harness-workspace/${oldId}`, { recursive: true });
+    writeFileSync(
+      `/tmp/holp-harness-workspace/${oldId}/cmux-surfaces.json`,
+      JSON.stringify({
+        schema_version: "HolpHarnessWorkspaceCmuxManifest.v1",
+        session_id: oldId,
+        workspace_id: "workspace:other",
+        broker_socket: `/tmp/holp-harness-workspace/${oldId}/broker.sock`,
+        created_at: "2026-01-01T00:00:00.000Z",
+        surfaces: {
+          controller: {
+            surface_id: "surface:old",
+            pane_id: "pane:old",
+            kind: "controller",
+            agent: "codex",
+            created_by: "harness-workspace-tui-cmux",
+            created_at: "2026-01-01T00:00:00.000Z",
+          },
+        },
+        degraded_reasons: [],
+        command_results: [],
+      }),
+    );
+    try {
+      await runHolpSamePaneLauncher({
+        sessionId: id,
+        env: { CMUX_WORKSPACE_ID: workspace },
+        isOnPath: () => true,
+        runner: async (command, args) => {
+          calls.push([...args]);
+          return ok(command, args, "created pane:pane-one surface:surface-one");
+        },
+      });
+
+      expect(calls.map((args) => args[0])).toEqual(["new-pane", "send"]);
+      const sendArgs = calls.find((args) => args[0] === "send") ?? [];
+      expect(sendArgs[sendArgs.indexOf("--surface") + 1]).toBe("surface:surface-one");
+    } finally {
+      rmSync(`/tmp/holp-harness-workspace/${oldId}`, { recursive: true, force: true });
+      rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to a new pane when a reused HOLP controller surface is stale", async () => {
+    const oldId = sessionId("old-stale");
+    const id = sessionId("reuse-stale");
+    const workspace = `workspace:${id}`;
+    const calls: string[][] = [];
+    mkdirSync(`/tmp/holp-harness-workspace/${oldId}`, { recursive: true });
+    writeFileSync(
+      `/tmp/holp-harness-workspace/${oldId}/cmux-surfaces.json`,
+      JSON.stringify({
+        schema_version: "HolpHarnessWorkspaceCmuxManifest.v1",
+        session_id: oldId,
+        workspace_id: workspace,
+        broker_socket: `/tmp/holp-harness-workspace/${oldId}/broker.sock`,
+        created_at: "2026-01-01T00:00:00.000Z",
+        surfaces: {
+          controller: {
+            surface_id: "surface:stale",
+            pane_id: "pane:stale",
+            kind: "controller",
+            agent: "codex",
+            created_by: "harness-workspace-tui-cmux",
+            created_at: "2026-01-01T00:00:00.000Z",
+          },
+        },
+        degraded_reasons: [],
+        command_results: [],
+      }),
+    );
+    try {
+      const result = await runHolpSamePaneLauncher({
+        sessionId: id,
+        env: { CMUX_WORKSPACE_ID: workspace },
+        isOnPath: () => true,
+        runner: async (command, args) => {
+          calls.push([...args]);
+          if (args[0] === "send" && args.includes("surface:stale")) return fail(command, args);
+          return ok(command, args, "created pane:pane-new surface:surface-new");
+        },
+      });
+
+      expect(result.mode).toBe("planned");
+      expect(calls.map((args) => args[0])).toEqual(["send", "new-pane", "send"]);
+      const retrySend = calls[2] ?? [];
+      expect(retrySend[retrySend.indexOf("--surface") + 1]).toBe("surface:surface-new");
+      expect(result.manifest.surfaces.controller?.surface_id).toBe("surface:surface-new");
+    } finally {
+      rmSync(`/tmp/holp-harness-workspace/${oldId}`, { recursive: true, force: true });
+      rmSync(`/tmp/holp-harness-workspace/${id}`, { recursive: true, force: true });
+    }
+  });
+
   it("forwards explicit Codex smoke opt-in to the tmux startup script", async () => {
     const id = sessionId("smoke-env");
+    const workspace = `workspace:${id}`;
     const calls: string[][] = [];
     const runner: SamePaneCommandRunner = async (command, args) => {
       calls.push([...args]);
@@ -209,7 +364,7 @@ describe("HOLP same-pane launcher", () => {
     try {
       await runHolpSamePaneLauncher({
         sessionId: id,
-        env: { CMUX_WORKSPACE_ID: "workspace:1", HOLP_REAL_CODEX_SMOKE: "1" },
+        env: { CMUX_WORKSPACE_ID: workspace, HOLP_REAL_CODEX_SMOKE: "1" },
         isOnPath: () => true,
         runner,
       });
