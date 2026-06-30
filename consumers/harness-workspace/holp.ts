@@ -32,7 +32,7 @@ export function parseHolpArgs(argv: readonly string[]): ParsedHolpArgs {
   if (!command) return { type: "launch" };
   if (command === "demo") throw new Error("holp demo is not available; use real workers through holp run");
   if (command === "codex") return { type: "launch", goal: rest.join(" ") || undefined };
-  if (command === "workers" || command === "status") return { type: "client", argv };
+  if (command === "workers" || command === "status" || command === "refresh-workers") return { type: "client", argv };
   if (command === "run") return { type: "client", argv: parseRunArgs(rest) };
   if (command === "approve") return { type: "client", argv: ["approve", "--decision", "approved", "--reason", reasonArg(rest)] };
   if (command === "reject") return { type: "client", argv: ["approve", "--decision", "rejected", "--reason", reasonArg(rest)] };

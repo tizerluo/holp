@@ -125,11 +125,11 @@ if (mode === "hang") setTimeout(() => {}, 10_000);
 if (mode === "cancellable") {
   const started = args[args.indexOf("--started") + 1];
   const killed = args[args.indexOf("--killed") + 1];
-  await import("node:fs").then(({ writeFileSync }) => writeFileSync(started, "1"));
   process.on("SIGTERM", async () => {
     await import("node:fs").then(({ writeFileSync }) => writeFileSync(killed, "1"));
     process.exit(0);
   });
+  await import("node:fs").then(({ writeFileSync }) => writeFileSync(started, "1"));
   setInterval(() => {}, 10_000);
 }
 if (mode === "nonzero") {

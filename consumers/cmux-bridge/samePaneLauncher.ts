@@ -167,7 +167,7 @@ export function buildPaneCommand(options: {
     `export PATH=${shellQuote(path.join(repoRoot, "bin"))}:$PATH`,
     `cleanup() { tmux kill-session -t ${shellQuote(tmuxSession)} 2>/dev/null || true; }`,
     "trap cleanup EXIT INT TERM",
-    `tmux new-session -s ${shellQuote(tmuxSession)} -n HOLP ${shellQuote(controller)} \\; split-window -h -t ${shellQuote(`${tmuxSession}:0`)} ${shellQuote(sidecar)}`,
+    `tmux new-session -s ${shellQuote(tmuxSession)} -n HOLP ${shellQuote(controller)} \\; split-window -h -t ${shellQuote(`${tmuxSession}:0`)} ${shellQuote(sidecar)} \\; select-pane -L`,
   ].join("\n") + "\n";
 }
 

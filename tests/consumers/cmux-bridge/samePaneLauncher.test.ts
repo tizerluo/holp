@@ -212,6 +212,8 @@ describe("HOLP same-pane launcher", () => {
     expect(command).toContain(brokerSocket);
     expect(command).toContain("npm run harness:workspace:broker -- --session-id session-abc");
     expect(command).toContain("npm run harness:workspace:tui");
+    expect(command).toMatch(/split-window -h -t holp-harness-session-abc:0 .*\\; select-pane -L/);
+    expect(command).not.toContain(":0.0");
     expect(command).toContain("HOLP_HARNESS_CMUX_MANIFEST_PATH=");
     expect(command).toContain("/bin:$PATH");
     expect(command).toContain("holp workers");

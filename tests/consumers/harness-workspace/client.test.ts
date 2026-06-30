@@ -4,7 +4,7 @@ import net from "node:net";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { listWorkersCommand, runClientCli, runControllerCommand } from "../../../consumers/harness-workspace/client.js";
+import { listWorkersCommand, REFRESH_TIMEOUT_MS, refreshWorkersCommand, runClientCli, runControllerCommand, RUN_TIMEOUT_MS } from "../../../consumers/harness-workspace/client.js";
 import { writeJsonLine } from "../../../consumers/harness-workspace/socketJson.js";
 import type { WorkspaceTuiFrameV1 } from "../../../consumers/harness-workspace/tuiFrame.js";
 
@@ -48,6 +48,66 @@ describe("harness workspace controller helper", () => {
 
     expect(response).toEqual({ type: "ack", command: "run", run_id: "run_socket" });
     expect(received[0]).toEqual({ type: "run", goal: "socket goal", worker: "fake-agent" });
+  });
+
+  it("sends refresh_workers over the broker socket with a refresh-safe timeout", async () => {
+    expect(REFRESH_TIMEOUT_MS).toBeGreaterThanOrEqual(20_000);
+    expect(RUN_TIMEOUT_MS).toBeGreaterThanOrEqual(40_000);
+    const source = readFileSync(path.resolve("consumers/harness-workspace/client.ts"), "utf8");
+    expect(source).toContain("options.timeoutMs ?? REFRESH_TIMEOUT_MS");
+    expect(source).toContain("options.timeoutMs ?? RUN_TIMEOUT_MS");
+
+    const dir = mkdtempSync(path.join(tmpdir(), "holp-client-refresh-"));
+    const socketPath = path.join(dir, "broker.sock");
+    const received: unknown[] = [];
+    const server = net.createServer((socket) => {
+      socket.once("data", (chunk) => {
+        received.push(JSON.parse(chunk.toString("utf8")));
+        writeJsonLine(socket, { type: "ack", command: "refresh_workers" });
+      });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+
+    await expect(refreshWorkersCommand({ socketPath })).resolves.toEqual({ type: "ack", command: "refresh_workers" });
+    expect(received).toEqual([{ type: "refresh_workers" }]);
+  });
+
+  it("prints non-json refresh errors to stderr and exits non-zero", async () => {
+    const previous = process.env.HOLP_HARNESS_BROKER_SOCKET;
+    const dir = mkdtempSync(path.join(tmpdir(), "holp-client-refresh-error-"));
+    const socketPath = path.join(dir, "broker.sock");
+    const server = net.createServer((socket) => {
+      socket.once("data", () => {
+        writeJsonLine(socket, {
+          type: "error",
+          command: "refresh_workers",
+          message: "worker refresh failed: discover timed out",
+        });
+      });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    process.env.HOLP_HARNESS_BROKER_SOCKET = socketPath;
+    const stdoutWrites: string[] = [];
+    const stderrWrites: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
+      stdoutWrites.push(chunk.toString());
+      return true;
+    });
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk: string | Uint8Array) => {
+      stderrWrites.push(chunk.toString());
+      return true;
+    });
+
+    try {
+      await expect(runClientCli(["refresh-workers"])).resolves.toBe(1);
+      expect(stdoutWrites).toEqual([]);
+      expect(stderrWrites).toEqual(["worker refresh failed: discover timed out\n"]);
+    } finally {
+      if (previous === undefined) delete process.env.HOLP_HARNESS_BROKER_SOCKET;
+      else process.env.HOLP_HARNESS_BROKER_SOCKET = previous;
+    }
   });
 
   it("fails closed for stale or missing broker sockets", async () => {
@@ -195,7 +255,7 @@ describe("harness workspace controller helper", () => {
     else process.env.HOLP_HARNESS_BROKER_SOCKET = previous;
   });
 
-  it("CLI parses run --worker auto and approve commands", async () => {
+  it("CLI parses run --worker auto, refresh-workers, and approve commands", async () => {
     const previous = process.env.HOLP_HARNESS_BROKER_SOCKET;
     const dir = mkdtempSync(path.join(tmpdir(), "holp-client-commands-"));
     const socketPath = path.join(dir, "broker.sock");
@@ -206,7 +266,9 @@ describe("harness workspace controller helper", () => {
         received.push(command);
         writeJsonLine(socket, command.type === "approve"
           ? { type: "ack", command: "approve", approval_id: "ap_1" }
-          : { type: "ack", command: "run", run_id: "run_auto", worker: "coder-1" });
+          : command.type === "refresh_workers"
+            ? { type: "ack", command: "refresh_workers" }
+            : { type: "ack", command: "run", run_id: "run_auto", worker: "coder-1" });
       });
     });
     servers.push(server);
@@ -219,14 +281,17 @@ describe("harness workspace controller helper", () => {
     });
 
     await runClientCli(["run", "--goal", "ship it", "--worker", "auto"]);
+    await runClientCli(["refresh-workers", "--json"]);
     await runClientCli(["approve", "--decision", "rejected", "--reason", "needs more evidence"]);
 
     expect(received).toEqual([
       { type: "run", goal: "ship it", worker: "auto" },
+      { type: "refresh_workers" },
       { type: "approve", decision: "rejected", reason: "needs more evidence" },
     ]);
     expect(writes[0]).toContain('"worker":"coder-1"');
-    expect(writes[1]).toContain('"approval_id":"ap_1"');
+    expect(writes[1]).toContain('"command":"refresh_workers"');
+    expect(writes[2]).toContain('"approval_id":"ap_1"');
     if (previous === undefined) delete process.env.HOLP_HARNESS_BROKER_SOCKET;
     else process.env.HOLP_HARNESS_BROKER_SOCKET = previous;
   });
