@@ -110,7 +110,14 @@ describe("harness workspace state projection", () => {
     }, "agent"));
     expect(deriveOverview(nonHolp).evidence.attach_command).toBeUndefined();
 
-    const holp = recordEvent(seededState(), frame(2, "step_started", {
+    const injectedHolp = recordEvent(seededState(), frame(2, "step_started", {
+      agent_id: "coder-1",
+      detail: "holp-x;rm -rf",
+    }, "agent"));
+    expect(deriveOverview(injectedHolp).evidence.worker_session).toBeUndefined();
+    expect(deriveOverview(injectedHolp).evidence.attach_command).toBeUndefined();
+
+    const holp = recordEvent(seededState(), frame(3, "step_started", {
       agent_id: "coder-1",
       detail: "holp-direct-123",
     }, "agent"));
