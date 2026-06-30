@@ -278,12 +278,24 @@ function formatWorkers(frame: WorkspaceTuiFrameV1): string {
     "Workers:",
   ];
   for (const agent of frame.agents) {
-    const runtime = agent.runtime_surfaces?.map((surface) => surface.runtime_kind ?? surface.runtime_surface ?? "unknown").join(", ") || "unknown";
+    const runtime = agent.runtime_surfaces?.map(formatRuntimeSurface).join(", ") || "unknown";
     const selected = agent.id === frame.selected_agent ? " selected" : "";
     lines.push(`- ${agent.id}${selected} status=${agent.status ?? "unknown"} role=${agent.role ?? "unknown"} runtime=${runtime}`);
   }
   if (frame.agents.length === 0) lines.push("- none");
   return `${lines.join("\n")}\n`;
+}
+
+function formatRuntimeSurface(surface: NonNullable<WorkspaceTuiFrameV1["agents"][number]["runtime_surfaces"]>[number]): string {
+  const name = surface.runtime_surface ?? "unknown";
+  const kind = surface.runtime_kind ?? "unknown";
+  const coder = surface.isolation_profiles?.coder_worktree;
+  const readiness = typeof coder === "object" && coder !== null && "readiness" in coder
+    ? String(coder.readiness)
+    : "unknown";
+  const capabilities = surface.direct_channel?.capability_bitmask;
+  const ownerVerified = Array.isArray(capabilities) && capabilities.includes("owner_verified");
+  return `${name}/${kind}(${readiness}${ownerVerified ? " owner_verified" : ""})`;
 }
 
 function formatStatus(frame: WorkspaceTuiFrameV1): string {

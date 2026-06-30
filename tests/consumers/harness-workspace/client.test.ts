@@ -200,7 +200,7 @@ describe("harness workspace controller helper", () => {
     await runClientCli(["workers"]);
     await runClientCli(["workers", "--json"]);
 
-    expect(writes[0]).toContain("- fake-agent selected status=ready role=coder runtime=fake");
+    expect(writes[0]).toContain("- fake-agent selected status=ready role=coder runtime=headless/app_server(degraded), acp/codex_acp(degraded), direct_user_session/codex_direct_tmux(ready owner_verified)");
     expect(writes[0]).toContain("Degraded: worker_session_missing");
     expect(writes[0]).toContain("Readiness: owner=verified continue=false rerun=true inspect=true replay_only=false reasons=worker_session_missing");
     const json = JSON.parse(writes[1] ?? "") as { agents: Array<{ id: string }>; degraded_reasons: string[] };
@@ -308,7 +308,24 @@ function workerFrame(): WorkspaceTuiFrameV1 {
       status: "ready",
       role: "coder",
       role_skin: "CODE",
-      runtime_surfaces: [{ runtime_surface: "headless", runtime_kind: "fake" }],
+      runtime_surfaces: [
+        {
+          runtime_surface: "headless",
+          runtime_kind: "app_server",
+          isolation_profiles: { coder_worktree: { readiness: "degraded" } },
+        },
+        {
+          runtime_surface: "acp",
+          runtime_kind: "codex_acp",
+          isolation_profiles: { coder_worktree: { readiness: "degraded" } },
+        },
+        {
+          runtime_surface: "direct_user_session",
+          runtime_kind: "codex_direct_tmux",
+          isolation_profiles: { coder_worktree: { readiness: "ready" } },
+          direct_channel: { capability_bitmask: ["cancel", "owner_verified"] },
+        },
+      ],
     }],
     timeline: { entries: [] },
     failures: [],
