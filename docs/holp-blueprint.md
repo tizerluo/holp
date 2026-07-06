@@ -199,9 +199,11 @@ cmux-ready;最终 gate 区分 `terminal-consumer-integration-ready`、
 
 在 #69/#76 之后,#41 还需要区分两类前置条件: #52 的 runtime-surface /
 public-wire gate 已允许继续数据充分性工作,但 Harness Workspace 产生的
-smoke/script 数据不能被当作 real-usage training-distribution 证据。只有
-`docs/harness-workspace-user-validation.md` 记录人类真实使用验收为 allowed 后,
-未来 Harness Workspace 会话才可进入 #41 的真实使用数据充分性评估。
+smoke/script 数据不能被当作 real-usage training-distribution 证据。该 gate 的
+验收记录已随 Harness Workspace consumer 拆至 holp-cmux 仓(#105):只有
+[holp-cmux 的 `docs/harness-workspace-user-validation.md`](https://github.com/tizerluo/holp-cmux/blob/main/docs/harness-workspace-user-validation.md)
+记录人类真实使用验收为 allowed 后,未来 Harness Workspace 会话才可进入
+#41 的真实使用数据充分性评估。
 
 ### M9: Consumer and gate surface
 
