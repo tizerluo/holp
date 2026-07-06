@@ -125,8 +125,11 @@ quality, sampling, reward, manifest, and training-distribution checks.
 Issue #76 adds a separate real-usage UI gate for HOLP Harness Workspace data.
 The #52 decision above is a runtime-surface/public-wire prerequisite and remains
 valid, but it is not by itself permission to count smoke/script Harness
-Workspace sessions as real-usage training-distribution evidence. See
-`docs/harness-workspace-user-validation.md` for the current #76 decision.
+Workspace sessions as real-usage training-distribution evidence. The #76
+validation record moved with the Harness Workspace consumer to the holp-cmux
+repo (#105); see
+[holp-cmux `docs/harness-workspace-user-validation.md`](https://github.com/tizerluo/holp-cmux/blob/main/docs/harness-workspace-user-validation.md)
+for the current #76 decision.
 
 #36 remains blocked on #41 data sufficiency, #44 model compatibility
 constraints, real learned-model backing, active/canary smoke, and L2
