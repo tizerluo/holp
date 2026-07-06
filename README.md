@@ -17,10 +17,20 @@ holp/
   protocol/     协议本身(spec / 消息定义 / 版本 / 样例)—— 独立身份,成熟后可独立成仓
   daemon/       参考实现(协议骨架 + M4a/M4b governance skeleton + M5 deterministic consensus demo)
   adapters/     朝下 agent 适配(Codex app-server + native-claude headless reviewer partial;acp 仍是桩)
-  consumers/    朝上 consumer 参考(CLI 先;cmux 适配示例后做)
+  consumers/    朝上 consumer 参考(最小 CLI demo;cmux Harness Workspace 产品已拆至独立仓 holp-cmux)
   tests/        e2e + 协议契约测试
   docs/         定位 / roadmap / PR specs / non-goals
 ```
+
+## 当前主线
+
+项目按五个阶段推进(SPEC 精度见 `protocol/spec.md`,PLAN 精度见 `docs/roadmap.md` + `docs/holp-blueprint.md`,PR 精度见 `docs/pr-specs/`):
+
+1. **P1 协议基座**(M0-M2)— 协议 spec、参考 daemon、契约测试。已完成。
+2. **P2 真实接线 + 治理内核**(M3-M5b)— mcp-codex/native-claude adapter、共识内核、真实 reviewer pilot。已完成。
+3. **P3 runtime surface 对齐**(#45 链)— 7 个 CLI agent 三类运行面 readiness、validation matrix。已完成,声明止于 `terminal-consumer-integration-ready`。
+4. **P4 可用 UI 先于数据**(#66-#103)— Harness Workspace consumer。**已整体拆至 [holp-cmux](https://github.com/tizerluo/holp-cmux) 仓**(#105),在那边继续;真实使用验收 gate 记录也随之迁移。
+5. **P5 数据/learned**(#41→#44→#36,M7/M10-M12)— 未开始;gate 定义在本仓,等待 holp-cmux 侧真实使用验收产生的数据证据。
 
 ## 状态
 

@@ -11,14 +11,14 @@ import {
   resolveCmuxCommand,
   runCmuxBestEffort,
   type CmuxCommandResult,
-} from "../../consumers/cmux-bridge/index.js";
+} from "./cmuxCommands.js";
 
 export {
   cmuxWorkspaceFromEnv,
   resolveCmuxCommand,
   runCmuxBestEffort,
   type CmuxCommandResult,
-} from "../../consumers/cmux-bridge/index.js";
+} from "./cmuxCommands.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), "..", "..");
