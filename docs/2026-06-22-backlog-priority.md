@@ -1,5 +1,7 @@
 # HOLP 当前 backlog 优先级排序
 
+> 时点快照(2026-06-22),非当前权威路线;当前路线见 docs/holp-blueprint.md 与 docs/roadmap.md。
+
 > 整理时间:2026-06-22
 > 数据来源:GitHub 开放 issues + `docs/pr-specs/` + `docs/roadmap.md` + `README.md` 当前声明
 > 整理依据:2026-06-22 跨仓 review 完成后,对照外部参考项目(happier / warp / loopwright / cmux / spawn / skypilot / issue-to-pr)真实代码核实;commit 数基于本地 checkout,未额外 fetch remote
@@ -18,10 +20,10 @@
 
 **PR spec 状态**:
 
-- `docs/pr-specs/pr9-m5b-real-reviewer-execution.md` — PR9/M5b real reviewer execution pilot 已在本 PR 实现。
-- `docs/pr-specs/pr10-m6a-consumer-cli-experience.md` — PR10/M6a fake consumer CLI partial 已落地。
-- `docs/pr-specs/pr11-m6b-second-real-provider.md` — PR11/M6b native-claude headless reviewer partial 已由本 PR 实现。
-- `docs/pr-specs/pr12-m6c-runtime-session-matrix.md`
+- `docs/pr-specs/completed/pr9-m5b-real-reviewer-execution.md` — PR9/M5b real reviewer execution pilot 已在本 PR 实现。
+- `docs/pr-specs/completed/pr10-m6a-consumer-cli-experience.md` — PR10/M6a fake consumer CLI partial 已落地。
+- `docs/pr-specs/completed/pr11-m6b-second-real-provider.md` — PR11/M6b native-claude headless reviewer partial 已由本 PR 实现。
+- `docs/pr-specs/completed/pr12-m6c-runtime-session-matrix.md`
 
 **roadmap 未落地(README "[ ]" 项 + 未声明项)**:
 

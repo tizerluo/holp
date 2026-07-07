@@ -1,3 +1,5 @@
+> status: completed — PR16 M10/M11 safe-lane foundation shipped in `2caab2b` (#37). HEAD contains learned-router planner-only role support, replay/eval sample helpers, shadow/fail-closed active/canary audit, L1 bounded workflow, L2 `WorkflowRevision.v1` validator/reject/audit, and dynamic workflow tests. It does not claim real learned-model active/canary or L2 learned-active readiness, per this SPEC.
+
 # PR16 / M10+M11 Learned Router And Dynamic Workflow
 
 ## Summary

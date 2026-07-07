@@ -1,3 +1,5 @@
+> status: completed — PR14 M8 real runtime surface harness pilot shipped in `c72cc07` (#34). HEAD contains first-batch harness registry/probes, ACP thin client, direct tmux backend, runtime-surface selection, protocol/version updates, and opt-in harness smoke entrypoints.
+
 # PR14 / M8 Real Runtime Surface Harness Pilot
 
 ## Summary

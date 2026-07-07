@@ -1,3 +1,5 @@
+> status: completed — PR12 M6c foundation shipped; see pr-specs README landed next-stage list and README M6c checkbox.
+
 # PR12 SPEC - M6c Runtime Surface and Session Matrix
 
 > 状态:partial landed。目标是在已有真实 provider 和 consumer CLI 之后,把 HOLP 的 runtime surface / session vocabulary 做成可检查的矩阵,并给 cmux/direct session/ACP 后续接入留出诚实边界。该 PR 不是 12-agent 全实现。

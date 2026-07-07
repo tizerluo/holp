@@ -27,7 +27,7 @@ v0.1.5 的基准修订把这个"全包"钉成能力矩阵,不是一个笼统的 
 这两条不是实现细节,是**写进协议消息语义**的真差异:
 
 1. **跨厂商共识评审**——协议里能表达「这件事派给 3 家、要 2 家同意、且不能是作者那家」。Oz 多 harness 并行但无协议级共识聚合;happier 有 review engine 入口,但没有 HOLP/loopwright 式 quorum consensus 聚合。HOLP 把共识裁决做成 `events.event` 的一个 name(`consensus_verdict`),不是独立消息方法。
-2. **Human-on-Loop 无人值守闭环**——协议里能表达「接到触发就自己跑完整条链,只有需要人批准(如合并)时才打断」。名字即立场:人在回路上,不是人在每一个 tick 上。对应 `approval` 单通道状态机(`approval_requested`/`approval_resolved` 等事件 + `approval.resolve` 命令)。
+2. **Human-on-Loop 无人值守闭环**——协议里能表达「接到触发就自己跑完整条链,只有需要人批准(如合并)时才打断」。名字即立场:人在回路上,不是人在每一个 tick 上。`approval` 单通道状态机(`approval_requested`/`approval_resolved` 等事件 + `approval.resolve` 命令)是可选闸,不是 HOLP 的核心价值;HOLP 的核心价值是把多家 Agent Harness 的行为抽象到同一套可回溯、可审查的协议里。
 
 ## 版本取舍(v0.1.x 做什么)
 

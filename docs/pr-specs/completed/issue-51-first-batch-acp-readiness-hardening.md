@@ -1,3 +1,5 @@
+> status: completed — first-batch ACP readiness hardening shipped; see pr-specs README and git log #60.
+
 # Issue #51 - First-Batch ACP Readiness Hardening
 
 ## Summary
@@ -196,7 +198,7 @@ degraded ACP paths for all first-batch agents.
 Update:
 
 - `docs/pr-specs/README.md`
-- `docs/pr-specs/issue-45-multi-agent-cli-runtime-surface-completion.md`
+- `docs/pr-specs/completed/issue-45-multi-agent-cli-runtime-surface-completion.md`
 
 The #45 matrix must say what #51 proves for each first-batch ACP surface. If
 local auth or tool availability prevents a real ready smoke, record
@@ -257,7 +259,7 @@ Expected product/test touchpoints:
 - `daemon/handlers/m1b_contract.test.ts`
 - `daemon/handlers/flock_probe.test.ts`
 - `docs/pr-specs/README.md`
-- `docs/pr-specs/issue-45-multi-agent-cli-runtime-surface-completion.md`
+- `docs/pr-specs/completed/issue-45-multi-agent-cli-runtime-surface-completion.md`
 - `package.json` only if the smoke script entry changes.
 
 If Coder believes `handleOrchestrateRun`, `driveRun`, `driveWorkflowRun`,

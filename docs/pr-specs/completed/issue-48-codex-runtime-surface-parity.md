@@ -1,3 +1,5 @@
+> status: completed — Codex runtime surface parity shipped; see pr-specs README current code facts and git log #57.
+
 # Issue #48 - Codex Headless / ACP / Direct Runtime Surface Parity
 
 ## Summary
@@ -158,7 +160,7 @@ Update:
 
 - This per-PR spec.
 - `docs/pr-specs/README.md`.
-- `docs/pr-specs/issue-45-multi-agent-cli-runtime-surface-completion.md` Codex
+- `docs/pr-specs/completed/issue-45-multi-agent-cli-runtime-surface-completion.md` Codex
   row/evidence notes to record the post-#48 state.
 - Any runtime/session matrix docs that would otherwise claim Codex ACP/direct is
   still unwired after #48.

@@ -1,3 +1,5 @@
+> status: completed — visible agent chain smoke shipped; see git log #64.
+
 # Issue #63 - Visible Multi-Agent Chain Smoke and cmux Validation
 
 ## Summary

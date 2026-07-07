@@ -1,3 +1,5 @@
+> status: completed — PR9 shipped; see pr-specs README landed foundation list and README M5b checkbox.
+
 # PR9 SPEC - M5b Real Reviewer Execution Pilot
 
 > 状态:implemented as M5b real reviewer execution pilot。显式 reviewer panel 可选择 `mcp-codex` reviewer execution hook;只有 strict parser/validator 与本次 runtime read-only attestation 同时通过时,该 reviewer 输出才会进入既有 quorum 聚合作为 completed vote。当前 Codex `read_only_review` declaration 仍 degraded/read_only_not_enforced,真实 smoke 必须 honest INCONCLUSIVE,不能当 approve。该 PR 是 pilot,不是稳定多 provider review 平台。

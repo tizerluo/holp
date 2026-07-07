@@ -1,3 +1,5 @@
+> status: completed — PR3 shipped; see pr-specs README landed foundation list.
+
 # PR3 SPEC - M1b Fake Harness and CLI
 
 ## 目的

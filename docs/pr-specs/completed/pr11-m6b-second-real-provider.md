@@ -1,3 +1,5 @@
+> status: completed — PR11 shipped; see pr-specs README landed next-stage list and README M6b checkbox.
+
 # PR11 SPEC - M6b Second Real Provider Adapter
 
 > 状态:implemented as M6b second real provider adapter partial。`native-claude` 通过 Claude Code headless `-p --output-format json` 接入 reviewer path。该 PR 证明 adapter contract 不是 Codex-only,但不追求 12-agent 完整矩阵,不接 ACP/direct session。

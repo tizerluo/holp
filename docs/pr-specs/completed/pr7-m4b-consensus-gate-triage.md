@@ -1,3 +1,5 @@
+> status: completed — PR7 shipped; see pr-specs README landed foundation list and README M4b checkbox.
+
 # PR7 SPEC - M4b Consensus Gate Triage Kernel
 
 ## 目的

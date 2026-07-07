@@ -1,3 +1,5 @@
+> status: completed — PR1 shipped; see pr-specs README landed foundation list.
+
 # PR1 SPEC - M0 Contract Surface Freeze
 
 ## 目的

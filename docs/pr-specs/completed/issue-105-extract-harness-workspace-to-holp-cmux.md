@@ -1,3 +1,5 @@
+> status: completed — shipped via repo split; see README P4 and git log #106/#107.
+
 # Issue #105 - Extract Harness Workspace Consumer Into holp-cmux Repo
 
 ## 背景与动机

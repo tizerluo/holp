@@ -1,3 +1,5 @@
+> status: completed — PR4 shipped; left in place because non-Markdown code comments reference this path.
+
 # PR4 SPEC - M2 Protocol Contract Tests
 
 ## 目的

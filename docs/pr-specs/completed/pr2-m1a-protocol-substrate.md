@@ -1,3 +1,5 @@
+> status: completed — PR2 shipped; see pr-specs README landed foundation list.
+
 # PR2 SPEC - M1a Protocol Substrate
 
 ## 目的

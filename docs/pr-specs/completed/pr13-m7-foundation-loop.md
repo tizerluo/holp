@@ -1,3 +1,5 @@
+> status: completed — PR13 M7 foundation loop shipped in `6ac698e` (#30), with PR13b workflow contract hardening in `a288e94` (#32). HEAD contains `daemon/core/workPlanner.ts`, `daemon/core/workflowEngine.ts`, `daemon/core/trainingSamples.ts`, and `daemon/handlers/m7_workflow.test.ts` coverage for the acceptance path.
+
 # PR13 / M7 Foundation Loop
 
 ## Summary

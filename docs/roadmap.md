@@ -1,18 +1,18 @@
 # HOLP Roadmap
 
 > 状态:规划文档,不表示对应实现已经存在。
-> 核查依据:`protocol/spec.md` v0.1.5、`protocol/version.md`、`docs/positioning.md`、`adapters/` 当前实现。
-> PR 拆解:PR1-PR12 覆盖 M0-M6c。M7-M12 后续权威路线见 `docs/holp-blueprint.md`。
+> 核查依据:`protocol/spec.md` v0.1.8、`protocol/version.md`、`docs/positioning.md`、`adapters/` 当前实现。
+> PR 拆解:PR1-PR16 覆盖 M0-M11 safe-lane foundation。M12 Remote 后续路线见 `docs/holp-blueprint.md` 和 `docs/pr-specs/pr17-m12-remote-distributed-holp.md`。
 
 ## 当前事实
 
 当前仓已落地:
 
-- `protocol/spec.md`:v0.1.5 draft,覆盖 stdio JSON-RPC、capability descriptor、flock runtime surface/isolation readiness matrix、orchestrate、events、consensus、approval、task.cancel、artifact、versioning、error model、unattended policy、implementation boundary。
-- `protocol/version.md`:版本规则和 v0.1.5 范围。
+- `protocol/spec.md`:v0.1.8 draft,覆盖 stdio JSON-RPC、capability descriptor、flock runtime surface/isolation readiness matrix、orchestrate、events、consensus、approval、gate report、learned/dynamic workflow safe-lane、task.cancel、artifact、versioning、error model、unattended policy、implementation boundary。
+- `protocol/version.md`:版本规则和 v0.1.8 范围。
 - `docs/positioning.md`:定位、non-goals、设计来源边界。
-- `docs/pr-specs/`:PR1-PR12 已覆盖 M0-M6c 拆解;M7+ 不继续沿旧 PR 编号硬拆,以 `docs/holp-blueprint.md` 为准。
-- `adapters/`:朝下 adapter contract + Codex app-server real adapter(`mcp-codex`,含基础 stdio/turn recovery) + native-claude headless reviewer partial；`acp` 仍是 stub,`fake` transport 仅用于 demo/test。
+- `docs/pr-specs/`:PR1-PR16 已覆盖 M0-M11 safe-lane foundation;PR17/M12 Remote 仍 open。
+- `adapters/`:朝下 adapter contract + Codex app-server real adapter(`mcp-codex`,含基础 stdio/turn recovery) + native-claude headless reviewer partial + PR14 first-batch harness ACP/direct pilot;generic `acp` transport 仍是 stub,`fake` transport 仅用于 demo/test。
 - `daemon/`:参考 daemon 协议骨架,支持 stdio JSON-RPC 9 方法 + 事件订阅/replay(M1a+M1b)。
 - `consumers/cli/`:参考 consumer CLI,可跑通 M1 fake backend 闭环,并提供 M6a fake consumer CLI partial:human-readable run/approval/consensus/artifact report + raw/debug wire view。
 - M1 e2e 闭环:`initialize -> flock.declare -> orchestrate.run -> events.subscribe -> approval.resolve -> artifact.get`。**fake backend,非真实 provider**。
@@ -22,17 +22,18 @@
 - M6a fake consumer CLI partial:`npm run demo:cli` / `demo:cli:inline` / `demo:cli:degraded` 通过 stdio daemon wire 跑通 fake single/consensus/degraded paths,展示 runtime/isolation metadata、approval、terminal event、consensus report、artifact refs/inline fallback 和 raw/debug frames。real reviewer CLI 入口指向 PR9 opt-in smoke。
 - M6b second real provider adapter partial:`native-claude` 通过 Claude Code headless `-p --output-format json` 接入 reviewer path;outer Claude CLI JSON 与 inner reviewer JSON 双层 fail-closed,read-only reviewer ready 取决于 whitelist/deny-write evidence probe。
 - M6c runtime/session matrix foundation:consumer CLI 从 flock public wire response 渲染 runtime surface / session matrix,展示 `headless`/`acp`/`direct_user_session`、direct channel observation/control 能力、isolation readiness、global mutation risk、`declared_not_enforced` 和 `state_declaration_ref`。
-- 参考 daemon 代码常量仍按 v0.1.4 contract 运行;v0.1.5 是当前协议基准修订,PR6+ 必须承接 runtime surface / isolation readiness matrix。
+- M7 foundation loop:PR13 `6ac698e` + PR13b `a288e94` 已接入 `WorkPlanner` / `RuleWorkPlanner`、`max_steps>1` workflow step loop、dispatch snapshots、step history 和 JSONL training sample exporter。
+- M8 real runtime surface harness pilot:PR14 `c72cc07` 已接入 first-batch Cursor Agent、Kimi Code、OpenCode、Pi、Reasonix registry/probe/factory、ACP thin client、direct tmux backend、runtime-surface selection 和 opt-in harness smoke。
+- M9 consumer stable gate surface:PR15 `958784f` 已接入 `GateReport.v1`、capability-gated `gate_report`、approval/override audit、protocol/version 更新和 CLI report rendering。
+- M10/M11 safe-lane foundation:PR16 `2caab2b` 已接入 learned-router planner-only role、offline replay/eval helpers、shadow recording、fixture active/canary fail-closed fallback、promotion evidence shape、L1 bounded workflow 和 L2 `WorkflowRevision.v1` validator/reject/audit。
+- 参考 daemon 仍保留 v0.1.x draft 兼容入口;当前协议文档范围是 v0.1.8。v0.1.5 把 runtime surface / isolation readiness matrix 提升为协议基准,v0.1.7/v0.1.8 继续加入 gate report 与 learned/dynamic workflow safe-lane。
 
 当前仓未落地,也不声称已落地:
 
-- M7 WorkPlanner / multiround step loop / L0 workflow / JSONL exporter。
-- M8 真实 ACP path 和 direct user session path。
-- M9 stable gate protocol surface 和完整 consumer-facing gate/report 体验。
-- M10 learned router replay / shadow / active/canary。
-- M11 L1/L2 dynamic workflow。
+- `real_learned_model` backing、real learned active/canary smoke/readiness。
+- L2 learned-active dynamic workflow readiness、kill switch 和 automatic demotion。
 - M12 Remote / distributed HOLP。
-- 完整 ACP/direct/session matrix、真实 provider dissent/timeout、stable gate 等散项分别归入 M8/M9。
+- 12-agent 完整 ACP/direct/session matrix、真实 provider dissent/timeout。
 - 12 个 agent 在 `headless` / `acp` / `direct_user_session` 三类运行面的完整 adapter 实现。
 - Web 传输。
 - cmux/Warp/tmux/direct user session 真实 UI 控制与稳定 event model mapping。
@@ -183,7 +184,7 @@
 
 ## M4:Governance Kernel Import
 
-> 状态(PR6/M4a + PR7/M4b + PR8/M5 + PR9/M5b + PR11/M6b):data/state/decision skeleton partial 已落地:内部 event archive、`decision_made`、harness registry archive、run lifecycle state machine、approval expiry timer。M4b 已接入纯 consensus kernel、author exclusion、二段式 quorum 和显式 reviewer panel 的 `consensus_verdict`/`consensus_degraded`。M5 已补 deterministic fake+fake demo,展示 findings artifact envelope / inline fallback。M5b 已补 `mcp-codex` reviewer execution hook,但只在 runtime read-only attestation + strict JSON validator 通过时计入 completed vote;当前 Codex profile degraded 时会 fail-closed/INCONCLUSIVE。M6b 已补 `native-claude` headless reviewer partial,但 read-only ready 取决于 enforcement probe evidence。`permission_surface` / `observability_surface` 仍作为保留列记录为 `unknown`;稳定 gate protocol surface 仍未落地。
+> 状态(PR6/M4a + PR7/M4b + PR8/M5 + PR9/M5b + PR11/M6b + PR15/M9):data/state/decision skeleton partial 已落地:内部 event archive、`decision_made`、harness registry archive、run lifecycle state machine、approval expiry timer。M4b 已接入纯 consensus kernel、author exclusion、二段式 quorum 和显式 reviewer panel 的 `consensus_verdict`/`consensus_degraded`。M5 已补 deterministic fake+fake demo,展示 findings artifact envelope / inline fallback。M5b 已补 `mcp-codex` reviewer execution hook,但只在 runtime read-only attestation + strict JSON validator 通过时计入 completed vote;当前 Codex profile degraded 时会 fail-closed/INCONCLUSIVE。M6b 已补 `native-claude` headless reviewer partial,但 read-only ready 取决于 enforcement probe evidence。`permission_surface` / `observability_surface` 仍作为保留列记录为 `unknown`;PR15 已补 stable gate protocol/report surface。
 
 目标:从 loopwright 挑拷纯逻辑治理内核,不要搬整个旧仓。
 
@@ -270,14 +271,14 @@
 
 ## M7-M12:Blueprint 路线
 
-后续主线已移到 `docs/holp-blueprint.md`,这里保留压缩索引:
+后续主线以 `docs/holp-blueprint.md` 为总路线,这里保留当前实现状态索引:
 
-- M7 foundation loop: `WorkPlanner` / `RuleWorkPlanner`, `max_steps=1` 兼容, `max_steps>1` L0 workflow, step-level governance snapshot, JSONL exporter, reward attribution versioning。
-- M8 real runtime surfaces:第一条真实 ACP path 和 direct_user_session path,继续保持 unsupported/unknown/rejected 诚实矩阵。
-- M9 consumer and gate surface:stable gate protocol surface,CLI/TUI/external UI 一致渲染,approval/override/audit 单通道。
-- M10 learned router safe lane:learned-router transport / work_planner role,offline replay/eval,shadow,opt-in active/canary。
-- M11 dynamic workflow:L1 半动态 workflow 和有证据支撑的 L2 全动态 workflow。
-- M12 Remote and distributed HOLP:remote runner、harness health/readiness、artifact/event/approval relay,保留 local-first safety。
+- [x] M7 foundation loop: `WorkPlanner` / `RuleWorkPlanner`, `max_steps=1` 兼容, `max_steps>1` L0 workflow, step-level governance snapshot, JSONL exporter, reward attribution versioning。实现依据:`6ac698e` (#30) + `a288e94` (#32)。
+- [x] M8 real runtime surfaces pilot:第一批 harness registry/probe/factory、ACP thin client、direct tmux path、runtime selection 和 opt-in smoke。实现依据:`c72cc07` (#34)。不声明 bounded CLI cohort 全覆盖。
+- [x] M9 consumer and gate surface:stable gate protocol surface,CLI report rendering,approval/override/audit 单通道。实现依据:`958784f` (#35)。
+- [x] M10 learned router safe lane foundation:learned-router transport / work_planner role,offline replay/eval,shadow,fixture active/canary fail-closed。实现依据:`2caab2b` (#37);real learned active/canary readiness 未声明。
+- [x] M11 dynamic workflow foundation:L1 bounded workflow 和 L2 revision validator/reject/audit foundation。实现依据:`2caab2b` (#37);L2 learned-active readiness 未声明。
+- [ ] M12 Remote and distributed HOLP:remote runner、harness health/readiness、artifact/event/approval relay,保留 local-first safety。
 
 ## Future:Web/Stable
 

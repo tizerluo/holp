@@ -4,6 +4,12 @@ This note documents the PR12 vocabulary now visible in the consumer CLI matrix
 report. It is descriptive only: scheduling decisions still belong to
 `orchestrate.run` eligibility and isolation gates.
 
+Current `adapters/direct-tmux.ts` support is a one-shot visible mode, not an
+interactive agent UI. HOLP creates and owns a tmux pane, injects one command,
+polls a structured completion marker, and may keep the pane attachable for
+observation. A human can watch or attach during the hold window, but cannot
+type mid-run corrections into an interactive agent session.
+
 ## Direct Channel Groups
 
 `direct_user_session` declarations split capabilities into two groups:

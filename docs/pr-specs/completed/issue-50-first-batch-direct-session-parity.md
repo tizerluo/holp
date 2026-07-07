@@ -1,3 +1,5 @@
+> status: completed — first-batch direct session parity shipped; see pr-specs README and git log #59.
+
 # Issue #50 - First-Batch Direct Session Parity
 
 ## Summary
@@ -20,9 +22,11 @@ terminal-consumer smoke, claim `cmux-ready`, or unblock #41 data sufficiency.
 
 - #47 generalized `DirectTmuxBackend` and `probeDirectTmux`:
   - HOLP creates `holp-*` tmux sessions.
-  - The backend injects one-shot commands with `send-keys`, reads terminal
-    output, supports interrupt/cancel/cleanup, and does not attach existing
-    user shells.
+- The backend injects one-shot commands with `send-keys`, reads terminal
+  output, supports interrupt/cancel/cleanup, and does not attach existing
+  user shells.
+  This is a one-shot visible mode: users may observe or attach to the pane, but
+  the pane is not an interactive agent surface for mid-run human correction.
   - Direct `ready` already requires both capability proof and
     agent-in-tmux `HOLP_OK` output.
 - `FIRST_BATCH_HARNESSES` now declares configured direct factories for Cursor
@@ -175,7 +179,7 @@ Tests must cover both directions:
 Update:
 
 - `docs/pr-specs/README.md`
-- `docs/pr-specs/issue-45-multi-agent-cli-runtime-surface-completion.md`
+- `docs/pr-specs/completed/issue-45-multi-agent-cli-runtime-surface-completion.md`
 
 The #45 matrix must say what #50 proves for each first-batch direct surface.
 If local auth or tool availability prevents a real ready smoke, the matrix
@@ -223,7 +227,7 @@ Expected product/test touchpoints:
 - `scripts/smoke/harnesses.ts` or a new `scripts/smoke/first-batch-direct.ts`.
 - `adapters/registry.test.ts` and possibly `adapters/direct-tmux.test.ts`.
 - `docs/pr-specs/README.md`
-- `docs/pr-specs/issue-45-multi-agent-cli-runtime-surface-completion.md`
+- `docs/pr-specs/completed/issue-45-multi-agent-cli-runtime-surface-completion.md`
 - `package.json` for the direct smoke script.
 
 Impact checks required before product/test edits:

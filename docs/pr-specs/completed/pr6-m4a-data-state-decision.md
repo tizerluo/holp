@@ -1,3 +1,5 @@
+> status: completed — PR6 shipped; see pr-specs README landed foundation list and README M4a checkbox.
+
 # PR6 SPEC - M4a Data State Decision Skeleton
 
 ## 目的

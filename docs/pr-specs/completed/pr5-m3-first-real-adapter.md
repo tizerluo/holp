@@ -1,3 +1,5 @@
+> status: completed — PR5 shipped; see pr-specs README landed foundation list and README adapter status.
+
 # PR5 SPEC - M3 First Real Adapter
 
 ## 目的

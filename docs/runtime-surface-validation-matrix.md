@@ -76,6 +76,10 @@ State vocabulary:
 
 Every `ready` claim below is scoped to `coder_worktree` unless a row says
 otherwise. A `coder_worktree` pass does not imply `read_only_review` readiness.
+For `direct_user_session`, `ready` means the matching HOLP-owned direct-tmux
+one-shot visible path passed its smoke/probe. It does not mean an interactive
+agent UI exists, and it does not permit human mid-run correction through the
+pane.
 
 | Agent | `headless` | ACP/native-or-bridge | `direct_user_session` |
 | --- | --- | --- | --- |

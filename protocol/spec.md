@@ -6,6 +6,8 @@
 
 HOLP 是 **consumer**(终端 / 工具 / APP——cmux、Warp、happier、CLI)与 **orchestrator**(编排器——HOLP 参考 daemon 或任何实现)之间的那根线。consumer 声明「我有一窝异构 agent」,发起编排目标,orchestrator 派单并流式回吐事件;需要人拍板时,人在回路上介入——**Human on Loop**。
 
+Human On the Loop 不是 Human In the Loop:HOLP 不要求人对每个内容或动作逐项审批。approval/gate 是可选闸;协议核心是把多家 Agent Harness 的行为抽象统一,让编排过程可回溯、可审查、可定位和可修改。
+
 设计来源(概念启发,非直接对位/搬运):events 订阅启发自 cmux `CmuxEventBus`(HOLP 的 subscribe+notification 是新协议设计);flock/orchestrate 启发自 Oz proto 概念(不抄依赖、不实现服务端);consensus 启发自 loopwright 共识评审的聚合策略(wire 结构是 HOLP 新设计);朝下 adapter 契约启发自 happier `AgentBackend` 形状(接入需 wrapper,非直接复用)。逐条对位与诚实表述见 `docs/positioning.md`。
 
 ---
@@ -651,6 +653,8 @@ JSON-RPC error object:`{ "code": <int>, "message": <string>, "data": {...} }`。
 ---
 
 ## 11. Unattended Policy(Human-on-Loop 落地)
+
+**完成信号公理**:任务完成判定必须来自结构化通道,例如完成标记 marker、进程退出码、协议级 `stopReason` / terminal event。TUI 状态检测(提示符正则、界面 pattern 匹配、最后一屏文本等)不得作为任务完成的 ground truth;它只能作为展示性的进度提示或诊断线索。CLI/TUI 改版会腐坏界面检测,因此调度、gate、artifact 归档和 run terminal state 都必须依赖结构化完成信号。
 
 `orchestrate.run` 可带 `unattended_policy`(缺省值由 server 配置):
 ```jsonc

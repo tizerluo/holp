@@ -1,3 +1,5 @@
+> status: completed — shipped as v0.1.5 protocol baseline; see README status and pr-specs README.
+
 # Issue #11 SPEC - Cross-Agent Harness Isolation
 
 ## 目的
@@ -23,7 +25,7 @@ HOLP 的协议基准目标不是"今天就完整支持 12 个 agent 的所有运
 
 - `headless`:通过 CLI/API 一次性或可续跑命令执行,适合 Commander 派工、review、test、execution run。典型例子:`claude -p`、`kimi -p`、`opencode run`。
 - `acp`:通过 Agent Client Protocol 或 bridge 进行会话控制,适合结构化 session/update、permission、mode/model 控制。并非所有 agent 都有原生 ACP。
-- `direct_user_session`:用户可直接进入并通讯的会话层。它至少包含两类子形态:
+- `direct_user_session`:未来可让用户直接进入并通讯的会话层;在任何实现中都必须逐项声明观察与控制能力,不能从 surface 名字推断为交互式 Agent。它至少包含两类子形态:
   - product session:类似 Happy/Happier 的本地/远程 UI 会话,通常需要 message queue、metadata、permission UI、resume/handoff 等产品能力。
   - terminal session:类似 Warp、cmux、tmux 的终端会话。不同工具能力差异很大,可能提供 PTY/tmux attach、input injection、output stream、interrupt/cancel 等子能力;HOLP 必须逐项声明,不能把三者抹平成同一种既有能力。
 
@@ -38,7 +40,8 @@ HOLP 的协议基准目标不是"今天就完整支持 12 个 agent 的所有运
 - 真实 Codex smoke 通过临时 workspace、临时 `CODEX_HOME`、复制 auth seed、写入 `notify = []` 来隔离 Codex state 和 workspace 文件副作用。
 - 该 smoke 不等于完整 OS sandbox:进程仍可能继承普通环境变量,网络、Keychain、provider quota、进程树和本机 auth 可见性不由 HOLP 完全隔离。
 - PR6/PR12 已让 `flock.declare/discover` 和 consumer matrix report 能表达 runtime surface / isolation profile readiness;真实 ACP/direct session 仍未接线。
-- 当前 HOLP 还没有 Happy/Happier 式产品会话层,也没有 Warp/cmux/tmux 式 terminal attach/inject 会话层。后续若要支持,必须作为显式 `direct_user_session` 运行面接入,不能假设 headless/ACP adapter 天然等同于用户可直接通讯的会话体验。
+- 本 SPEC 写作时 HOLP 还没有 Happy/Happier 式产品会话层,也没有 Warp/cmux/tmux 式 terminal attach/inject 会话层。后续若要支持,必须作为显式 `direct_user_session` 运行面接入,不能假设 headless/ACP adapter 天然等同于用户可直接通讯的会话体验。
+- 后续 PR 接入的 `DirectTmuxBackend` 现状只是 HOLP-owned tmux pane 的一次性可见模式:注入一次性命令、观察输出、用完成标记收敛,可 attach 观看但不能把 pane 当成中途纠偏的交互式 Agent 界面。
 
 ## 调研依据
 

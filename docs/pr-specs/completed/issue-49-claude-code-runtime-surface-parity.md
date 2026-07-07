@@ -1,3 +1,5 @@
+> status: completed — Claude Code runtime surface parity shipped; see pr-specs README current code facts and git log #58.
+
 # Issue #49 - Claude Code Headless / ACP-Bridge / Direct Runtime Surface Parity
 
 ## Summary
@@ -102,7 +104,7 @@ existing one:
 Update:
 
 - `docs/pr-specs/README.md`
-- `docs/pr-specs/issue-45-multi-agent-cli-runtime-surface-completion.md`
+- `docs/pr-specs/completed/issue-45-multi-agent-cli-runtime-surface-completion.md`
 
 The #45 matrix must say exactly what #49 proves. If ACP-like bridge is not
 ready, it must remain unsupported/rejected/degraded, not blank and not native

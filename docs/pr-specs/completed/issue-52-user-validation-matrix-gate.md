@@ -1,3 +1,5 @@
+> status: completed — validation matrix gate shipped; see README P3 and docs/runtime-surface-validation-matrix.md.
+
 # Issue #52 - User Validation Matrix and Gate for Multi-Agent CLI Surfaces
 
 ## Summary
@@ -127,7 +129,7 @@ Update only the minimum docs needed to make the final phase state discoverable:
 
 - `docs/pr-specs/README.md` must link this #52 spec and describe it as the
   final #45 gate.
-- `docs/pr-specs/issue-45-multi-agent-cli-runtime-surface-completion.md` must
+- `docs/pr-specs/completed/issue-45-multi-agent-cli-runtime-surface-completion.md` must
   point to the #52 validation matrix after completion.
 - `docs/runtime-session-matrix.md` may receive a short pointer to the #52
   validation matrix if useful.

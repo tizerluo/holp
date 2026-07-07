@@ -5,12 +5,13 @@
 
 ## 1. HOLP 是什么
 
-HOLP 是本地优先、vendor-neutral、人在回路上的 multi-agent orchestration protocol,加一个参考 daemon 和参考 consumer。
+HOLP 是本地优先、vendor-neutral、Human On the Loop 的 multi-agent orchestration protocol,加一个参考 daemon 和参考 consumer。这里的 On the Loop 不是 Human In the Loop:人不逐项审批每一步,而是在需要时介入,并且能审查整个过程。
 
 它的核心价值:
 
 - 用公开 wire 把不同 agent/harness 放进同一套编排协议。
-- 让人能在关键点审批,而不是每一步盯着。
+- 用公开 wire 把多家 Agent Harness 的行为抽象统一,让过程可回溯、可审查。
+- 让人能在关键点审批,而不是每一步盯着;approval/gate 是可选闸,不是协议本质。
 - 让共识、artifact、runtime readiness、approval、decision 变得可观察。
 - 支撑从规则编排走到 learned router、动态 workflow、真实 runtime session、Remote 执行,但每一步都可回退。
 
@@ -104,6 +105,8 @@ adapter 只声明自己能做什么;不能把声明当强制隔离证明。
 
 这些都是 HOLP 需要覆盖的 surface,只是落地顺序不同。
 
+当前 reference daemon 的 direct-tmux `direct_user_session` 只是一次性可见模式:创建 HOLP-owned tmux pane、注入一次性 agent 命令、用结构化完成标记收敛,并允许用户 attach 观察保留窗口。它不提供运行中人工输入纠偏;交互式 Agent 驱动要另行设计和验收。
+
 第一批真实 harness roster:
 
 - Cursor Agent: headless + ACP。
@@ -187,7 +190,7 @@ M7 completion contract:
 
 PR14 落地后仍需要一个 bounded CLI cohort 的 runtime-surface parity
 阶段,再让 learned-model data-readiness 声称训练数据充分。该阶段见
-`docs/pr-specs/issue-45-multi-agent-cli-runtime-surface-completion.md`:它需覆盖
+`docs/pr-specs/completed/issue-45-multi-agent-cli-runtime-surface-completion.md`:它需覆盖
 Codex、Claude Code、Cursor Agent、Kimi Code、OpenCode、Pi、Reasonix 的
 headless、ACP/native-or-bridge 和 direct_user_session 证据,并通过
 terminal-consumer smoke 证明外部终端类 consumer 可用 HOLP public wire

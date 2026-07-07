@@ -1,3 +1,5 @@
+> status: completed — P3 runtime-surface parity completed; see README P3 and Issue #52 validation matrix.
+
 # Issue #45 - Multi-Agent CLI Runtime Surface Completion
 
 ## Summary
@@ -63,6 +65,8 @@ must never be counted as ready.
   HOLP-owned bridge. Explicit ACP selection must not fall back to headless.
 - `direct_user_session`: HOLP-created throwaway tmux/PTY session only; no
   attach to existing user shells. Owner verification is mandatory before ready.
+  For the current direct-tmux implementation, ready means one-shot visible mode
+  evidence, not an interactive agent UI or human mid-run correction channel.
 
 Claude Code has no native ACP. Claude ACP-like parity must either be an
 explicit HOLP-owned stream-json bridge with declared fidelity

@@ -1,3 +1,5 @@
+> status: completed — direct tmux foundation shipped; see git log #56 and Issue #50 baseline.
+
 # Issue #47 - Generalize Direct Tmux For The Bounded CLI Cohort
 
 ## Summary

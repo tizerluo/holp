@@ -1,3 +1,5 @@
+> status: completed — PR8 shipped; see pr-specs README landed foundation list and README M5 checkbox.
+
 # PR8 SPEC - M5 Multi-Agent Consensus Demo
 
 > 状态(PR8):deterministic unanimous-approve fake+fake demo 已落地。`npm run demo:m5` 通过真实 stdio JSON-RPC daemon wire 跑两条场景:`artifact_refs:true` findings artifact envelope 和 `artifact_refs:false` inline fallback。该 demo 不接真实 reviewer backend,不覆盖 dissent/timeout demo,不新增稳定 gate surface。

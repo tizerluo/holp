@@ -1,3 +1,5 @@
+> status: completed — observable attachable worker session shipped; see git log #65.
+
 # Issue #65 - Observable + Attachable direct_user_session Worker
 
 ## Summary
@@ -7,6 +9,11 @@ session, but the human can only see an after-the-fact `dashboard.md` summary. Th
 worker session is detached (`tmux new-session -d`), lives on whatever tmux server
 the daemon's inherited `$TMUX` resolves to, and is killed at run terminal — so the
 printed `tmux attach -t holp-...` has a near-zero window and no guaranteed server.
+
+This is still a one-shot visible worker, not an interactive agent UI. The direct
+tmux backend injects one command and completion marker, then observes output;
+holding or attaching the pane is for visibility/debugging, not for human
+mid-run correction.
 
 This PR makes the worker **observable while it runs** and **attachable**, in three
 layers, without changing the HOLP public wire protocol:

@@ -1,3 +1,5 @@
+> status: completed — terminal consumer smoke shipped; see pr-specs README and git log #61.
+
 # Issue #54 - Terminal Consumer Integration Smoke
 
 ## Summary
@@ -181,7 +183,7 @@ selected scenario naturally emits an approval request.
 Update:
 
 - `docs/pr-specs/README.md`
-- `docs/pr-specs/issue-45-multi-agent-cli-runtime-surface-completion.md`
+- `docs/pr-specs/completed/issue-45-multi-agent-cli-runtime-surface-completion.md`
 
 The #45 master spec should record #54's new command and state that #52 consumes
 its output for the final validation matrix. The documentation must preserve the

@@ -1,3 +1,5 @@
+> status: completed — PR15 M9 consumer stable gate surface shipped in `958784f` (#35). HEAD contains `GateReport.v1`, capability-gated `gate_report` events, approval/override audit handling, protocol/version updates, and CLI renderer/tests.
+
 # PR15 / M9 Consumer Stable Gate Surface
 
 ## Summary
