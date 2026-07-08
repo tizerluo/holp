@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach } from "vitest";
 import { describe, expect, it } from "vitest";
-import { createAdapterRegistry, createDefaultAdapterRegistry, createFakeRegistry, createStubFactory } from "./registry.js";
+import {
+  codexDirectAgentArgsForPrompt,
+  createAdapterRegistry,
+  createDefaultAdapterRegistry,
+  createFakeRegistry,
+  createStubFactory,
+} from "./registry.js";
 import {
   FIRST_BATCH_HARNESSES,
   firstBatchAdapterFactories,
@@ -629,6 +635,23 @@ describe("adapter registry runtime surface resolution", () => {
     expect(directFactory).toBeDefined();
     expect(acpFactory).not.toBe(headlessFactory);
     expect(directFactory).not.toBe(headlessFactory);
+  });
+
+  it("injects codex direct model into exec args when modelId is provided", () => {
+    expect(codexDirectAgentArgsForPrompt("PROMPT", { modelId: "gpt-5-test" })).toEqual([
+      "exec",
+      "--sandbox",
+      "workspace-write",
+      "-m",
+      "gpt-5-test",
+      "-c",
+      'approval_policy="never"',
+      "--skip-git-repo-check",
+      "-c",
+      "notify=[]",
+      "PROMPT",
+    ]);
+    expect(codexDirectAgentArgsForPrompt("PROMPT")).not.toContain("-m");
   });
 
   it("declares exact first-batch ACP command and session shapes", () => {

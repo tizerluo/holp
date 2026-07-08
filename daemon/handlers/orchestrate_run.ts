@@ -32,6 +32,7 @@ import {
 } from "../../adapters/first-batch-harnesses.js";
 import type { Clock } from "../core/clock.js";
 import type { Scheduler } from "../core/scheduler.js";
+import type { AgentBackendOptions } from "../../adapters/agent-backend.js";
 import { driveRun } from "../core/runEngine.js";
 import { expireApproval } from "../core/approvalLifecycle.js";
 import { driveWorkflowRun } from "../core/workflowEngine.js";
@@ -66,6 +67,15 @@ import {
 // M1b single-connection; per-connection run-id scoping deferred (see ConnectionContext.subscriptionCounter for the pattern).
 let runCounter = 0;
 
+const SECRET_ENV_KEY_PATTERN = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH/i;
+const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const ENV_VALUE_CONTROL_PATTERN = /[\x00-\x1f\x7f]/;
+
+interface RoleRuntimeOptions {
+  readonly env?: Readonly<Record<string, string>>;
+  readonly model?: string;
+}
+
 function nextRunId(): string {
   runCounter += 1;
   return `run_${runCounter}`;
@@ -95,6 +105,7 @@ export function handleOrchestrateRun(
   const workflowId = parseWorkflowParam(params.workflow);
   const maxSteps = parseMaxStepsParam(params.max_steps);
   const plannerRequest = parsePlannerRequest(params.planner);
+  const roleOptions = parseRoleRuntimeOptions(roles);
 
   if (roles.work_planner !== undefined) {
     throw new HolpRpcError(
@@ -466,6 +477,7 @@ export function handleOrchestrateRun(
   const coderAgent = ctx.flock.get(coderAgentId) as FlockAgent;
   const coderRuntime = runtimeSelections.get(runtimeKey(coderAgentId, "coder")) ??
     resolveRuntimeSelection(coderAgent, "coder", coderRuntimeSurface);
+  const coderOptions = roleOptions.get("coder");
   const factory = registry.resolve(coderAgent.transport, coderRuntime.runtime_surface);
   if (!factory) {
     throw new HolpRpcError(
@@ -491,6 +503,7 @@ export function handleOrchestrateRun(
     status: "active",
     bus,
     runtime: coderRuntime,
+    roleOptions: roleOptionsRecord(roleOptions),
     ...(reviewerPanel.length > 0
       ? {
           consensus: {
@@ -501,7 +514,11 @@ export function handleOrchestrateRun(
           },
           reviewerExecutor: createReviewerExecutor(
             reviewerRuntimeSelections.map((reviewer) =>
-              reviewerExecutionConfig(ctx.flock.get(reviewer.agent_id) as FlockAgent, reviewer.runtime)
+              reviewerExecutionConfig(
+                ctx.flock.get(reviewer.agent_id) as FlockAgent,
+                reviewer.runtime,
+                roleOptions.get("reviewer"),
+              )
             ),
           ),
         }
@@ -565,6 +582,8 @@ export function handleOrchestrateRun(
           holdSession: coderHoldSession,
           holdTimeoutMs: coderHoldTimeoutMs,
           tmuxSocketPath: coderTmuxSocketPath,
+          env: coderOptions?.env,
+          modelId: coderOptions?.model,
         },
         reviewerPanelPresent: reviewerPanel.length > 0,
         reviewerQuorum: reviewerPanel.length > 0 ? quorum : undefined,
@@ -580,6 +599,8 @@ export function handleOrchestrateRun(
   // --- Create backend and wire it ---
   const backend = factory({
     cwd: process.cwd(),
+    env: coderOptions?.env,
+    modelId: coderOptions?.model,
     holdSession: coderHoldSession,
     holdTimeoutMs: coderHoldTimeoutMs,
     tmuxSocketPath: coderTmuxSocketPath,
@@ -686,7 +707,7 @@ interface PlannerRequest {
 
 function parsePlannerRequest(value: unknown): PlannerRequest {
   if (value === undefined) return { mode: "rule" };
-  if (!isObject(value)) {
+  if (!isObject(value) || Array.isArray(value)) {
     throw new HolpRpcError(invalidRequest("orchestrate.run.planner must be an object"));
   }
   const mode = value.mode;
@@ -728,6 +749,91 @@ function parsePlannerRequest(value: unknown): PlannerRequest {
     evidence_id: typeof value.evidence_id === "string" ? value.evidence_id : undefined,
     canary,
   };
+}
+
+function parseRoleRuntimeOptions(roles: Record<string, unknown>): Map<string, RoleRuntimeOptions> {
+  const parsed = new Map<string, RoleRuntimeOptions>();
+  for (const [role, spec] of Object.entries(roles)) {
+    if (!isObject(spec)) continue;
+    const model = parseRoleModel(role, spec.model);
+    const env = parseRoleEnv(role, spec.env);
+    const options = { env, model };
+    if (options.env !== undefined || options.model !== undefined) {
+      parsed.set(role, options);
+    }
+  }
+  return parsed;
+}
+
+function parseRoleModel(role: string, value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new HolpRpcError(
+    invalidRequest(`orchestrate.run.roles.${role}.model must be a non-empty string`, {
+      field: `roles.${role}.model`,
+      value,
+    }),
+  );
+}
+
+function parseRoleEnv(
+  role: string,
+  value: unknown,
+): Readonly<Record<string, string>> | undefined {
+  if (value === undefined) return undefined;
+  if (!isObject(value) || Array.isArray(value)) {
+    throw new HolpRpcError(
+      invalidRequest(`orchestrate.run.roles.${role}.env must be an object of string values`, {
+        field: `roles.${role}.env`,
+        value,
+      }),
+    );
+  }
+
+  const env: Record<string, string> = {};
+  for (const [key, envValue] of Object.entries(value)) {
+    if (!ENV_KEY_PATTERN.test(key)) {
+      throw new HolpRpcError(
+        invalidRequest(
+          `orchestrate.run.roles.${role}.env key '${key}' must match /^[A-Za-z_][A-Za-z0-9_]*$/`,
+          { field: `roles.${role}.env.${key}`, key, pattern: "^[A-Za-z_][A-Za-z0-9_]*$" },
+        ),
+      );
+    }
+    if (typeof envValue !== "string") {
+      throw new HolpRpcError(
+        invalidRequest(`orchestrate.run.roles.${role}.env.${key} must be a string`, {
+          field: `roles.${role}.env.${key}`,
+          value: envValue,
+        }),
+      );
+    }
+    if (SECRET_ENV_KEY_PATTERN.test(key)) {
+      throw new HolpRpcError(
+        invalidRequest(
+          `orchestrate.run.roles.${role}.env contains credential-like key '${key}'; use auth_ref for secrets`,
+          { field: `roles.${role}.env.${key}`, key, auth_ref_required: true },
+        ),
+      );
+    }
+    if (ENV_VALUE_CONTROL_PATTERN.test(envValue)) {
+      throw new HolpRpcError(
+        invalidRequest(
+          `orchestrate.run.roles.${role}.env.${key} must not contain control characters`,
+          { field: `roles.${role}.env.${key}`, key },
+        ),
+      );
+    }
+    env[key] = envValue;
+  }
+  return env;
+}
+
+function roleOptionsRecord(
+  options: ReadonlyMap<string, RoleRuntimeOptions>,
+): Readonly<Record<string, RoleRuntimeOptions>> | undefined {
+  if (options.size === 0) return undefined;
+  return Object.fromEntries(options);
 }
 
 function isPlannerMode(value: unknown): value is PlannerModeV1 {
@@ -804,7 +910,9 @@ function buildDispatchCandidates(
 function reviewerExecutionConfig(
   agent: FlockAgent,
   runtime: RuntimeSelectionMetadata | undefined,
+  options: RoleRuntimeOptions | undefined,
 ): ReviewerAgentExecutionConfig {
+  const backendOptions = agentBackendOptions(options);
   if (agent.transport === "fake") {
     return {
       agent_id: agent.id,
@@ -822,6 +930,7 @@ function reviewerExecutionConfig(
       runtime,
       backendFactory: createCodexAppServerBackendFactory({ sandbox: "read-only" }),
       sandbox: "read-only",
+      backendOptions,
     };
   }
 
@@ -833,6 +942,7 @@ function reviewerExecutionConfig(
       runtime,
       backendFactory: createClaudeCodeBackendFactory(),
       sandbox: "read-only",
+      backendOptions,
     };
   }
 
@@ -846,6 +956,7 @@ function reviewerExecutionConfig(
         runtime,
         backendFactory,
         sandbox: "read-only",
+        backendOptions,
       };
     }
   }
@@ -874,6 +985,16 @@ function reviewerExecutionConfig(
     mode: "unsupported",
     runtime,
     reason: `real_reviewer_transport_not_wired:${agent.transport}`,
+  };
+}
+
+function agentBackendOptions(
+  options: RoleRuntimeOptions | undefined,
+): Pick<AgentBackendOptions, "env" | "modelId"> | undefined {
+  if (!options?.model && options?.env === undefined) return undefined;
+  return {
+    env: options.env,
+    modelId: options.model,
   };
 }
 

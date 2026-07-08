@@ -20,7 +20,7 @@ import type {
 import { createClaudeCodeBackendFactory, probeClaudeCode, READ_ONLY_ALLOWED_TOOLS } from "./claude-code.js";
 import { createCodexAppServerBackendFactory, probeCodexAppServer } from "./codex-app-server.js";
 import { createAcpBackendFactory } from "./acp-client.js";
-import { createDirectTmuxBackendFactory } from "./direct-tmux.js";
+import { createDirectTmuxBackendFactory, type DirectTmuxPromptOptions } from "./direct-tmux.js";
 import { createFakeBackendFactory } from "./fake-backend.js";
 import {
   firstBatchAdapterFactories,
@@ -206,6 +206,24 @@ export interface AdapterRegistry {
   probe(input: AgentProbeInput): AgentProbeResult | Promise<AgentProbeResult>;
 }
 
+export function codexDirectAgentArgsForPrompt(
+  prompt: string,
+  options: DirectTmuxPromptOptions = {},
+): readonly string[] {
+  return [
+    "exec",
+    "--sandbox",
+    "workspace-write",
+    ...(options.modelId ? ["-m", options.modelId] : []),
+    "-c",
+    'approval_policy="never"',
+    "--skip-git-repo-check",
+    "-c",
+    "notify=[]",
+    prompt,
+  ];
+}
+
 export function createAdapterRegistry(
   factories: Partial<Record<TransportClass, AgentBackendFactory | Partial<Record<RuntimeSurface, AgentBackendFactory>>>>,
   probes: Partial<Record<TransportClass, AgentBackendProbe>> = {},
@@ -274,17 +292,8 @@ export function createDefaultAdapterRegistry(): AdapterRegistry {
         direct_user_session: createDirectTmuxBackendFactory({
           transport: "mcp-codex",
           agentCommand: "codex",
-          agentArgsForPrompt: (prompt) => [
-            "exec",
-            "--sandbox",
-            "workspace-write",
-            "-c",
-            'approval_policy="never"',
-            "--skip-git-repo-check",
-            "-c",
-            "notify=[]",
-            prompt,
-          ],
+          agentArgsForPrompt: codexDirectAgentArgsForPrompt,
+          supportsModelId: true,
         }),
       },
       acp: createStubFactory("acp"),

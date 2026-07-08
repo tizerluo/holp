@@ -16,6 +16,30 @@ afterEach(() => {
 });
 
 describe("CodexAppServerBackend", () => {
+  it("passes modelId to thread/start and env to the fake app-server process", async () => {
+    const dir = makeTempDir();
+    const statePath = join(dir, "model-env-state.json");
+    const serverPath = join(dir, "fake-model-env-app-server.cjs");
+    writeFileSync(serverPath, fakeModelEnvAppServerScript(statePath), "utf8");
+    const backend = new CodexAppServerBackend(
+      {
+        cwd: dir,
+        modelId: "gpt-5.5-codex-test",
+        env: { HOLP_ADAPTER_ENV: "visible-to-app-server" },
+      },
+      { command: process.execPath, args: [serverPath] },
+    );
+
+    await backend.startSession();
+    await pollUntil(() => readJsonFile(statePath) !== undefined);
+    await backend.dispose();
+
+    expect(readJsonFile(statePath)).toEqual({
+      model: "gpt-5.5-codex-test",
+      env: "visible-to-app-server",
+    });
+  });
+
   it("maps app-server lifecycle, model output, approval, and patch events", async () => {
     const dir = makeTempDir();
     const serverPath = join(dir, "fake-codex-app-server.cjs");
@@ -760,6 +784,14 @@ function readFileUtf8(path: string): string {
   return readFileSync(path, "utf8");
 }
 
+function readJsonFile(path: string): unknown {
+  try {
+    return JSON.parse(readFileUtf8(path));
+  } catch {
+    return undefined;
+  }
+}
+
 async function pollUntil(predicate: () => boolean, maxTicks = 200): Promise<void> {
   for (let i = 0; i < maxTicks; i++) {
     if (predicate()) return;
@@ -815,6 +847,30 @@ rl.on("line", (line) => {
       }
     });
     send({ method: "turn/completed", params: { turn: { id: "turn-1", status: "completed" } } });
+  }
+});
+`;
+}
+
+function fakeModelEnvAppServerScript(statePath: string): string {
+  return `
+const fs = require("node:fs");
+const readline = require("node:readline");
+const rl = readline.createInterface({ input: process.stdin });
+function send(frame) { process.stdout.write(JSON.stringify(frame) + "\\n"); }
+rl.on("line", (line) => {
+  const frame = JSON.parse(line);
+  if (frame.method === "initialize") {
+    send({ id: frame.id, result: { userAgent: "fake-codex-app-server" } });
+    return;
+  }
+  if (frame.method === "initialized") return;
+  if (frame.method === "thread/start") {
+    fs.writeFileSync(${JSON.stringify(statePath)}, JSON.stringify({
+      model: frame.params.model,
+      env: process.env.HOLP_ADAPTER_ENV || null,
+    }));
+    send({ id: frame.id, result: { thread: { id: "thread-1" } } });
   }
 });
 `;

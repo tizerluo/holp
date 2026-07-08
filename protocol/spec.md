@@ -1,6 +1,6 @@
 # HOLP — Human On Loop Protocol
 
-> **版本**:v0.1.8 (draft)
+> **版本**:v0.1.9 (draft)
 > **状态**:草稿,参考实现进行中
 > **定位**:见 `docs/positioning.md`。开源、免费、本地优先的 multi-agent 编排协议。
 
@@ -50,7 +50,7 @@ client 连上后第一条。双方报身份与**细粒度能力**。每个 capab
       "gate_report":  { "supported": true },
       "dynamic_workflow": { "supported": true }
     },
-    "protocol_version": "0.1.8"
+    "protocol_version": "0.1.9"
   }
 }
 ```
@@ -60,7 +60,7 @@ client 连上后第一条。双方报身份与**细粒度能力**。每个 capab
 {
   "jsonrpc": "2.0", "id": 1,
   "result": {
-    "server": { "name": "holp-reference-daemon", "version": "0.1.8" },
+    "server": { "name": "holp-reference-daemon", "version": "0.1.9" },
     "capabilities": {
       "consensus":    { "supported": true },
       "approval":     { "supported": true, "kinds": ["merge_approval","force_push_approval","budget_exceeded"] },
@@ -69,7 +69,7 @@ client 连上后第一条。双方报身份与**细粒度能力**。每个 capab
       "gate_report":  { "supported": true },
       "dynamic_workflow": { "supported": true }
     },
-    "protocol_version": "0.1.8"
+    "protocol_version": "0.1.9"
   }
 }
 ```
@@ -230,7 +230,7 @@ M4a 内部 governance registry 还预留 `permission_surface` / `observability_s
     "goal": "Fix the flaky test in tests/foo.test.ts",
     "trigger": "issue:42",
     "roles": {
-      "coder":    { "agent": "codex", "preferred_runtime_surface": "headless" },
+      "coder":    { "agent": "codex", "preferred_runtime_surface": "headless", "model": "gpt-5.5-codex", "env": { "CODEX_HOME": "/tmp/holp-codex-home" } },
       "reviewer": { "panel": ["claude", "gemini"], "quorum": 2, "preferred_runtime_surface": "acp" }
     },
     "execution_mode": { "kind": "Local" },
@@ -250,6 +250,8 @@ M4a 内部 governance registry 还预留 `permission_surface` / `observability_s
 - `goal` / `trigger`(`issue:N`|`manual`|`webhook:...`)。
 - `roles`:角色派单;reviewer 带 `panel`+`quorum`。**共识配置只在 `roles.reviewer` 一处**。引用的 agent id 绑定 flock(见 §4.2)。
   - `roles.<role>.preferred_runtime_surface` 可选,取值 `headless` | `acp` | `direct_user_session`。缺省保持旧 consumer 的 legacy `headless` 行为。显式请求 `acp` / `direct_user_session` 时,该 surface 的 declaration/factory 不可用必须 fail-closed,不得 fallback 到 headless。未知值为 JSON-RPC `invalid_request`。
+  - `roles.<role>.model` 可选,字符串。表示该 role 本次 run 的 provider model 选择；adapter 接口映射为 `AgentBackendOptions.modelId`。未知/非法类型为 JSON-RPC `invalid_request`。
+  - `roles.<role>.env` 可选,`Record<string,string>`。仅用于本次 run 的**非机密配置**(例如 provider home、feature flag、代理开关),adapter 接口映射为 `AgentBackendOptions.env`。机密和登录材料仍必须走 `flock.*.auth_ref`(`env:XXX` | `login:agent` | `secret:name`),不得通过明文 env 传递。参考实现必须对 env key 做大小写不敏感 deny-pattern 校验:任一 key 名包含 `KEY` / `TOKEN` / `SECRET` / `PASSWORD` / `CREDENTIAL` / `AUTH` 子串即拒绝 `invalid_request`,错误消息指向 `auth_ref`。env key 必须匹配 `^[A-Za-z_][A-Za-z0-9_]*$`;env value 不得含 C0 控制字符或 `0x7f`。首版不做 value 密钥形状检测,也不提供 `allow_secret_env` 协商。未知/非法类型为 JSON-RPC `invalid_request`。
 - `execution_mode`:见 §4.1。
 - `planner`:可选的 planner 选择,顶层字段,不得通过 `roles` 表达。`mode` 取值:`rule` | `learned_shadow` | `learned_active` | `canary`;可选 `agent` 引用一个 flock 中已声明的 `learned-router` / `work_planner`;可选 `evidence_id`;`canary` 支持 `{seed, ratio, allowlist}`。fixture backing 只能 replay/shadow;active/canary 必须有 `real_learned_model` attestation 和 promotion evidence,否则 fail-closed 回退 `RuleWorkPlanner` 并记录 governance audit。当前参考实现只声称 fixture fail-closed safe lane,不声称 active/canary readiness。
 - `policy`:治理策略(不是 wire 层业务概念)。
@@ -680,7 +682,7 @@ JSON-RPC error object:`{ "code": <int>, "message": <string>, "data": {...} }`。
 
 ## 12. 实现边界(参考 daemon)
 
-**协议层(draft v0.1.8)**:本 spec 全章有定义。v0.1.5 将 Issue #11 的 harness isolation baseline 吸收进 §3 flock:runtime surface / isolation readiness matrix;v0.1.7 增加 consumer stable gate report surface;v0.1.8 增加 learned router safe lane 与 dynamic workflow capability-gated lifecycle revision events。
+**协议层(draft v0.1.9)**:本 spec 全章有定义。v0.1.5 将 Issue #11 的 harness isolation baseline 吸收进 §3 flock:runtime surface / isolation readiness matrix;v0.1.7 增加 consumer stable gate report surface;v0.1.8 增加 learned router safe lane 与 dynamic workflow capability-gated lifecycle revision events;v0.1.9 增加 per-run env/model passthrough 及 env 凭证纪律。
 
 **当前仓已落地**:
 - ✅ 协议 draft(`protocol/`)。
@@ -726,6 +728,7 @@ JSON-RPC error object:`{ "code": <int>, "message": <string>, "data": {...} }`。
 
 ## CHANGELOG
 
+- **v0.1.9**:PR18 per-run env/model passthrough。`orchestrate.run.roles.<role>.model` 和 `env` 可选进入协议;`env` 仅允许非机密配置,机密仍走 `auth_ref`;参考实现按 key 名 deny-pattern `KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH` fail-closed。
 - **v0.1.8**:M10/M11 learned router safe lane + dynamic workflow partial。新增 `dynamic_workflow` capability;新增 `learned-router` transport 与 planner-only `work_planner` role;`orchestrate.run.planner` 顶层选择 `rule` / `learned_shadow` / `learned_active` / `canary`,不得通过 executor `roles` 表达。fixture planner 只可 replay/shadow;active/canary/L2 learned-active 需要 `real_learned_model` attestation + fresh promotion evidence,否则 fail-closed 回退 RuleWorkPlanner。新增 `workflow_revised` / `workflow_revision_rejected` lifecycle events,仅在 `dynamic_workflow` 协商成功时发送。L1 支持受限 `request_changes -> fix -> review`;L2 pending graph revision 必须整体验证或整体拒绝。
 - **v0.1.7**:M9 consumer stable gate surface。新增 `gate_report` capability、`gate` event category、唯一 event name `gate_report`、`GateReport.v1.decision_surface`(`review_outcome` + `gate_disposition`)作为 consumer summary truth。`approval.resolve` 对 `semantic_decision` 增加必填 audit fields,未知 approval kind fail-closed;`policy.on_consensus_blocking` 支持 quorum-met `request_changes`/`reject` 先进入 `waiting_approval`。`task.cancel` 明确为 run abort,不是 override。
 - **v0.1.5**:Issue #11 baseline amendment。把多 harness 隔离模型提升为协议基准:§3 增加 runtime surface / isolation readiness matrix,要求 flock declare/discover 能表达 `headless` / `acp` / `direct_user_session` 三类运行面、runtime kind、direct channel observation/control 能力、isolation profile readiness、state declaration ref、global mutation risk。`ready` 不再表示"agent 整体可用",只表示某个 runtime surface + isolation profile 下可调度。当前实现可以返回 unknown/unsupported/rejected,但不能省略该语义。
