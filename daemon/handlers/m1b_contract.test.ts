@@ -305,6 +305,58 @@ describe("3. orchestrate.run error ordering (spec §6.2 — fixed 4-stage order)
     return { dispatch, ctx };
   }
 
+  it("rejects unknown orchestrate.run top-level params before accepting a run", async () => {
+    const { dispatch, ctx } = await setupWithAgents(["coder"]);
+
+    const modelEnvError = err(await dispatch("orchestrate.run", {
+      goal: "bad top-level runtime options",
+      roles: { coder: { agent: "agent-ok" } },
+      model: "gpt-5.5-codex",
+      env: { CODEX_HOME: "/tmp/holp-codex-home" },
+    }));
+    expect(modelEnvError.code).toBe(JSONRPC_INVALID_REQUEST);
+    expect(modelEnvError.message).toContain("model");
+    expect(modelEnvError.message).toContain("env");
+    expect(modelEnvError.message).toContain("roles.<role>.model / roles.<role>.env");
+
+    const arbitraryError = err(await dispatch("orchestrate.run", {
+      goal: "bad arbitrary top-level param",
+      roles: { coder: { agent: "agent-ok" } },
+      consumer_hint: "strict please",
+    }));
+    expect(arbitraryError.code).toBe(JSONRPC_INVALID_REQUEST);
+    expect(arbitraryError.message).toContain("consumer_hint");
+    expect(ctx.runs.size).toBe(0);
+  });
+
+  it("accepts orchestrate.run with every allowed top-level param", async () => {
+    const { dispatch } = await setupWithAgents(["coder"]);
+
+    const result = ok<{ run_id: string; accepted: boolean }>(await dispatch("orchestrate.run", {
+      goal: "full allowed top-level params",
+      trigger: "manual",
+      roles: {
+        coder: {
+          agent: "agent-ok",
+          model: "fake-model-pr18",
+          env: { CODEX_HOME: "/tmp/holp-codex-home", HOLP_FLAG: "enabled" },
+        },
+      },
+      policy: {
+        exclude_author: true,
+        author_provenance: "produced_by_agent_id",
+        on_quorum_unsatisfiable: "reject",
+      },
+      workflow: "single-step",
+      max_steps: 1,
+      planner: { mode: "rule" },
+      execution_mode: { kind: "Local" },
+    }));
+
+    expect(result.accepted).toBe(true);
+    expect(result.run_id).toMatch(/^run_/);
+  });
+
   it("stage 1 (agent_not_found -32019): unknown agent id trumps all other problems", async () => {
     const { dispatch } = await setupWithAgents();
     // Unknown agent + bad execution_mode (would be stage 5 normally)

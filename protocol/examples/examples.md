@@ -130,8 +130,7 @@
       "exclude_author": true,
       "author_provenance": "produced_by_agent_id",
       "on_quorum_unsatisfiable": "ask_human"
-    },
-    "plan": { "required": true }
+    }
   } }
 ```
 

@@ -70,6 +70,16 @@ let runCounter = 0;
 const SECRET_ENV_KEY_PATTERN = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH/i;
 const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const ENV_VALUE_CONTROL_PATTERN = /[\x00-\x1f\x7f]/;
+const ORCHESTRATE_RUN_TOP_LEVEL_PARAMS = new Set([
+  "goal",
+  "trigger",
+  "roles",
+  "policy",
+  "workflow",
+  "max_steps",
+  "planner",
+  "execution_mode",
+]);
 
 interface RoleRuntimeOptions {
   readonly env?: Readonly<Record<string, string>>;
@@ -81,6 +91,26 @@ function nextRunId(): string {
   return `run_${runCounter}`;
 }
 
+function validateTopLevelParams(params: Record<string, unknown>): void {
+  const unknownKeys = Object.keys(params).filter(
+    (key) => !ORCHESTRATE_RUN_TOP_LEVEL_PARAMS.has(key),
+  );
+  if (unknownKeys.length === 0) return;
+
+  const roleRuntimeHint = unknownKeys.some((key) => key === "model" || key === "env")
+    ? "; model/env must be set on roles.<role>.model / roles.<role>.env"
+    : "";
+  throw new HolpRpcError(
+    invalidRequest(
+      `orchestrate.run: unknown top-level param(s): ${unknownKeys.join(", ")}${roleRuntimeHint}`,
+      {
+        unknown_keys: unknownKeys,
+        allowed_keys: [...ORCHESTRATE_RUN_TOP_LEVEL_PARAMS],
+      },
+    ),
+  );
+}
+
 export function handleOrchestrateRun(
   req: JsonRpcRequest,
   ctx: ConnectionContext,
@@ -89,6 +119,7 @@ export function handleOrchestrateRun(
   scheduler: Scheduler,
 ): unknown {
   const params = isObject(req.params) ? req.params : {};
+  validateTopLevelParams(params);
 
   // Malformed: no goal or no roles.
   if (typeof params.goal !== "string" || !params.goal) {

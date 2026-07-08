@@ -241,8 +241,7 @@ M4a 内部 governance registry 还预留 `permission_surface` / `observability_s
       "exclude_author": true,
       "author_provenance": "produced_by_agent_id",
       "on_quorum_unsatisfiable": "ask_human"
-    },
-    "plan": { "required": true }
+    }
   } }
 ```
 
@@ -258,7 +257,8 @@ M4a 内部 governance registry 还预留 `permission_surface` / `observability_s
   - `exclude_author`:是否排除作者(orchestrator policy)。
   - `author_provenance`:作者身份来源——`produced_by_agent_id` | `commit_author` | `run_initiator`。
   - `on_quorum_unsatisfiable`:`ask_human` | `reject` | `degrade_quorum`(见 §6.2)。
-- `plan.required`:是否要求先出骨架计划。
+
+`orchestrate.run.params` 顶层字段是封闭集合:未知顶层字段必须拒收为 JSON-RPC `invalid_request`;`model` / `env` 只能放在 `roles.<role>.model` / `roles.<role>.env`。
 
 ### 4.1 `execution_mode`
 
@@ -728,6 +728,7 @@ JSON-RPC error object:`{ "code": <int>, "message": <string>, "data": {...} }`。
 
 ## CHANGELOG
 
+- **v0.1.9 strict patch**:`orchestrate.run.params` 顶层未知字段改为 fail-closed `invalid_request`;`model` / `env` 顶层误放会提示改用 `roles.<role>.model` / `roles.<role>.env`。
 - **v0.1.9**:PR18 per-run env/model passthrough。`orchestrate.run.roles.<role>.model` 和 `env` 可选进入协议;`env` 仅允许非机密配置,机密仍走 `auth_ref`;参考实现按 key 名 deny-pattern `KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH` fail-closed。
 - **v0.1.8**:M10/M11 learned router safe lane + dynamic workflow partial。新增 `dynamic_workflow` capability;新增 `learned-router` transport 与 planner-only `work_planner` role;`orchestrate.run.planner` 顶层选择 `rule` / `learned_shadow` / `learned_active` / `canary`,不得通过 executor `roles` 表达。fixture planner 只可 replay/shadow;active/canary/L2 learned-active 需要 `real_learned_model` attestation + fresh promotion evidence,否则 fail-closed 回退 RuleWorkPlanner。新增 `workflow_revised` / `workflow_revision_rejected` lifecycle events,仅在 `dynamic_workflow` 协商成功时发送。L1 支持受限 `request_changes -> fix -> review`;L2 pending graph revision 必须整体验证或整体拒绝。
 - **v0.1.7**:M9 consumer stable gate surface。新增 `gate_report` capability、`gate` event category、唯一 event name `gate_report`、`GateReport.v1.decision_surface`(`review_outcome` + `gate_disposition`)作为 consumer summary truth。`approval.resolve` 对 `semantic_decision` 增加必填 audit fields,未知 approval kind fail-closed;`policy.on_consensus_blocking` 支持 quorum-met `request_changes`/`reject` 先进入 `waiting_approval`。`task.cancel` 明确为 run abort,不是 override。
