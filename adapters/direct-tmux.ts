@@ -44,9 +44,17 @@ export interface DirectTmuxDefinition {
   readonly transport: string;
   readonly tmuxCommand?: string;
   readonly agentCommand: string;
-  readonly agentArgsForPrompt: (prompt: string) => readonly string[];
+  readonly agentArgsForPrompt: (
+    prompt: string,
+    options?: DirectTmuxPromptOptions,
+  ) => readonly string[];
+  readonly supportsModelId?: boolean;
   readonly timeoutMs?: number;
   readonly pollIntervalMs?: number;
+}
+
+export interface DirectTmuxPromptOptions {
+  readonly modelId?: string;
 }
 
 export interface DirectTmuxProbeResult {
@@ -58,7 +66,12 @@ export interface DirectTmuxProbeResult {
 export function createDirectTmuxBackendFactory(
   definition: DirectTmuxDefinition,
 ): AgentBackendFactory {
-  return (opts) => new DirectTmuxBackend(definition, opts);
+  return (opts) => {
+    if (opts.modelId && definition.supportsModelId !== true) {
+      throw new Error("direct_tmux_model_unsupported");
+    }
+    return new DirectTmuxBackend(definition, opts);
+  };
 }
 
 export async function probeDirectTmux(args: {
@@ -202,7 +215,10 @@ class DirectTmuxBackend implements AgentBackend {
     const sessionId = `holp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     if (!sessionId.startsWith("holp-")) throw new Error("direct_tmux_session_namespace_invalid");
     mkdirSync(path.dirname(this.socketPath), { recursive: true, mode: 0o700 });
-    const created = await this.tmux(["new-session", "-d", "-s", sessionId], 5_000);
+    const created = await this.tmux(
+      ["new-session", "-d", ...tmuxEnvironmentArgs(this.opts.env), "-s", sessionId],
+      5_000,
+    );
     if (created.code !== 0 || created.timedOut) {
       throw new Error(created.timedOut ? "direct_tmux_create_timeout" : "direct_tmux_create_failed");
     }
@@ -232,7 +248,7 @@ class DirectTmuxBackend implements AgentBackend {
     const command = [
       shellCommand([
         this.definition.agentCommand,
-        ...this.definition.agentArgsForPrompt(prompt),
+        ...this.definition.agentArgsForPrompt(prompt, { modelId: this.opts.modelId }),
       ]),
       `printf '\\n${marker}\\n'`,
     ].join("; ");
@@ -376,6 +392,18 @@ function shellCommand(parts: readonly string[]): string {
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function tmuxEnvironmentArgs(env: Readonly<Record<string, string>> | undefined): readonly string[] {
+  if (!env) return [];
+  const args: string[] = [];
+  for (const [key, value] of Object.entries(env)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw new Error("direct_tmux_env_key_invalid");
+    }
+    args.push("-e", `${key}=${value}`);
+  }
+  return args;
 }
 
 function runCommand(

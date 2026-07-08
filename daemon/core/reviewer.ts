@@ -3,6 +3,7 @@ import type {
   AgentBackend,
   AgentBackendFactory,
   AgentMessageHandler,
+  AgentBackendOptions,
   PermissionVerdict,
 } from "../../adapters/agent-backend.js";
 import type { RuntimeSelectionMetadata } from "../../adapters/harness-declaration.js";
@@ -53,6 +54,7 @@ export type ReviewerAgentExecutionConfig =
       readonly runtime?: RuntimeSelectionMetadata;
       readonly backendFactory: AgentBackendFactory;
       readonly sandbox: "read-only";
+      readonly backendOptions?: Pick<AgentBackendOptions, "env" | "modelId">;
     }
   | {
       readonly agent_id: string;
@@ -291,6 +293,8 @@ function startBackendReviewerTask(
 } {
   const backend = config.backendFactory({
     cwd: process.cwd(),
+    env: config.backendOptions?.env,
+    modelId: config.backendOptions?.modelId,
     permissionHandler: denyAllReviewerPermissionRequests,
   });
   let sessionId: string | undefined;

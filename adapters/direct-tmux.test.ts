@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,12 +11,67 @@ import {
 import type { AgentMessage } from "./agent-backend.js";
 
 const PROCESS_HEAVY_TEST_TIMEOUT_MS = 20_000;
+const REAL_TMUX_SOCKET_AVAILABLE = canRunRealTmuxSocketSmoke();
+
+if (!REAL_TMUX_SOCKET_AVAILABLE) {
+  console.warn("[PR18 Slice B] Skipping real tmux env injection test: tmux socket smoke unavailable in this sandbox.");
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
 describe("direct tmux backend", () => {
+  it("injects per-run env at tmux session creation and threads model to supported args", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "holp-direct-env-model-"));
+    let modelSeen: string | undefined;
+    try {
+      const tmux = fakeTmux(dir);
+      const backend = createDirectTmuxBackendFactory({
+        transport: "mcp-codex",
+        tmuxCommand: tmux,
+        agentCommand: "codex",
+        agentArgsForPrompt: (prompt, options) => {
+          modelSeen = options?.modelId;
+          return ["exec", "-m", options?.modelId ?? "", prompt];
+        },
+        supportsModelId: true,
+        timeoutMs: 1_000,
+        pollIntervalMs: 1,
+      })({
+        cwd: dir,
+        tmuxSocketPath: join(dir, "tmux.sock"),
+        env: { HOLP_FLAG: "enabled" },
+        modelId: "gpt-5-test",
+      });
+
+      const { sessionId } = await backend.startSession();
+      await backend.sendPrompt(sessionId, "hello");
+      await backend.dispose();
+
+      const state = JSON.parse(readFileSync(join(dir, "tmux-state.json"), "utf8")) as {
+        envArgs?: readonly string[];
+      };
+      expect(state.envArgs).toEqual(["HOLP_FLAG=enabled"]);
+      expect(modelSeen).toBe("gpt-5-test");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed for model when the direct tmux definition has no model injection support", () => {
+    const factory = createDirectTmuxBackendFactory({
+      transport: "kimi-code",
+      tmuxCommand: "tmux",
+      agentCommand: "kimi",
+      agentArgsForPrompt: (prompt) => ["-p", prompt],
+    });
+
+    expect(() => factory({ cwd: process.cwd(), modelId: "kimi-k2" })).toThrow(
+      "direct_tmux_model_unsupported",
+    );
+  });
+
   it("creates only holp-owned sessions and resolves on sentinel output", async () => {
     const dir = mkdtempSync(join(tmpdir(), "holp-direct-tmux-"));
     try {
@@ -294,7 +350,97 @@ describe("direct tmux backend", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }, PROCESS_HEAVY_TEST_TIMEOUT_MS);
+
+  it.skipIf(!REAL_TMUX_SOCKET_AVAILABLE)(
+    "injects env into the pane worker when a tmux server is already running",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "holp-real-tmux-env-"));
+      const socketPath = join(dir, "tmux.sock");
+      const serverSession = `holp-existing-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const envKey = "HOLP_DIRECT_ENV_TEST";
+      const globalValue = `global-${Date.now()}`;
+      const sessionValue = `session-${Date.now()}`;
+      let backend: ReturnType<ReturnType<typeof createDirectTmuxBackendFactory>> | undefined;
+      const { TMUX: _strippedTmux, ...envWithoutTmux } = process.env;
+      try {
+        const created = spawnSync(
+          "tmux",
+          ["-S", socketPath, "new-session", "-d", "-s", serverSession, "sleep 60"],
+          { cwd: dir, encoding: "utf8", env: envWithoutTmux },
+        );
+        expect(created.status, created.stderr).toBe(0);
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          const hasSession = spawnSync(
+            "tmux",
+            ["-S", socketPath, "has-session", "-t", serverSession],
+            { cwd: dir, encoding: "utf8", env: envWithoutTmux },
+          );
+          if (hasSession.status === 0) break;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        const setGlobal = spawnSync(
+          "tmux",
+          ["-S", socketPath, "set-environment", "-g", envKey, globalValue],
+          { cwd: dir, encoding: "utf8", env: envWithoutTmux },
+        );
+        expect(setGlobal.status, setGlobal.stderr).toBe(0);
+
+        backend = createDirectTmuxBackendFactory({
+          transport: "printenv",
+          tmuxCommand: "tmux",
+          agentCommand: "sh",
+          agentArgsForPrompt: () => ["-lc", `printf "%s" "$${envKey}"`],
+          timeoutMs: 5_000,
+          pollIntervalMs: 20,
+        })({
+          cwd: dir,
+          tmuxSocketPath: socketPath,
+          env: { [envKey]: sessionValue },
+        });
+        const messages: AgentMessage[] = [];
+        backend.onMessage((message) => messages.push(message));
+
+        const { sessionId } = await backend.startSession();
+        await backend.sendPrompt(sessionId, "ignored");
+
+        const fullText = messages
+          .filter((m): m is Extract<AgentMessage, { type: "model-output" }> =>
+            m.type === "model-output" && typeof m.fullText === "string")
+          .at(-1)?.fullText ?? "";
+        expect(fullText).toContain(sessionValue);
+        expect(fullText).not.toContain(globalValue);
+      } finally {
+        await backend?.dispose().catch(() => undefined);
+        spawnSync("tmux", ["-S", socketPath, "kill-server"], { cwd: dir, stdio: "ignore", env: envWithoutTmux });
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    PROCESS_HEAVY_TEST_TIMEOUT_MS,
+  );
 });
+
+function canRunRealTmuxSocketSmoke(): boolean {
+  if (spawnSync("tmux", ["-V"], { stdio: "ignore" }).status !== 0) return false;
+  const dir = mkdtempSync(join(tmpdir(), "holp-real-tmux-probe-"));
+  const socketPath = join(dir, "tmux.sock");
+  const sessionId = `holp-probe-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const { TMUX: _strippedTmux, ...envWithoutTmux } = process.env;
+  try {
+    spawnSync(
+      "tmux",
+      ["-S", socketPath, "new-session", "-d", "-s", sessionId, "sleep 5"],
+      { cwd: dir, stdio: "ignore", env: envWithoutTmux },
+    );
+    return spawnSync(
+      "tmux",
+      ["-S", socketPath, "has-session", "-t", sessionId],
+      { cwd: dir, stdio: "ignore", env: envWithoutTmux },
+    ).status === 0;
+  } finally {
+    spawnSync("tmux", ["-S", socketPath, "kill-server"], { cwd: dir, stdio: "ignore", env: envWithoutTmux });
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 function fakeTmux(dir: string, opts: { killFails?: boolean; pipeFails?: boolean } = {}): string {
   const script = join(dir, "fake-tmux.mjs");
@@ -319,9 +465,13 @@ if (args[0] === "-V") {
 if (args[0] === "new-session") {
   const session = args[args.indexOf("-s") + 1];
   if (!session.startsWith("holp-")) process.exit(9);
+  const envArgs = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "-e") envArgs.push(args[index + 1]);
+  }
   const state = readState();
   if (state.sessions?.[session]) process.exit(1);
-  writeState({ ...state, sessions: { ...(state.sessions || {}), [session]: true }, session, pane: "" });
+  writeState({ ...state, sessions: { ...(state.sessions || {}), [session]: true }, session, pane: "", envArgs });
   process.exit(0);
 }
 if (args[0] === "pipe-pane") {

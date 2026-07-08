@@ -87,6 +87,26 @@ describe("CLI harness wrapper", () => {
     expect(classifyCliResult(result)).toEqual({ ok: true });
   });
 
+  it("merges backend opts.env into the spawned CLI process env", async () => {
+    const definition: CliHarnessDefinition = {
+      transport: "test-cli",
+      command: fakeCli("env"),
+      argsForPrompt: () => [],
+    };
+    const backend = createCliHarnessBackendFactory(definition)({
+      cwd: process.cwd(),
+      env: { HOLP_VISIBLE_ENV: "from-run-env" },
+    });
+    const messages: AgentMessage[] = [];
+    backend.onMessage((message) => messages.push(message));
+
+    const { sessionId } = await backend.startSession();
+    await backend.sendPrompt(sessionId, "ignored");
+    await backend.dispose();
+
+    expect(messages).toContainEqual({ type: "model-output", fullText: "env:from-run-env" });
+  });
+
   it("kills the active one-shot CLI process on cancel", async () => {
     const dir = mkdtempSync(join(tmpdir(), "holp-cli-cancel-"));
     tempDirs.push(dir);
@@ -113,7 +133,7 @@ describe("CLI harness wrapper", () => {
 });
 
 function fakeCli(
-  mode: "ok" | "nonzero" | "empty" | "auth" | "hang" | "cancellable" | "verbose" | "benign-error",
+  mode: "ok" | "nonzero" | "empty" | "auth" | "hang" | "cancellable" | "verbose" | "benign-error" | "env",
 ): string {
   const dir = mkdtempSync(join(tmpdir(), "holp-cli-harness-"));
   tempDirs.push(dir);
@@ -147,6 +167,10 @@ if (mode === "verbose") {
 }
 if (mode === "benign-error") {
   console.log("No error: all good");
+  process.exit(0);
+}
+if (mode === "env") {
+  console.log("env:" + (process.env.HOLP_VISIBLE_ENV || ""));
   process.exit(0);
 }
 const prompt = args[args.indexOf("--prompt") + 1] || "";

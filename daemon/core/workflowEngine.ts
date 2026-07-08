@@ -49,6 +49,8 @@ export interface WorkflowRunOptions {
     readonly holdSession?: boolean;
     readonly holdTimeoutMs?: number;
     readonly tmuxSocketPath?: string;
+    readonly env?: Readonly<Record<string, string>>;
+    readonly modelId?: string;
   };
   readonly reviewerPanelPresent: boolean;
   readonly reviewerQuorum?: number;
@@ -320,6 +322,8 @@ function createBackend(
 ): AgentBackend {
   return options.coder.factory({
     cwd: process.cwd(),
+    env: options.coder.env,
+    modelId: options.coder.modelId,
     holdSession: options.coder.holdSession,
     holdTimeoutMs: options.coder.holdTimeoutMs,
     tmuxSocketPath: options.coder.tmuxSocketPath,

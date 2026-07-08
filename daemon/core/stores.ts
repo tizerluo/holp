@@ -99,6 +99,8 @@ export interface RunRecord {
   readonly goal: string;
   readonly trigger: string;
   status: RunStatus;
+  /** Per-role run-time options accepted from orchestrate.run roles.*. */
+  readonly roleOptions?: Readonly<Record<string, { readonly env?: Readonly<Record<string, string>>; readonly model?: string }>>;
   /** Backend handle for the coder agent. */
   backend?: AgentBackend;
   /** Backend session id returned by startSession. */
