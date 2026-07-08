@@ -637,6 +637,18 @@ describe("adapter registry runtime surface resolution", () => {
     expect(directFactory).not.toBe(headlessFactory);
   });
 
+  it("wires zcode as an independent default registry entry with headless and direct only", () => {
+    const registry = createDefaultAdapterRegistry();
+    const headlessFactory = registry.resolve("zcode", "headless");
+    const acpFactory = registry.resolve("zcode", "acp");
+    const directFactory = registry.resolve("zcode", "direct_user_session");
+
+    expect(headlessFactory).toBeDefined();
+    expect(directFactory).toBeDefined();
+    expect(acpFactory).toBeUndefined();
+    expect(directFactory).not.toBe(headlessFactory);
+  });
+
   it("injects codex direct model into exec args when modelId is provided", () => {
     expect(codexDirectAgentArgsForPrompt("PROMPT", { modelId: "gpt-5-test" })).toEqual([
       "exec",
