@@ -27,6 +27,11 @@ import {
   firstBatchAdapterProbes,
 } from "./first-batch-harnesses.js";
 import {
+  createZcodeHeadlessBackendFactory,
+  createZcodeProbe,
+  zcodeDirectAgentArgsForPrompt,
+} from "./zcode.js";
+import {
   rejectedProfiles,
   withProfile,
   type DirectChannelDeclaration,
@@ -296,6 +301,14 @@ export function createDefaultAdapterRegistry(): AdapterRegistry {
           supportsModelId: true,
         }),
       },
+      zcode: {
+        headless: createZcodeHeadlessBackendFactory(),
+        direct_user_session: createDirectTmuxBackendFactory({
+          transport: "zcode",
+          agentCommand: "zcode",
+          agentArgsForPrompt: zcodeDirectAgentArgsForPrompt,
+        }),
+      },
       acp: createStubFactory("acp"),
       "learned-router": createStubFactory("learned-router"),
       ...firstBatchAdapterFactories(),
@@ -303,6 +316,7 @@ export function createDefaultAdapterRegistry(): AdapterRegistry {
     {
       "native-claude": probeClaudeCode,
       "mcp-codex": probeCodexAppServer,
+      zcode: createZcodeProbe(),
       ...firstBatchAdapterProbes(),
       acp: (input) => ({
         status: "rejected",

@@ -44,6 +44,8 @@ M7+ 的总路线以 [HOLP Blueprint](../holp-blueprint.md) 为准;以下 SPEC �
 ## PR 顺序:Open SPEC
 
 17. [PR17 - M12 Remote and Distributed HOLP](./pr17-m12-remote-distributed-holp.md)
+18. [PR18 - Per-run env/model passthrough](./pr18-run-env-model-passthrough.md)
+19. [PR19 - ZCode adapter registry entry](./pr19-zcode-adapter.md)
 
 ## Related issue SPEC
 
